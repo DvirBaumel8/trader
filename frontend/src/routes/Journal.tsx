@@ -6,6 +6,15 @@ import { TradeCard, type Trade } from '../components/TradeCard';
 import { Money } from '../components/Money';
 import { StatsHeader } from '../components/StatsHeader';
 import { EntrySheet } from '../components/EntrySheet';
+import { FilterBar, type SortValue } from '../components/FilterBar';
+import {
+  emptyFilters,
+  filterEntries,
+  filterTrades,
+  sortEntries,
+  sortTrades,
+  type Filters,
+} from '../lib/entryFilters';
 
 function PencilIcon() {
   return (
@@ -83,6 +92,9 @@ function ByDay({
 }
 
 function TradesTab() {
+  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [sort, setSort] = useState<SortValue>('NEWEST');
+
   const { data, isLoading } = useQuery({
     queryKey: ['stats'],
     queryFn: () => api<Stats>('/portfolio/stats'),
@@ -91,6 +103,7 @@ function TradesTab() {
   if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
 
   const closed = (data?.trades ?? []).filter((t) => !t.isOpen);
+  const shown = sortTrades(filterTrades(closed, filters), sort);
 
   if (closed.length === 0) {
     return (
@@ -108,11 +121,27 @@ function TradesTab() {
   }
 
   return (
-    <ul>
-      {closed.map((t) => (
-        <TradeCard key={`${t.symbol}-${t.enteredAt}`} trade={t} />
-      ))}
-    </ul>
+    <div className="space-y-3">
+      <FilterBar
+        filters={filters}
+        onFiltersChange={setFilters}
+        sort={sort}
+        onSortChange={setSort}
+        // On a results list, "largest" means the best outcome, not the biggest bet.
+        sortLabels={{ LARGEST: 'Biggest win', SMALLEST: 'Biggest loss' }}
+        resultCount={shown.length}
+        totalCount={closed.length}
+      />
+      {shown.length === 0 ? (
+        <p className="text-sm text-muted">No trades match those filters.</p>
+      ) : (
+        <ul>
+          {shown.map((t) => (
+            <TradeCard key={`${t.symbol}-${t.enteredAt}`} trade={t} />
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -123,6 +152,9 @@ function ActivitiesTab({
   onOpen: (e: Entry) => void;
   editMode: boolean;
 }) {
+  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [sort, setSort] = useState<SortValue>('NEWEST');
+
   const { data, isLoading } = useQuery({
     queryKey: ['journal', 'TRADE'],
     queryFn: () => api<Entry[]>('/journal?kind=TRADE'),
@@ -134,23 +166,38 @@ function ActivitiesTab({
     return <p className="text-sm text-muted">No buys or sells logged yet.</p>;
   }
 
-  const byId = new Map(entries.map((e) => [e.id, e]));
+  const shown = sortEntries(filterEntries(entries, filters), sort);
+  const byId = new Map(shown.map((e) => [e.id, e]));
+  // Day headings only make sense while the list is in date order. Sorted by
+  // money, they would break the list into meaningless one-row groups.
+  const chronological = sort === 'NEWEST' || sort === 'OLDEST';
+
+  const row = (id: string) => {
+    const e = byId.get(id);
+    return e ? (
+      <EntryCard key={id} entry={e} editMode={editMode} onOpen={onOpen} />
+    ) : null;
+  };
+
   return (
-    <div className="space-y-4">
-      <ByDay
-        entries={entries}
-        render={(id) => {
-          const e = byId.get(id);
-          return e ? (
-            <EntryCard
-              key={id}
-              entry={e}
-              editMode={editMode}
-              onOpen={onOpen}
-            />
-          ) : null;
-        }}
+    <div className="space-y-3">
+      <FilterBar
+        filters={filters}
+        onFiltersChange={setFilters}
+        sort={sort}
+        onSortChange={setSort}
+        resultCount={shown.length}
+        totalCount={entries.length}
       />
+      {shown.length === 0 ? (
+        <p className="text-sm text-muted">Nothing matches those filters.</p>
+      ) : chronological ? (
+        <div className="space-y-4">
+          <ByDay entries={shown} render={row} />
+        </div>
+      ) : (
+        <ul>{shown.map((e) => row(e.id))}</ul>
+      )}
     </div>
   );
 }

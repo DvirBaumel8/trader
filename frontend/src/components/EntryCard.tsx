@@ -45,74 +45,94 @@ function ChevronIcon() {
   );
 }
 
+/**
+ * Two aligned columns: what you did on the left, what it cost on the right.
+ * The money column is what makes a list of trades scannable — without it every
+ * row needs mental arithmetic to answer "how big was that?".
+ */
 function EntryBody({ entry }: { entry: Entry }) {
+  const value = entry.trade
+    ? Math.abs(entry.trade.quantity * entry.trade.price)
+    : (entry.cash?.amount ?? entry.dividend?.amount ?? null);
+
   return (
-    <div className="min-w-0 flex-1 space-y-1">
-      {entry.trade && (
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
-              entry.trade.side === 'BUY'
-                ? 'bg-up/15 text-up'
-                : 'bg-down/15 text-down'
-            }`}
-          >
-            {entry.trade.side}
-          </span>
-          <span className="text-[15px] font-semibold">
-            {entry.trade.symbol}
-          </span>
-          <span className="text-xs text-muted">
-            {formatQuantity(entry.trade.quantity)} @{' '}
-            <Money value={entry.trade.price} />
-          </span>
-          {entry.trade.riskAmount !== null && (
-            <span className="text-[11px] text-muted">
-              · risk <Money value={entry.trade.riskAmount} />
-            </span>
-          )}
-        </div>
-      )}
+    <div className="flex min-w-0 flex-1 items-baseline justify-between gap-3">
+      <div className="min-w-0 space-y-0.5">
+        {entry.trade && (
+          <>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+                  entry.trade.side === 'BUY'
+                    ? 'bg-up/15 text-up'
+                    : 'bg-down/15 text-down'
+                }`}
+              >
+                {entry.trade.side}
+              </span>
+              <span className="text-[15px] font-semibold">
+                {entry.trade.symbol}
+              </span>
+            </div>
+            <div className="text-[11px] text-muted">
+              {formatQuantity(entry.trade.quantity)} @{' '}
+              <Money value={entry.trade.price} />
+              {entry.trade.riskAmount !== null && (
+                <>
+                  {' · risk '}
+                  <Money value={entry.trade.riskAmount} />
+                </>
+              )}
+            </div>
+          </>
+        )}
 
-      {entry.cash && (
-        <div className="flex items-baseline gap-2 text-sm">
-          <span className="text-muted">
+        {entry.cash && (
+          <div className="text-sm text-muted">
             {entry.cash.direction === 'DEPOSIT' ? 'Deposit' : 'Withdraw'}
-          </span>
-          <Money value={entry.cash.amount} />
-        </div>
-      )}
+          </div>
+        )}
 
-      {entry.dividend && (
-        <div className="flex items-baseline gap-2 text-sm">
-          <span className="rounded bg-up/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-up">
-            DIV
-          </span>
-          <span className="font-semibold">{entry.dividend.symbol}</span>
-          <Money value={entry.dividend.amount} className="text-up" />
-        </div>
-      )}
-
-      {entry.body && (
-        <p className="text-sm leading-snug whitespace-pre-wrap">{entry.body}</p>
-      )}
-
-      {entry.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {entry.tags.map((t) => (
-            <span
-              key={t.id}
-              className={`rounded px-1.5 py-0.5 text-[10px] ${
-                t.type === 'SETUP'
-                  ? 'bg-surface-2 text-muted'
-                  : 'bg-down/10 text-down'
-              }`}
-            >
-              {t.label}
+        {entry.dividend && (
+          <div className="flex items-center gap-1.5">
+            <span className="rounded bg-up/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-up">
+              DIV
             </span>
-          ))}
-        </div>
-      )}
+            <span className="font-semibold">{entry.dividend.symbol}</span>
+          </div>
+        )}
+
+        {entry.body && (
+          <p className="pt-0.5 text-sm leading-snug whitespace-pre-wrap">
+            {entry.body}
+          </p>
+        )}
+
+        {entry.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-0.5">
+            {entry.tags.map((t) => (
+              <span
+                key={t.id}
+                className={`rounded px-1.5 py-0.5 text-[10px] ${
+                  t.type === 'SETUP'
+                    ? 'bg-surface-2 text-muted'
+                    : 'bg-down/10 text-down'
+                }`}
+              >
+                {t.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div
+        className={`shrink-0 text-[15px] font-medium ${
+          entry.dividend ? 'text-up' : ''
+        }`}
+      >
+        <Money value={value} />
+      </div>
     </div>
   );
 }
