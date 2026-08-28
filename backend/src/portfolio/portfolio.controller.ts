@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post, Query } from '@nestjs/common';
 import {
   ArrayMaxSize,
   IsArray,
@@ -42,8 +42,11 @@ export class PortfolioController {
   constructor(private readonly portfolio: PortfolioService) {}
 
   @Get()
-  get() {
-    return this.portfolio.getPortfolio();
+  get(@Query('refresh') refresh?: string) {
+    // Explicit user-initiated refresh bypasses the quote cache.
+    return this.portfolio.getPortfolio({
+      refresh: refresh === '1' || refresh === 'true',
+    });
   }
 
   @Get('status')

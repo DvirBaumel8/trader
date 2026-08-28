@@ -27,10 +27,14 @@ export class MarketDataService {
     this.ttlMs = ttlMs;
   }
 
-  async getQuote(symbol: string): Promise<Quote | null> {
+  /**
+   * `force` bypasses the cache for an explicit user-initiated refresh. Without
+   * it, a refresh button would re-serve the same cached number and look broken.
+   */
+  async getQuote(symbol: string, force = false): Promise<Quote | null> {
     const key = symbol.toUpperCase();
     const cached = this.cache.get(key);
-    if (cached && Date.now() - cached.fetchedAt < this.ttlMs) {
+    if (!force && cached && Date.now() - cached.fetchedAt < this.ttlMs) {
       return cached.quote;
     }
     try {
@@ -43,14 +47,17 @@ export class MarketDataService {
     }
   }
 
-  async getQuotes(symbols: string[]): Promise<Map<string, Quote>> {
+  async getQuotes(
+    symbols: string[],
+    force = false,
+  ): Promise<Map<string, Quote>> {
     const keys = [...new Set(symbols.map((s) => s.toUpperCase()))];
     const out = new Map<string, Quote>();
     const missing: string[] = [];
 
     for (const key of keys) {
       const cached = this.cache.get(key);
-      if (cached && Date.now() - cached.fetchedAt < this.ttlMs) {
+      if (!force && cached && Date.now() - cached.fetchedAt < this.ttlMs) {
         out.set(key, cached.quote);
       } else {
         missing.push(key);

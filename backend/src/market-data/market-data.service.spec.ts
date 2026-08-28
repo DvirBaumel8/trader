@@ -96,6 +96,26 @@ describe('MarketDataService', () => {
     expect(map.get('AAPL')?.price).toBe(214);
   });
 
+  it('bypasses the cache when a refresh is forced', async () => {
+    let calls = 0;
+    const svc = new MarketDataService(fakeClient([NVDA], () => calls++));
+    await svc.getQuote('NVDA');
+    await svc.getQuote('NVDA'); // cached
+    expect(calls).toBe(1);
+    await svc.getQuote('NVDA', true); // forced
+    expect(calls).toBe(2);
+  });
+
+  it('bypasses the cache for a forced batch refresh', async () => {
+    let calls = 0;
+    const svc = new MarketDataService(fakeClient([NVDA], () => calls++));
+    await svc.getQuotes(['NVDA']);
+    await svc.getQuotes(['NVDA']); // cached
+    expect(calls).toBe(1);
+    await svc.getQuotes(['NVDA'], true); // forced
+    expect(calls).toBe(2);
+  });
+
   it('deduplicates symbols and ignores case in a batch', async () => {
     let calls = 0;
     const svc = new MarketDataService(fakeClient([NVDA], () => calls++));

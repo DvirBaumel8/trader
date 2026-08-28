@@ -5,6 +5,13 @@ import { api } from '../api/client';
 import { Money } from '../components/Money';
 import { Percent } from '../components/Percent';
 import { signClass } from '../components/format';
+import {
+  sortLabel,
+  sortPositions,
+  type SortDir,
+  type SortKey,
+} from '../lib/sortPositions';
+import { loadDraft, saveDraft } from '../lib/draftStorage';
 
 interface Position {
   symbol: string;
@@ -27,6 +34,63 @@ interface Portfolio {
   positionsValue: number;
   accountValue: number;
   hasStalePrices: boolean;
+  pricedAt: string;
+}
+
+const SORT_KEY = 'trader.holdingsSort.v1';
+const SORT_KEYS: SortKey[] = [
+  'symbol',
+  'marketValue',
+  'unrealizedPct',
+  'unrealizedPnl',
+];
+
+interface SortPref {
+  key: SortKey;
+  dir: SortDir;
+}
+
+/** Biggest position first — the most useful default for a working trader. */
+const defaultSort: SortPref = { key: 'marketValue', dir: 'desc' };
+
+function SortBar({
+  sort,
+  onChange,
+}: {
+  sort: SortPref;
+  onChange: (s: SortPref) => void;
+}) {
+  return (
+    <div className="flex gap-1 overflow-x-auto">
+      {SORT_KEYS.map((key) => {
+        const active = sort.key === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={active}
+            // Tapping the active control flips direction, which is the
+            // behaviour people expect from a sortable column header.
+            onClick={() =>
+              onChange(
+                active
+                  ? { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
+                  : { key, dir: key === 'symbol' ? 'asc' : 'desc' },
+              )
+            }
+            className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+              active
+                ? 'border-accent/40 bg-accent/10 text-accent'
+                : 'border-border text-muted'
+            }`}
+          >
+            {sortLabel(key)}
+            {active && (sort.dir === 'asc' ? ' ↑' : ' ↓')}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function PositionRow({ p }: { p: Position }) {
@@ -124,11 +188,38 @@ function ResetPortfolio({ positionCount }: { positionCount: number }) {
 }
 
 export function Dashboard() {
+  const [sort, setSort] = useState<SortPref>(() =>
+    loadDraft(SORT_KEY, defaultSort),
+  );
+  const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['portfolio'],
     queryFn: () => api<Portfolio>('/portfolio'),
     refetchInterval: 60_000,
   });
+
+  const changeSort = (s: SortPref) => {
+    setSort(s);
+    saveDraft(SORT_KEY, s);
+  };
+
+  /**
+   * Forces the server past its 60s quote cache. Without `refresh=1` this would
+   * re-serve the same numbers and look like a broken button.
+   */
+  const refreshNow = async () => {
+    setRefreshing(true);
+    try {
+      const fresh = await api<Portfolio>('/portfolio?refresh=1');
+      queryClient.setQueryData(['portfolio'], fresh);
+    } catch {
+      // Leave the existing numbers on screen; the stale markers already warn.
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   if (isLoading) {
     return <p className="text-sm text-muted">Loading…</p>;
@@ -158,16 +249,43 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <section>
-        <div className="text-xs uppercase tracking-wide text-muted">
-          Account value
-        </div>
-        <div className="mt-1 text-4xl font-semibold">
-          <Money value={data.accountValue} />
-        </div>
-        <div className="mt-1 text-sm">
-          <span className={signClass(totalUnrealized)}>
-            <Money value={totalUnrealized} signed /> unrealized
-          </span>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs uppercase tracking-wide text-muted">
+              Account value
+            </div>
+            <div className="mt-1 text-4xl font-semibold">
+              <Money value={data.accountValue} />
+            </div>
+            <div className="mt-1 text-sm">
+              <span className={signClass(totalUnrealized)}>
+                <Money value={totalUnrealized} signed /> unrealized
+              </span>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={refreshNow}
+              disabled={refreshing}
+              aria-label="Refresh prices now"
+              className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm text-muted active:bg-surface-2 disabled:opacity-50"
+            >
+              <span className={refreshing ? 'inline-block animate-spin' : ''}>
+                ↻
+              </span>
+              <span className="ml-1.5">
+                {refreshing ? 'Updating' : 'Refresh'}
+              </span>
+            </button>
+            <span className="text-[10px] text-muted">
+              {new Date(data.pricedAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+          </div>
         </div>
       </section>
 
@@ -192,11 +310,14 @@ export function Dashboard() {
       </section>
 
       <section>
-        <div className="mb-1 text-xs uppercase tracking-wide text-muted">
-          Holdings
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs uppercase tracking-wide text-muted">
+            Holdings
+          </span>
+          <SortBar sort={sort} onChange={changeSort} />
         </div>
         <ul>
-          {data.positions.map((p) => (
+          {sortPositions(data.positions, sort.key, sort.dir).map((p) => (
             <PositionRow key={p.symbol} p={p} />
           ))}
         </ul>

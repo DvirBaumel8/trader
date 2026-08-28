@@ -44,7 +44,7 @@ export class PortfolioService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async getPortfolio() {
+  async getPortfolio(opts: { refresh?: boolean } = {}) {
     const user = await this.users.ensureDefaultUser();
     const [txnRows, flowRows, instrumentRows] = await Promise.all([
       this.txns.find({ where: { userId: user.id } }),
@@ -74,6 +74,7 @@ export class PortfolioService {
 
     const quotes = await this.marketData.getQuotes(
       derived.map((p) => p.symbol),
+      opts.refresh === true,
     );
 
     const positions = derived.map((p) => {
@@ -110,6 +111,8 @@ export class PortfolioService {
       positionsValue,
       accountValue: cash + positionsValue,
       hasStalePrices: positions.some((p) => p.stale),
+      // When the client last got real numbers, so the UI can say "updated 17:31".
+      pricedAt: new Date().toISOString(),
     };
   }
 
