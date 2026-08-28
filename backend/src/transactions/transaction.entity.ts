@@ -52,6 +52,19 @@ export class Transaction {
   })
   fee: number;
 
+  /**
+   * The profit target planned at entry. Nullable — optional like the stop.
+   * Captured from Phase 2 onward so a planned R:R can be displayed later
+   * without a backfill, even though nothing renders it yet.
+   */
+  @Column('numeric', {
+    precision: 20,
+    scale: 8,
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  plannedTarget: number | null;
+
   @Index()
   @Column({ type: 'timestamptz' })
   executedAt: Date;
