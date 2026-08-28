@@ -143,7 +143,6 @@ function BalanceTab({ onOpen }: { onOpen: (e: Entry) => void }) {
   });
 
   const entries = cashEntries ?? [];
-  const byId = new Map(entries.map((e) => [e.id, e]));
 
   return (
     <div className="space-y-5">
@@ -186,17 +185,11 @@ function BalanceTab({ onOpen }: { onOpen: (e: Entry) => void }) {
       {entries.length === 0 ? (
         <p className="text-sm text-muted">No money movements yet.</p>
       ) : (
-        <div className="space-y-4">
-          <ByDay
-            entries={entries}
-            render={(id) => {
-              const e = byId.get(id);
-              return e ? (
-                <EntryCard key={id} entry={e} onOpen={onOpen} />
-              ) : null;
-            }}
-          />
-        </div>
+        <ul>
+          {entries.map((e) => (
+            <EntryCard key={e.id} entry={e} onOpen={onOpen} />
+          ))}
+        </ul>
       )}
     </div>
   );

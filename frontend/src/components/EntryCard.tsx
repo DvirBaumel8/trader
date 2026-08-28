@@ -28,27 +28,39 @@ export interface Entry {
   tags: { id: string; type: 'SETUP' | 'MISTAKE'; label: string }[];
 }
 
-function TradeHeader({ trade }: { trade: NonNullable<Entry['trade']> }) {
-  const buying = trade.side === 'BUY';
+function PencilIcon() {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-      <span
-        className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
-          buying ? 'bg-up/15 text-up' : 'bg-down/15 text-down'
-        }`}
-      >
-        {trade.side}
-      </span>
-      <span className="text-[15px] font-semibold">{trade.symbol}</span>
-      <span className="text-xs text-muted">
-        {formatQuantity(trade.quantity)} @ <Money value={trade.price} />
-      </span>
-      {trade.riskAmount !== null && (
-        <span className="text-[11px] text-muted">
-          · risk <Money value={trade.riskAmount} />
-        </span>
-      )}
-    </div>
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+/**
+ * An explicit edit control rather than a whole-row button: the row is a dense
+ * list item people scroll past, and making all of it tappable turns every
+ * scroll into a near-miss.
+ */
+function EditButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Edit ${label}`}
+      className="-m-2 shrink-0 rounded-lg p-2 text-muted active:bg-surface-2 active:text-text"
+    >
+      <PencilIcon />
+    </button>
   );
 }
 
@@ -59,14 +71,36 @@ export function EntryCard({
   entry: Entry;
   onOpen: (entry: Entry) => void;
 }) {
+  const label = entry.trade?.symbol ?? entry.dividend?.symbol ?? 'entry';
+
   return (
-    <li>
-      <button
-        type="button"
-        onClick={() => onOpen(entry)}
-        className="w-full space-y-1.5 border-b border-border py-3 text-left last:border-0"
-      >
-        {entry.trade && <TradeHeader trade={entry.trade} />}
+    <li className="flex items-start justify-between gap-3 border-b border-border py-3 last:border-0">
+      <div className="min-w-0 flex-1 space-y-1">
+        {entry.trade && (
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+                entry.trade.side === 'BUY'
+                  ? 'bg-up/15 text-up'
+                  : 'bg-down/15 text-down'
+              }`}
+            >
+              {entry.trade.side}
+            </span>
+            <span className="text-[15px] font-semibold">
+              {entry.trade.symbol}
+            </span>
+            <span className="text-xs text-muted">
+              {formatQuantity(entry.trade.quantity)} @{' '}
+              <Money value={entry.trade.price} />
+            </span>
+            {entry.trade.riskAmount !== null && (
+              <span className="text-[11px] text-muted">
+                · risk <Money value={entry.trade.riskAmount} />
+              </span>
+            )}
+          </div>
+        )}
 
         {entry.cash && (
           <div className="flex items-baseline gap-2 text-sm">
@@ -87,18 +121,10 @@ export function EntryCard({
           </div>
         )}
 
-        {entry.body ? (
+        {entry.body && (
           <p className="text-sm leading-snug whitespace-pre-wrap">
             {entry.body}
           </p>
-        ) : (
-          entry.kind === 'TRADE' && (
-            // Notes are optional but never silently absent — an unannotated
-            // trade is exactly the thing this product exists to prevent.
-            <p className="text-xs text-muted italic">
-              No thesis recorded — tap to add
-            </p>
-          )
         )}
 
         {entry.tags.length > 0 && (
@@ -117,7 +143,9 @@ export function EntryCard({
             ))}
           </div>
         )}
-      </button>
+      </div>
+
+      <EditButton onClick={() => onOpen(entry)} label={label} />
     </li>
   );
 }

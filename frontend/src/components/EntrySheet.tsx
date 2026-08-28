@@ -22,7 +22,6 @@ const KINDS: { value: EntryKind; label: string }[] = [
   { value: 'TRADE', label: 'Trade' },
   { value: 'CASH', label: 'Cash' },
   { value: 'DIVIDEND', label: 'Dividend' },
-  { value: 'NOTE', label: 'Note' },
 ];
 
 /** Everything the entry touches, refetched together after any write. */
