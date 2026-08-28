@@ -40,17 +40,3 @@ export function sortPositions<T extends SortablePosition>(
     return (av < bv ? -1 : 1) * factor;
   });
 }
-
-/** For a short, "biggest position" means size, not signed value. */
-export function sortLabel(key: SortKey): string {
-  switch (key) {
-    case 'symbol':
-      return 'Symbol';
-    case 'marketValue':
-      return 'Value';
-    case 'unrealizedPct':
-      return '%';
-    case 'unrealizedPnl':
-      return 'P&L';
-  }
-}
