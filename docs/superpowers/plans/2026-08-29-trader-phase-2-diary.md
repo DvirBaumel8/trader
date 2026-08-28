@@ -15,6 +15,9 @@
 **Phase 2 delivers:**
 
 - Trade entries that move the portfolio (buy / sell, with fee)
+- **Planned stop and target captured at entry** — optional, prompted
+- **Round-trip trades derived from the transaction log**
+- **Header stats: win rate, average dollar risk, expectancy**
 - Note entries that move nothing
 - Cash entries (deposit / withdraw) that move cash
 - Setup and mistake tags, created on the fly
@@ -23,7 +26,13 @@
 - Position detail: every entry that ever touched a ticker
 - Settings: default fee
 
-**Phase 2 does NOT deliver:** price history backfill, the benchmark chart, or any AI. Those are Phase 3 and later.
+**Phase 2 does NOT deliver:** price history backfill, the benchmark chart, trade replay, or any AI.
+
+**Trade replay is deliberately Phase 3.** It needs daily price history, which is
+exactly the backfill Phase 3 builds for the benchmark chart. Building it here
+would mean writing that backfill twice. What Phase 2 *must* do is capture the
+data replay and the stats depend on — stop, target, and the trade groupings —
+because those cannot be reconstructed later.
 
 ## Decisions carried in from review
 
@@ -32,6 +41,12 @@
 | **Notes optional but prompted** | A trade saves in two taps when busy, but an entry with no thesis is visibly marked in the timeline and can be annotated later. Requiring a note risks the worse failure: skipping logging entirely and letting the portfolio drift. |
 | **Full edit and delete** | Positions are derived, so recomputation is free. This becomes the real "edit a position" mechanism and retires reset-and-re-seed as the only correction tool. |
 | **Seeded entries are ordinary entries** | They already exist as `TRADE`/`CASH` entries from Phase 1. They appear in the timeline and are editable like anything else — which is what finally lets a seeding typo be fixed properly. |
+| **Stop and target optional but prompted** | The owner sets a stop on most trades but not all. Requiring one would push him to skip logging; omitting the field entirely would make R-based expectancy impossible forever. |
+| **Header shows win rate, average dollar risk, expectancy** | Replaces R:R at the owner's request. Average risk answers a sizing-discipline question — "what do I typically put on the line" — and reads straight off data already computed. |
+| **Average risk includes open trades; win rate and expectancy do not** | Risk is fixed at entry and does not depend on the outcome, so an open position is just as informative. Win rate and expectancy need a result, so they cover closed trades only. Each stat states its own sample size. |
+| **Expectancy in R only over trades with a stop** | R genuinely requires risk per trade. The UI states how many trades were excluded rather than quietly averaging a smaller set. |
+| **A trade is derived, not stored** | Same reasoning as positions: a round trip is the span from flat → open → flat in the transaction log. Deriving it means it can never disagree with the journal. |
+| **Replay uses daily bars only** | The owner's decision. Free Yahoo serves daily history indefinitely, so nothing decays and no snapshotting is needed. Trade-offs: an intraday trade is a single candle and cannot meaningfully animate. |
 
 ## Test checkpoints
 
@@ -41,7 +56,8 @@
 | 8 | Log a real trade and watch the dashboard move |
 | 11 | Notes, cash entries, and tags |
 | 13 | Edit and delete — fix a seeding typo properly |
-| 15 | Position detail: the story of one ticker |
+| 12 | Position detail: the story of one ticker |
+| 15 | Win rate, average risk and expectancy over your real trades |
 
 ## File structure
 
@@ -77,11 +93,12 @@ call it rather than writing rows itself, so there is genuinely one code path.
 
 ---
 
-## Task 1: Tag entities
+## Task 1: Tag entities and planned stop/target
 
 **Files:**
 - Create: `backend/src/journal/tag.entity.ts`
 - Create: `backend/src/journal/entry-tag.entity.ts`
+- Modify: `backend/src/transactions/transaction.entity.ts`
 
 - [ ] **Step 1: Write the tag entity**
 
@@ -140,15 +157,46 @@ export class EntryTag {
 }
 ```
 
-- [ ] **Step 3: Verify it compiles**
+- [ ] **Step 3: Add planned stop and target to transactions**
+
+Append to `backend/src/transactions/transaction.entity.ts`, inside the class:
+
+```ts
+  /**
+   * The plan, recorded at entry. Nullable because the owner sets a stop on most
+   * trades but not all — and a trade logged without one must still be loggable.
+   *
+   * This is the single most perishable field in the schema: risk per trade can
+   * only be known before the outcome, so it can never be backfilled. Everything
+   * R-based downstream depends on it.
+   */
+  @Column('numeric', {
+    precision: 20,
+    scale: 8,
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  plannedStop: number | null;
+
+  @Column('numeric', {
+    precision: 20,
+    scale: 8,
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  plannedTarget: number | null;
+```
+
+- [ ] **Step 4: Verify it compiles**
 
 Run: `npm run build --prefix backend`
-Expected: build succeeds.
+Expected: build succeeds. `synchronize: true` adds both columns as nullable, so
+existing rows are unaffected.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add -A && git commit -m "feat: tag entities for setups and mistakes"
+git add -A && git commit -m "feat: tag entities and planned stop/target on trades"
 ```
 
 ---
@@ -845,7 +893,14 @@ export interface CreateEntryInput {
   kind: 'TRADE' | 'NOTE' | 'CASH';
   body: string;
   occurredAt: string;
-  trade?: { symbol: string; quantity: number; price: number; fee: number };
+  trade?: {
+    symbol: string;
+    quantity: number;
+    price: number;
+    fee: number;
+    plannedStop?: number | null;
+    plannedTarget?: number | null;
+  };
   cash?: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number };
   tags?: { type: 'SETUP' | 'MISTAKE'; label: string }[];
 }
@@ -1180,6 +1235,15 @@ export class TradeDto {
   @IsOptional()
   @IsNumber()
   fee?: number;
+
+  /** The plan at entry. Optional — see the decisions table. */
+  @IsOptional()
+  @IsNumber()
+  plannedStop?: number;
+
+  @IsOptional()
+  @IsNumber()
+  plannedTarget?: number;
 }
 
 export class CashDto {
@@ -2748,6 +2812,787 @@ git add -A && git commit -m "feat: point corrections at entry editing rather tha
 
 ---
 
+---
+
+## Task 14: Derive round-trip trades
+
+The second-highest-risk pure module in the repo, after `derive.ts`. Win rate and
+expectancy are the numbers most likely to be quietly wrong and most likely to be
+believed.
+
+**Files:**
+- Create: `backend/src/portfolio/derive-trades.ts`
+- Create: `backend/src/portfolio/derive-trades.spec.ts`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `backend/src/portfolio/derive-trades.spec.ts`:
+
+```ts
+import { deriveTrades, summariseTrades } from './derive-trades.js';
+import type { DerivedTxn } from './derive.js';
+
+function txn(
+  symbol: string,
+  side: 'BUY' | 'SELL',
+  quantity: number,
+  price: number,
+  day: number,
+  extra: { fee?: number; plannedStop?: number | null } = {},
+): DerivedTxn & { plannedStop?: number | null } {
+  return {
+    symbol,
+    side,
+    quantity,
+    price,
+    fee: extra.fee ?? 0,
+    executedAt: new Date(2026, 0, day),
+    plannedStop: extra.plannedStop ?? null,
+  };
+}
+
+describe('deriveTrades', () => {
+  it('returns nothing for an empty log', () => {
+    expect(deriveTrades([])).toEqual([]);
+  });
+
+  it('treats an open position as an open trade with no result', () => {
+    const [t] = deriveTrades([txn('NVDA', 'BUY', 10, 100, 1)]);
+    expect(t.isOpen).toBe(true);
+    expect(t.exitedAt).toBeNull();
+    expect(t.realizedPnl).toBeNull();
+  });
+
+  it('closes a trade when the position returns to flat', () => {
+    const [t] = deriveTrades([
+      txn('NVDA', 'BUY', 10, 100, 1),
+      txn('NVDA', 'SELL', 10, 130, 5),
+    ]);
+    expect(t.isOpen).toBe(false);
+    expect(t.symbol).toBe('NVDA');
+    expect(t.direction).toBe('LONG');
+    expect(t.quantity).toBe(10);
+    expect(t.avgEntry).toBe(100);
+    expect(t.avgExit).toBe(130);
+    expect(t.realizedPnl).toBe(300);
+    expect(t.isWin).toBe(true);
+    expect(t.holdingDays).toBe(4);
+  });
+
+  it('nets fees out of the result', () => {
+    const [t] = deriveTrades([
+      txn('NVDA', 'BUY', 10, 100, 1, { fee: 4 }),
+      txn('NVDA', 'SELL', 10, 130, 5, { fee: 4 }),
+    ]);
+    expect(t.realizedPnl).toBe(300 - 8);
+    expect(t.feesPaid).toBe(8);
+  });
+
+  it('averages a scaled-in entry and a scaled-out exit', () => {
+    const [t] = deriveTrades([
+      txn('NVDA', 'BUY', 10, 100, 1),
+      txn('NVDA', 'BUY', 10, 120, 2),
+      txn('NVDA', 'SELL', 10, 150, 5),
+      txn('NVDA', 'SELL', 10, 130, 6),
+    ]);
+    expect(t.quantity).toBe(20);
+    expect(t.avgEntry).toBe(110);
+    expect(t.avgExit).toBe(140);
+    expect(t.realizedPnl).toBe(600);
+  });
+
+  it('splits a re-entry into a separate trade', () => {
+    // Flat between them, so these are two trades, not one.
+    const trades = deriveTrades([
+      txn('NVDA', 'BUY', 10, 100, 1),
+      txn('NVDA', 'SELL', 10, 130, 5),
+      txn('NVDA', 'BUY', 10, 140, 10),
+      txn('NVDA', 'SELL', 10, 120, 15),
+    ]);
+    expect(trades).toHaveLength(2);
+    expect(trades[0].realizedPnl).toBe(300);
+    expect(trades[1].realizedPnl).toBe(-200);
+    expect(trades[1].isWin).toBe(false);
+  });
+
+  it('handles a short trade', () => {
+    const [t] = deriveTrades([
+      txn('TSLA', 'SELL', 10, 300, 1),
+      txn('TSLA', 'BUY', 10, 250, 5),
+    ]);
+    expect(t.direction).toBe('SHORT');
+    expect(t.realizedPnl).toBe(500);
+    expect(t.isWin).toBe(true);
+  });
+
+  it('loses on a short that goes against you', () => {
+    const [t] = deriveTrades([
+      txn('TSLA', 'SELL', 10, 300, 1),
+      txn('TSLA', 'BUY', 10, 340, 5),
+    ]);
+    expect(t.realizedPnl).toBe(-400);
+    expect(t.isWin).toBe(false);
+  });
+
+  it('keeps trades in different symbols separate', () => {
+    const trades = deriveTrades([
+      txn('NVDA', 'BUY', 10, 100, 1),
+      txn('AAPL', 'BUY', 5, 200, 1),
+      txn('NVDA', 'SELL', 10, 130, 5),
+    ]);
+    expect(trades).toHaveLength(2);
+    expect(trades.filter((t) => t.isOpen)).toHaveLength(1);
+  });
+
+  it('computes risk and R from the stop on the opening fill', () => {
+    const [t] = deriveTrades([
+      txn('NVDA', 'BUY', 10, 100, 1, { plannedStop: 90 }),
+      txn('NVDA', 'SELL', 10, 130, 5),
+    ]);
+    expect(t.riskAmount).toBe(100); // (100 - 90) * 10
+    expect(t.rMultiple).toBe(3); // +300 on 100 risked
+  });
+
+  it('computes R for a short from a stop above entry', () => {
+    const [t] = deriveTrades([
+      txn('TSLA', 'SELL', 10, 300, 1, { plannedStop: 320 }),
+      txn('TSLA', 'BUY', 10, 250, 5),
+    ]);
+    expect(t.riskAmount).toBe(200);
+    expect(t.rMultiple).toBe(2.5);
+  });
+
+  it('leaves R null when no stop was set', () => {
+    const [t] = deriveTrades([
+      txn('NVDA', 'BUY', 10, 100, 1),
+      txn('NVDA', 'SELL', 10, 130, 5),
+    ]);
+    expect(t.riskAmount).toBeNull();
+    expect(t.rMultiple).toBeNull();
+  });
+
+  it('leaves R null when the stop equals the entry', () => {
+    // Zero risk would divide by zero and produce Infinity.
+    const [t] = deriveTrades([
+      txn('NVDA', 'BUY', 10, 100, 1, { plannedStop: 100 }),
+      txn('NVDA', 'SELL', 10, 130, 5),
+    ]);
+    expect(t.rMultiple).toBeNull();
+  });
+
+  it('orders by execution time regardless of input order', () => {
+    const [t] = deriveTrades([
+      txn('NVDA', 'SELL', 10, 130, 5),
+      txn('NVDA', 'BUY', 10, 100, 1),
+    ]);
+    expect(t.realizedPnl).toBe(300);
+  });
+});
+
+describe('summariseTrades', () => {
+  const closed = (
+    pnl: number,
+    r: number | null = null,
+    riskAmount: number | null = null,
+  ) => ({
+    realizedPnl: pnl,
+    isOpen: false,
+    isWin: pnl > 0,
+    rMultiple: r,
+    riskAmount,
+  });
+
+  it('is empty with no closed trades', () => {
+    const s = summariseTrades([]);
+    expect(s.closedCount).toBe(0);
+    expect(s.winRate).toBeNull();
+    expect(s.avgRisk).toBeNull();
+    expect(s.expectancyR).toBeNull();
+  });
+
+  it('ignores open trades in the outcome stats', () => {
+    const s = summariseTrades([
+      {
+        realizedPnl: null,
+        isOpen: true,
+        isWin: null,
+        rMultiple: null,
+        riskAmount: null,
+      },
+    ]);
+    expect(s.closedCount).toBe(0);
+    expect(s.winRate).toBeNull();
+  });
+
+  it('computes win rate', () => {
+    const s = summariseTrades([closed(100), closed(-50), closed(200), closed(-10)]);
+    expect(s.closedCount).toBe(4);
+    expect(s.winRate).toBe(0.5);
+  });
+
+  it('averages the dollar risk over trades that set a stop', () => {
+    const s = summariseTrades([
+      closed(300, 3, 100),
+      closed(-200, -1, 200),
+      closed(50), // no stop, excluded
+    ]);
+    expect(s.avgRisk).toBe(150);
+    expect(s.riskTradeCount).toBe(2);
+  });
+
+  it('counts an open trade in average risk, since risk is known at entry', () => {
+    const s = summariseTrades([
+      closed(300, 3, 100),
+      {
+        realizedPnl: null,
+        isOpen: true,
+        isWin: null,
+        rMultiple: null,
+        riskAmount: 300,
+      },
+    ]);
+    expect(s.avgRisk).toBe(200);
+    expect(s.riskTradeCount).toBe(2);
+    expect(s.closedCount).toBe(1);
+  });
+
+  it('leaves average risk null when no trade set a stop', () => {
+    const s = summariseTrades([closed(300), closed(-100)]);
+    expect(s.avgRisk).toBeNull();
+    expect(s.riskTradeCount).toBe(0);
+  });
+
+  it('computes expectancy in R only over trades that have one', () => {
+    const s = summariseTrades([
+      closed(300, 3, 100),
+      closed(-100, -1, 100),
+      closed(200), // no stop, excluded from R
+    ]);
+    expect(s.expectancyR).toBe(1); // (3 + -1) / 2
+    expect(s.rTradeCount).toBe(2);
+    expect(s.closedCount).toBe(3);
+  });
+
+  it('reports expectancy in dollars over every closed trade', () => {
+    const s = summariseTrades([closed(300), closed(-100)]);
+    expect(s.expectancyDollars).toBe(100);
+  });
+
+  it('leaves expectancy in R null when no trade has a stop', () => {
+    const s = summariseTrades([closed(300), closed(-100)]);
+    expect(s.expectancyR).toBeNull();
+    expect(s.rTradeCount).toBe(0);
+  });
+
+  it('treats a scratch trade as a loss, not a win', () => {
+    // Break-even is not a win; counting it as one flatters the win rate.
+    const s = summariseTrades([closed(0), closed(100)]);
+    expect(s.winRate).toBe(0.5);
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `npm run test --prefix backend -- derive-trades`
+Expected: FAIL — `Cannot find module './derive-trades.js'`.
+
+- [ ] **Step 3: Implement**
+
+Create `backend/src/portfolio/derive-trades.ts`:
+
+```ts
+import type { DerivedTxn } from './derive.js';
+
+/** A transaction carrying the plan recorded at entry. */
+export type TradeTxn = DerivedTxn & {
+  plannedStop?: number | null;
+  plannedTarget?: number | null;
+};
+
+export interface DerivedTrade {
+  symbol: string;
+  direction: 'LONG' | 'SHORT';
+  /** Total size opened, in shares. */
+  quantity: number;
+  avgEntry: number;
+  avgExit: number | null;
+  enteredAt: Date;
+  exitedAt: Date | null;
+  holdingDays: number | null;
+  feesPaid: number;
+  /** Null while the trade is still open. Net of fees. */
+  realizedPnl: number | null;
+  isWin: boolean | null;
+  isOpen: boolean;
+  /** Dollars at risk from the opening stop. Null when no stop was set. */
+  riskAmount: number | null;
+  /** Result in units of risk. Null without a stop. */
+  rMultiple: number | null;
+}
+
+const EPSILON = 1e-9;
+
+/**
+ * A trade is the span from flat to flat in one symbol. Derived, never stored,
+ * for the same reason positions are: it cannot then disagree with the journal.
+ *
+ * Scaling in and out stays ONE trade — it is one idea, and splitting it would
+ * inflate the trade count and distort win rate. A re-entry after going flat is
+ * a new trade.
+ */
+export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
+  const bySymbol = new Map<string, TradeTxn[]>();
+  for (const t of txns) {
+    bySymbol.set(t.symbol, [...(bySymbol.get(t.symbol) ?? []), t]);
+  }
+
+  const trades: DerivedTrade[] = [];
+
+  for (const [symbol, list] of bySymbol) {
+    const ordered = [...list].sort(
+      (a, b) => a.executedAt.getTime() - b.executedAt.getTime(),
+    );
+
+    let open: {
+      direction: 'LONG' | 'SHORT';
+      position: number;
+      openQty: number;
+      openNotional: number;
+      closeQty: number;
+      closeNotional: number;
+      fees: number;
+      enteredAt: Date;
+      stop: number | null;
+    } | null = null;
+
+    for (const t of ordered) {
+      const signed = t.side === 'BUY' ? t.quantity : -t.quantity;
+
+      if (open === null) {
+        open = {
+          direction: signed > 0 ? 'LONG' : 'SHORT',
+          position: signed,
+          openQty: t.quantity,
+          openNotional: t.quantity * t.price,
+          closeQty: 0,
+          closeNotional: 0,
+          fees: t.fee,
+          enteredAt: t.executedAt,
+          // The plan belongs to the opening fill; later adds do not redefine it.
+          stop: t.plannedStop ?? null,
+        };
+        continue;
+      }
+
+      open.fees += t.fee;
+      const adding = Math.sign(signed) === Math.sign(open.position);
+      if (adding) {
+        open.openQty += t.quantity;
+        open.openNotional += t.quantity * t.price;
+      } else {
+        open.closeQty += t.quantity;
+        open.closeNotional += t.quantity * t.price;
+      }
+      open.position += signed;
+
+      if (Math.abs(open.position) < EPSILON) {
+        trades.push(finish(symbol, open, t.executedAt));
+        open = null;
+      }
+    }
+
+    if (open !== null) {
+      trades.push(finish(symbol, open, null));
+    }
+  }
+
+  return trades.sort(
+    (a, b) => b.enteredAt.getTime() - a.enteredAt.getTime(),
+  );
+}
+
+function finish(
+  symbol: string,
+  open: {
+    direction: 'LONG' | 'SHORT';
+    openQty: number;
+    openNotional: number;
+    closeQty: number;
+    closeNotional: number;
+    fees: number;
+    enteredAt: Date;
+    stop: number | null;
+  },
+  exitedAt: Date | null,
+): DerivedTrade {
+  const avgEntry = round(open.openNotional / open.openQty);
+  const avgExit =
+    open.closeQty > EPSILON ? round(open.closeNotional / open.closeQty) : null;
+
+  let realizedPnl: number | null = null;
+  if (exitedAt !== null && avgExit !== null) {
+    const gross =
+      open.direction === 'LONG'
+        ? (avgExit - avgEntry) * open.closeQty
+        : (avgEntry - avgExit) * open.closeQty;
+    realizedPnl = round(gross - open.fees);
+  }
+
+  // Risk is defined by the stop on the opening fill, against the average entry.
+  let riskAmount: number | null = null;
+  if (open.stop !== null) {
+    const perShare = Math.abs(avgEntry - open.stop);
+    if (perShare > EPSILON) riskAmount = round(perShare * open.openQty);
+  }
+
+  return {
+    symbol,
+    direction: open.direction,
+    quantity: round(open.openQty),
+    avgEntry,
+    avgExit,
+    enteredAt: open.enteredAt,
+    exitedAt,
+    holdingDays:
+      exitedAt === null
+        ? null
+        : Math.round(
+            (exitedAt.getTime() - open.enteredAt.getTime()) / 86_400_000,
+          ),
+    feesPaid: round(open.fees),
+    realizedPnl,
+    // Break-even is not a win. Counting a scratch as a win flatters the rate.
+    isWin: realizedPnl === null ? null : realizedPnl > 0,
+    isOpen: exitedAt === null,
+    riskAmount,
+    rMultiple:
+      realizedPnl !== null && riskAmount !== null
+        ? round(realizedPnl / riskAmount)
+        : null,
+  };
+}
+
+export interface TradeSummary {
+  closedCount: number;
+  openCount: number;
+  winRate: number | null;
+  avgWin: number | null;
+  avgLoss: number | null;
+  /**
+   * Average dollars at risk per trade that set a stop. Open trades count:
+   * risk is fixed at entry and does not depend on the outcome.
+   */
+  avgRisk: number | null;
+  /** How many trades the risk figure is based on. */
+  riskTradeCount: number;
+  expectancyDollars: number | null;
+  /** Averaged over trades that had a stop. Null when none did. */
+  expectancyR: number | null;
+  /** How many trades the R figure is based on, so the number stays honest. */
+  rTradeCount: number;
+}
+
+type Summarisable = Pick<
+  DerivedTrade,
+  'realizedPnl' | 'isOpen' | 'isWin' | 'rMultiple' | 'riskAmount'
+>;
+
+export function summariseTrades(trades: Summarisable[]): TradeSummary {
+  const closed = trades.filter((t) => !t.isOpen && t.realizedPnl !== null);
+  const wins = closed.filter((t) => t.isWin === true);
+  const losses = closed.filter((t) => t.isWin === false);
+  const withR = closed.filter((t) => t.rMultiple !== null);
+  // Risk is known at entry, so an open trade contributes to average risk.
+  const withRisk = trades.filter((t) => t.riskAmount !== null);
+
+  const mean = (xs: number[]) =>
+    xs.length === 0 ? null : round(xs.reduce((a, b) => a + b, 0) / xs.length);
+
+  const avgWin = mean(wins.map((t) => t.realizedPnl as number));
+  // Reported as a positive magnitude so "avg loss $920" reads naturally.
+  const avgLoss = mean(losses.map((t) => Math.abs(t.realizedPnl as number)));
+
+  return {
+    closedCount: closed.length,
+    openCount: trades.filter((t) => t.isOpen).length,
+    winRate: closed.length === 0 ? null : round(wins.length / closed.length),
+    avgWin,
+    avgLoss,
+    avgRisk: mean(withRisk.map((t) => t.riskAmount as number)),
+    riskTradeCount: withRisk.length,
+    expectancyDollars: mean(closed.map((t) => t.realizedPnl as number)),
+    expectancyR: mean(withR.map((t) => t.rMultiple as number)),
+    rTradeCount: withR.length,
+  };
+}
+
+function round(n: number): number {
+  return Math.round(n * 1e8) / 1e8;
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm run test --prefix backend -- derive-trades`
+Expected: PASS — 25 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat: derive round-trip trades with R multiples and summary stats"
+```
+
+---
+
+## Task 15: Stats header
+
+**Files:**
+- Modify: `backend/src/portfolio/portfolio.service.ts`
+- Modify: `backend/src/portfolio/portfolio.controller.ts`
+- Modify: `backend/test/portfolio.e2e-spec.ts`
+- Create: `frontend/src/components/StatsHeader.tsx`
+- Modify: `frontend/src/routes/Journal.tsx`
+
+- [ ] **Step 1: Write the failing e2e test**
+
+Append inside the `describe` block of `backend/test/portfolio.e2e-spec.ts`:
+
+```ts
+  it('reports trade stats over closed round trips', async () => {
+    const trade = (
+      quantity: number,
+      price: number,
+      occurredAt: string,
+      plannedStop?: number,
+    ) =>
+      request(app.getHttpServer())
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'x',
+          occurredAt,
+          trade: { symbol: 'NVDA', quantity, price, fee: 0, plannedStop },
+        })
+        .expect(201);
+
+    // Winner: +300 on 100 risked = +3R
+    await trade(10, 100, '2026-01-01T14:30:00.000Z', 90);
+    await trade(-10, 130, '2026-01-05T14:30:00.000Z');
+    // Loser: -200, no stop, so excluded from R
+    await trade(10, 140, '2026-01-10T14:30:00.000Z');
+    await trade(-10, 120, '2026-01-15T14:30:00.000Z');
+
+    const res = await request(app.getHttpServer())
+      .get('/portfolio/stats')
+      .expect(200);
+
+    expect(res.body.closedCount).toBe(2);
+    expect(res.body.winRate).toBe(0.5);
+    expect(res.body.avgWin).toBe(300);
+    expect(res.body.avgLoss).toBe(200);
+    expect(res.body.avgRisk).toBe(100); // (100 - 90) * 10, the one stopped trade
+    expect(res.body.riskTradeCount).toBe(1);
+    expect(res.body.expectancyDollars).toBe(50);
+    expect(res.body.expectancyR).toBe(3); // only the stopped trade
+    expect(res.body.rTradeCount).toBe(1);
+  });
+
+  it('reports empty stats before any trade is closed', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/portfolio/stats')
+      .expect(200);
+    expect(res.body.closedCount).toBe(0);
+    expect(res.body.winRate).toBeNull();
+  });
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `npm run test:e2e --prefix backend -- portfolio`
+Expected: FAIL — 404 on `/portfolio/stats`.
+
+- [ ] **Step 3: Add the stats method**
+
+Add to `PortfolioService`, reusing the transaction loading it already does:
+
+```ts
+  async getStats() {
+    const user = await this.users.ensureDefaultUser();
+    const [txnRows, instrumentRows] = await Promise.all([
+      this.txns.find({ where: { userId: user.id } }),
+      this.instruments.find(),
+    ]);
+    const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
+
+    const trades = deriveTrades(
+      txnRows.map((t) => ({
+        symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
+        side: t.side,
+        quantity: t.quantity,
+        price: t.price,
+        fee: t.fee,
+        executedAt: t.executedAt,
+        plannedStop: t.plannedStop,
+        plannedTarget: t.plannedTarget,
+      })),
+    );
+
+    return { ...summariseTrades(trades), trades };
+  }
+```
+
+with `import { deriveTrades, summariseTrades } from './derive-trades.js';`
+
+Add to `PortfolioController`:
+
+```ts
+  @Get('stats')
+  stats() {
+    return this.portfolio.getStats();
+  }
+```
+
+**Note:** declare `@Get('stats')` alongside `@Get('status')`, both before
+`@Get('position/:symbol')`.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm run test:e2e --prefix backend -- portfolio`
+Expected: PASS.
+
+- [ ] **Step 5: Write the header**
+
+Create `frontend/src/components/StatsHeader.tsx`:
+
+```tsx
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../api/client';
+import { Money } from './Money';
+import { signClass } from './format';
+
+interface Stats {
+  closedCount: number;
+  openCount: number;
+  winRate: number | null;
+  avgWin: number | null;
+  avgLoss: number | null;
+  avgRisk: number | null;
+  riskTradeCount: number;
+  expectancyDollars: number | null;
+  expectancyR: number | null;
+  rTradeCount: number;
+}
+
+function Stat({
+  label,
+  value,
+  sub,
+  tone = '',
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: string;
+}) {
+  return (
+    <div className="flex-1 rounded-xl border border-border bg-surface-1 p-2.5 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-muted">
+        {label}
+      </div>
+      <div className={`mt-0.5 text-lg font-semibold ${tone}`}>{value}</div>
+      {sub && <div className="text-[10px] text-muted">{sub}</div>}
+    </div>
+  );
+}
+
+export function StatsHeader() {
+  const { data } = useQuery({
+    queryKey: ['stats'],
+    queryFn: () => api<Stats>('/portfolio/stats'),
+  });
+
+  if (!data) return null;
+
+  if (data.closedCount === 0) {
+    return (
+      <p className="rounded-xl border border-border bg-surface-1 p-3 text-xs text-muted">
+        Stats appear once you close your first trade.
+        {data.openCount > 0 && ` ${data.openCount} open.`}
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex gap-2">
+        <Stat
+          label="Win rate"
+          value={`${Math.round((data.winRate ?? 0) * 100)}%`}
+          sub={`${data.closedCount} closed`}
+        />
+        <Stat
+          label="Avg risk"
+          value={
+            data.avgRisk === null
+              ? '—'
+              : `$${Math.round(data.avgRisk).toLocaleString('en-US')}`
+          }
+          sub={
+            data.riskTradeCount > 0
+              ? `${data.riskTradeCount} with a stop`
+              : 'set stops to unlock'
+          }
+        />
+        <Stat
+          label="Expectancy"
+          value={
+            data.expectancyR !== null
+              ? `${data.expectancyR > 0 ? '+' : ''}${data.expectancyR.toFixed(2)}R`
+              : '—'
+          }
+          sub={
+            // Never let a headline number hide how small its sample is.
+            data.rTradeCount > 0
+              ? `${data.rTradeCount} of ${data.closedCount} with a stop`
+              : 'set stops to unlock'
+          }
+          tone={signClass(data.expectancyR)}
+        />
+      </div>
+      {data.expectancyDollars !== null && (
+        <p className="text-center text-[10px] text-muted">
+          <Money value={data.expectancyDollars} signed /> average per closed
+          trade
+        </p>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 6: Put it at the top of the journal**
+
+In `frontend/src/routes/Journal.tsx`, render `<StatsHeader />` above the filter
+row, and invalidate `['stats']` alongside `['journal']` and `['portfolio']` in
+`EntrySheet`'s `onSuccess` and in `DeleteEntry`.
+
+- [ ] **Step 7: Verify and commit**
+
+Run: `npm run dev`, open `/journal`.
+
+```bash
+git add -A && git commit -m "feat: win rate, average risk and expectancy header"
+```
+
+### ✋ TEST CHECKPOINT 5 — your real numbers
+
+Close a round trip (or edit a seeded entry into a closed one) and check the three
+stats. **The number to scrutinise is expectancy** — it says "N of M with a stop"
+precisely so a confident-looking R figure built on two trades cannot mislead you.
+
+---
+
 ## Phase 2 done
 
 Run everything before declaring it finished:
@@ -2761,8 +3606,16 @@ layout, and record any deviations in this plan's own deviations table.
 
 ## Deferred
 
-- **Attaching a chart to a trade entry** (as in reference #1) — needs price
-  history, which arrives in Phase 3.
+- **Trade replay** — Phase 3. Needs the daily price history that Phase 3 builds
+  for the benchmark chart; building the backfill twice would be waste. Phase 2
+  captures everything replay depends on (the trade groupings, entry and exit
+  dates and prices), so nothing is lost by waiting.
+- **R:R in any form** — dropped from the header in favour of average dollar
+  risk. Average win and average loss are still computed and returned by the API,
+  so adding a payoff ratio later is a pure display change. The planned target is
+  captured from Phase 2 onward for the same reason.
+- **Attaching a chart to a trade entry** (as in reference #1) — same dependency
+  as replay.
 - **Filtering the timeline by tag in the UI.** The API supports `tagId` already;
   the control is deliberately left out until there are enough tags to need it.
 - **Bulk entry / CSV import.** Not until there is evidence that manual entry is
