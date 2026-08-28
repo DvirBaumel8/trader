@@ -42,6 +42,11 @@ the plan assumed.
 | 4 | TypeScript allows parameter properties | **TS 6 `erasableSyntaxOnly`** forbids them | Constructor parameter properties are written out as explicit field assignments in plain classes. Nest's DI decorators are unaffected. |
 | 5 | Health shown as a persistent "connected" badge | **Failure-only banner** | A permanent everything-is-fine label is noise. Changed after user review at Checkpoint 1. |
 | 6 | Probe tab gated on `import.meta.env.DEV` | **Removed from nav entirely**, reachable at `/probe` | Dev gating still left it cluttering the nav during development, which is the only time anyone sees it. |
+| 7 | Seeding was one-time with no way back | **Reset & re-seed added to the dashboard** | A typo on a phone otherwise left the portfolio unfixable. Found at Checkpoint 3. |
+| 8 | Form state held in React only | **Draft persisted to localStorage** | iOS Safari discards backgrounded tabs, losing everything typed the moment the user checked their broker app. |
+| 9 | Typed `-` for negative cash and short quantities | **Explicit +/- and Long/Short toggles** | The iOS decimal keypad has no minus key, so margin and shorts were literally unenterable. |
+| 10 | Placeholder square PWA icons | **Icons rendered from the real logo mark** | Anti-aliased 192/512 plus a 180px apple-touch-icon, generated to match `Logo.tsx`. |
+| 11 | Sort chips per column | **Native `<select>` picker** | iOS renders its own wheel, and the header does not grow as sort options are added. |
 
 ## Conventions
 
