@@ -143,10 +143,19 @@ from the earliest seed date forward.
 **Position** per instrument:
 ```
 quantity      = Σ(BUY qty) − Σ(SELL qty)          (negative ⇒ short)
-cost_basis    = Σ(BUY qty × price + fee) for the open lots
-realized_pnl  = Σ over closing fills of (proceeds − fee − matched cost)
+cost_basis    = Σ(open lot qty × lot price)        fees excluded
+avg_cost      = cost_basis / quantity
+fees_paid     = Σ(fee) across all fills on this instrument
+realized_pnl  = Σ(closing gains) − fees_paid       net of all costs
 unrealized    = quantity × current_price − cost_basis
+total_pnl     = realized_pnl + unrealized
 ```
+
+Fees are deliberately kept **out** of cost basis and folded into `realized_pnl`
+instead. Putting them in the basis distorts average cost (a $4 fee on a 1-share buy
+would show a visibly wrong avg cost), and routing every fee through `realized_pnl`
+keeps `realized + unrealized` a true net-of-costs figure without double counting.
+`fees_paid` is surfaced separately because it is usually larger than expected.
 
 **Cash balance:**
 ```
