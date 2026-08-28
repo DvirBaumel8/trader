@@ -29,6 +29,20 @@ Four points where work stops and the human tests before anything else is built:
 | 12 | Your real portfolio, seeded and priced — the core deliverable |
 | 13 | Installed on the iPhone home screen, works over Wi-Fi |
 
+## Deviations found during execution
+
+Recorded as they were hit. None changed the design; all were tooling newer than
+the plan assumed.
+
+| # | Planned | Actual | Consequence |
+|---|---|---|---|
+| 1 | NestJS 11, Jest, CommonJS | **NestJS 12, Vitest, native ESM** | Every relative import carries a `.js` extension. Vitest has `globals: true`, so test bodies are unchanged. `NODE_ENV=test` is set by Vitest automatically. |
+| 2 | `yahoo-finance2` v2, default-export singleton | **v4, class-based** — `new YahooFinance({ suppressNotices: ['yahooSurvey'] })` | Confined to `yahoo.client.ts`, exactly as the plan intended. |
+| 3 | Unknown ticker throws | **Unknown ticker resolves to `undefined`** | The adapter normalises it to `null`. Without this a bad symbol would silently become an unpriceable position. Pinned by a test. |
+| 4 | TypeScript allows parameter properties | **TS 6 `erasableSyntaxOnly`** forbids them | Constructor parameter properties are written out as explicit field assignments in plain classes. Nest's DI decorators are unaffected. |
+| 5 | Health shown as a persistent "connected" badge | **Failure-only banner** | A permanent everything-is-fine label is noise. Changed after user review at Checkpoint 1. |
+| 6 | Probe tab gated on `import.meta.env.DEV` | **Removed from nav entirely**, reachable at `/probe` | Dev gating still left it cluttering the nav during development, which is the only time anyone sees it. |
+
 ## Conventions
 
 **Money and rounding.** All monetary and quantity columns are Postgres `numeric`. TypeORM returns `numeric` as a string, so every such column uses the shared `numericTransformer` to parse to `number`. Arithmetic is plain JS numbers; values are rounded to 2 decimals **only at display time**. This is adequate for one trader's book and avoids a decimal library threaded through every calculation.
