@@ -7,6 +7,24 @@ import { Money } from '../components/Money';
 import { StatsHeader } from '../components/StatsHeader';
 import { EntrySheet } from '../components/EntrySheet';
 
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
 type Tab = 'TRADES' | 'ACTIVITIES' | 'BALANCE';
 
 const TABS: { value: Tab; label: string }[] = [
@@ -98,7 +116,13 @@ function TradesTab() {
   );
 }
 
-function ActivitiesTab({ onOpen }: { onOpen: (e: Entry) => void }) {
+function ActivitiesTab({
+  onOpen,
+  editMode,
+}: {
+  onOpen: (e: Entry) => void;
+  editMode: boolean;
+}) {
   const { data, isLoading } = useQuery({
     queryKey: ['journal', 'TRADE'],
     queryFn: () => api<Entry[]>('/journal?kind=TRADE'),
@@ -117,14 +141,27 @@ function ActivitiesTab({ onOpen }: { onOpen: (e: Entry) => void }) {
         entries={entries}
         render={(id) => {
           const e = byId.get(id);
-          return e ? <EntryCard key={id} entry={e} onOpen={onOpen} /> : null;
+          return e ? (
+            <EntryCard
+              key={id}
+              entry={e}
+              editMode={editMode}
+              onOpen={onOpen}
+            />
+          ) : null;
         }}
       />
     </div>
   );
 }
 
-function BalanceTab({ onOpen }: { onOpen: (e: Entry) => void }) {
+function BalanceTab({
+  onOpen,
+  editMode,
+}: {
+  onOpen: (e: Entry) => void;
+  editMode: boolean;
+}) {
   const { data: balance } = useQuery({
     queryKey: ['portfolio'],
     queryFn: () => api<Balance>('/portfolio'),
@@ -187,7 +224,12 @@ function BalanceTab({ onOpen }: { onOpen: (e: Entry) => void }) {
       ) : (
         <ul>
           {entries.map((e) => (
-            <EntryCard key={e.id} entry={e} onOpen={onOpen} />
+            <EntryCard
+              key={e.id}
+              entry={e}
+              editMode={editMode}
+              onOpen={onOpen}
+            />
           ))}
         </ul>
       )}
@@ -198,6 +240,7 @@ function BalanceTab({ onOpen }: { onOpen: (e: Entry) => void }) {
 export function Journal() {
   const [tab, setTab] = useState<Tab>('TRADES');
   const [composing, setComposing] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [editing, setEditing] = useState<Entry | null>(null);
 
   const { data: settings } = useQuery({
@@ -214,7 +257,7 @@ export function Journal() {
     <div className="space-y-4 pb-20">
       <StatsHeader />
 
-      <div className="flex gap-1">
+      <div className="flex items-center gap-1">
         {TABS.map((t) => (
           <button
             key={t.value}
@@ -230,11 +273,37 @@ export function Journal() {
             {t.label}
           </button>
         ))}
+
+        {tab !== 'TRADES' && (
+          <button
+            type="button"
+            aria-pressed={editMode}
+            aria-label={editMode ? 'Done editing' : 'Edit entries'}
+            onClick={() => setEditMode((v) => !v)}
+            className={`ml-auto rounded-lg border px-2 py-1.5 transition-colors ${
+              editMode
+                ? 'border-accent/40 bg-accent/10 text-accent'
+                : 'border-border text-muted'
+            }`}
+          >
+            <PencilIcon />
+          </button>
+        )}
       </div>
 
+      {editMode && tab !== 'TRADES' && (
+        <p className="text-[11px] text-accent">
+          Tap an entry to edit or delete it.
+        </p>
+      )}
+
       {tab === 'TRADES' && <TradesTab />}
-      {tab === 'ACTIVITIES' && <ActivitiesTab onOpen={setEditing} />}
-      {tab === 'BALANCE' && <BalanceTab onOpen={setEditing} />}
+      {tab === 'ACTIVITIES' && (
+        <ActivitiesTab onOpen={setEditing} editMode={editMode} />
+      )}
+      {tab === 'BALANCE' && (
+        <BalanceTab onOpen={setEditing} editMode={editMode} />
+      )}
 
       <button
         type="button"
