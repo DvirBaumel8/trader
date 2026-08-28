@@ -10,6 +10,7 @@ import { Tag } from './tag.entity.js';
 import { EntryTag } from './entry-tag.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
+import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
@@ -47,9 +48,11 @@ export interface StopLevelSpec {
   quantity: number;
 }
 
+export type EntryKindInput = 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
+
 export interface EntryView {
   id: string;
-  kind: 'TRADE' | 'NOTE' | 'CASH';
+  kind: EntryKindInput;
   body: string;
   occurredAt: string;
   trade: {
@@ -64,11 +67,12 @@ export interface EntryView {
     riskAmount: number | null;
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
+  dividend: { symbol: string; amount: number } | null;
   tags: { id: string; type: 'SETUP' | 'MISTAKE'; label: string }[];
 }
 
 export interface CreateEntryInput {
-  kind: 'TRADE' | 'NOTE' | 'CASH';
+  kind: EntryKindInput;
   body: string;
   occurredAt: string;
   trade?: {
@@ -80,12 +84,13 @@ export interface CreateEntryInput {
     stopLevels?: StopLevelSpec[];
   };
   cash?: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number };
+  dividend?: { symbol: string; amount: number };
   tags?: { type: 'SETUP' | 'MISTAKE'; label: string }[];
 }
 
 export interface ListFilters {
   symbol?: string;
-  kind?: 'TRADE' | 'NOTE' | 'CASH';
+  kind?: EntryKindInput;
   tagId?: string;
 }
 
@@ -98,6 +103,8 @@ export class JournalService {
     private readonly txns: Repository<Transaction>,
     @InjectRepository(CashFlow)
     private readonly flows: Repository<CashFlow>,
+    @InjectRepository(Dividend)
+    private readonly dividends: Repository<Dividend>,
     @InjectRepository(StopLevel)
     private readonly stopLevels: Repository<StopLevel>,
     @InjectRepository(Tag) private readonly tags: Repository<Tag>,
@@ -112,7 +119,7 @@ export class JournalService {
 
   async list(filters: ListFilters = {}): Promise<EntryView[]> {
     const user = await this.users.ensureDefaultUser();
-    const [entries, txns, flows, instruments, allTags, joins, levels] =
+    const [entries, txns, flows, divs, instruments, allTags, joins, levels] =
       await Promise.all([
         this.entries.find({
           where: { userId: user.id },
@@ -120,6 +127,7 @@ export class JournalService {
         }),
         this.txns.find({ where: { userId: user.id } }),
         this.flows.find({ where: { userId: user.id } }),
+        this.dividends.find({ where: { userId: user.id } }),
         this.instruments.find(),
         this.tags.find({ where: { userId: user.id } }),
         this.entryTags.find(),
@@ -129,6 +137,7 @@ export class JournalService {
     const symbolById = new Map(instruments.map((i) => [i.id, i.symbol]));
     const txnByEntry = new Map(txns.map((t) => [t.entryId, t]));
     const flowByEntry = new Map(flows.map((f) => [f.entryId, f]));
+    const divByEntry = new Map(divs.map((d) => [d.entryId, d]));
     const tagById = new Map(allTags.map((t) => [t.id, t]));
 
     const levelsByTxn = new Map<string, StopLevel[]>();
@@ -150,6 +159,7 @@ export class JournalService {
     const views: EntryView[] = entries.map((e) => {
       const t = txnByEntry.get(e.id);
       const f = flowByEntry.get(e.id);
+      const d = divByEntry.get(e.id);
 
       let trade: EntryView['trade'] = null;
       if (t) {
@@ -191,6 +201,12 @@ export class JournalService {
         occurredAt: e.occurredAt.toISOString(),
         trade,
         cash: f ? { direction: f.direction, amount: f.amount } : null,
+        dividend: d
+          ? {
+              symbol: symbolById.get(d.instrumentId) ?? 'UNKNOWN',
+              amount: d.amount,
+            }
+          : null,
         tags: (tagIdsByEntry.get(e.id) ?? [])
           .map((id) => tagById.get(id))
           .filter((t): t is Tag => t !== undefined)
@@ -200,8 +216,11 @@ export class JournalService {
 
     return views.filter((v) => {
       if (filters.kind && v.kind !== filters.kind) return false;
-      if (filters.symbol && v.trade?.symbol !== filters.symbol.toUpperCase()) {
-        return false;
+      if (filters.symbol) {
+        const wanted = filters.symbol.toUpperCase();
+        const matches =
+          v.trade?.symbol === wanted || v.dividend?.symbol === wanted;
+        if (!matches) return false;
       }
       if (filters.tagId && !v.tags.some((t) => t.id === filters.tagId)) {
         return false;
@@ -312,6 +331,15 @@ export class JournalService {
     if (input.kind === 'CASH' && !input.cash) {
       throw new BadRequestException('A cash entry needs an amount');
     }
+    if (input.kind === 'DIVIDEND') {
+      if (!input.dividend) {
+        throw new BadRequestException('A dividend needs a ticker and amount');
+      }
+      const instrument = await this.instrumentsService.findOrCreate(
+        input.dividend.symbol,
+      );
+      return { side: 'BUY' as const, quantity: 0, instrumentId: instrument.id };
+    }
     return null;
   }
 
@@ -350,6 +378,18 @@ export class JournalService {
         }),
       );
     }
+
+    if (input.kind === 'DIVIDEND' && input.dividend && resolved) {
+      await manager.save(
+        manager.create(Dividend, {
+          userId,
+          entryId,
+          instrumentId: resolved.instrumentId,
+          amount: Math.abs(input.dividend.amount),
+          occurredAt: new Date(input.occurredAt),
+        }),
+      );
+    }
   }
 
   /** Stop levels hang off the transaction, so they must go before it. */
@@ -363,6 +403,7 @@ export class JournalService {
     }
     await manager.delete(Transaction, { entryId });
     await manager.delete(CashFlow, { entryId });
+    await manager.delete(Dividend, { entryId });
   }
 
   /**

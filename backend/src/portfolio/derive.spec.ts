@@ -1,8 +1,10 @@
 import {
   derivePositions,
   deriveCash,
+  deriveContributedCapital,
   type DerivedTxn,
   type DerivedFlow,
+  type DerivedDividend,
 } from './derive.js';
 
 function buy(
@@ -199,10 +201,37 @@ describe('deriveCash', () => {
     expect(cash).toBe(10000 - 1000 - 4 + 1300 - 4);
   });
 
+  it('adds a dividend to cash', () => {
+    const dividend: DerivedDividend = {
+      symbol: 'NVDA',
+      amount: 120,
+      occurredAt: new Date(2026, 0, 3),
+    };
+    expect(deriveCash([], [deposit(1000)], [dividend])).toBe(1120);
+  });
+
   it('goes negative on margin without complaint', () => {
     // Buying more than the cash on hand is a legitimate margin state.
     expect(deriveCash([buy('NVDA', 100, 100, 4)], [deposit(1000)])).toBe(
       1000 - 10000 - 4,
     );
+  });
+});
+
+describe('deriveContributedCapital', () => {
+  it('is the net of deposits and withdrawals', () => {
+    expect(deriveContributedCapital([deposit(10000), withdraw(2500)])).toBe(
+      7500,
+    );
+  });
+
+  it('excludes dividends, which are earned rather than contributed', () => {
+    // A dividend raises cash but must never look like money the owner added,
+    // or the benchmark comparison understates real performance.
+    const flows = [deposit(10000)];
+    expect(deriveContributedCapital(flows)).toBe(10000);
+    expect(deriveCash([], flows, [
+      { symbol: 'NVDA', amount: 500, occurredAt: new Date(2026, 0, 2) },
+    ])).toBe(10500);
   });
 });

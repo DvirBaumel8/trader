@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
+import { Dividend } from '../transactions/dividend.entity.js';
+import { StopLevel } from '../transactions/stop-level.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { PortfolioService } from './portfolio.service.js';
@@ -13,7 +15,14 @@ import { JournalModule } from '../journal/journal.module.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Transaction, CashFlow, JournalEntry, Instrument]),
+    TypeOrmModule.forFeature([
+      Transaction,
+      CashFlow,
+      Dividend,
+      StopLevel,
+      JournalEntry,
+      Instrument,
+    ]),
     InstrumentsModule,
     MarketDataModule,
     UsersModule,

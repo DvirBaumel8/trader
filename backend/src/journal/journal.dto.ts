@@ -67,6 +67,16 @@ export class CashDto {
   amount: number;
 }
 
+export class DividendDto {
+  @IsString()
+  @Length(1, 12)
+  symbol: string;
+
+  /** Always positive: cash received, after any withholding. */
+  @IsNumber()
+  amount: number;
+}
+
 export class TagDto {
   @IsIn(['SETUP', 'MISTAKE'])
   type: 'SETUP' | 'MISTAKE';
@@ -77,8 +87,8 @@ export class TagDto {
 }
 
 export class CreateEntryDto {
-  @IsIn(['TRADE', 'NOTE', 'CASH'])
-  kind: 'TRADE' | 'NOTE' | 'CASH';
+  @IsIn(['TRADE', 'NOTE', 'CASH', 'DIVIDEND'])
+  kind: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
 
   @IsOptional()
   @IsString()
@@ -97,6 +107,11 @@ export class CreateEntryDto {
   @ValidateNested()
   @Type(() => CashDto)
   cash?: CashDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DividendDto)
+  dividend?: DividendDto;
 
   @IsOptional()
   @IsArray()

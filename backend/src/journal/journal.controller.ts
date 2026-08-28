@@ -29,6 +29,7 @@ function toInput(body: CreateEntryDto): CreateEntryInput {
         }
       : undefined,
     cash: body.cash,
+    dividend: body.dividend,
     tags: body.tags,
   };
 }
@@ -46,7 +47,7 @@ export class JournalController {
   @Get()
   list(
     @Query('symbol') symbol?: string,
-    @Query('kind') kind?: 'TRADE' | 'NOTE' | 'CASH',
+    @Query('kind') kind?: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND',
     @Query('tagId') tagId?: string,
   ) {
     return this.journal.list({ symbol, kind, tagId });

@@ -20,7 +20,7 @@ describe('Portfolio (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE transactions, cash_flows, journal_entries RESTART IDENTITY CASCADE',
+      'TRUNCATE stop_levels, transactions, cash_flows, dividends, journal_entries, entry_tags, tags RESTART IDENTITY CASCADE',
     );
   });
 

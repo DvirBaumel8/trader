@@ -5,6 +5,7 @@ import { Tag } from './tag.entity.js';
 import { EntryTag } from './entry-tag.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
+import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { JournalService } from './journal.service.js';
@@ -20,6 +21,7 @@ import { UsersModule } from '../users/users.module.js';
       EntryTag,
       Transaction,
       CashFlow,
+      Dividend,
       StopLevel,
       Instrument,
     ]),

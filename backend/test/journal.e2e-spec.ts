@@ -20,7 +20,7 @@ describe('Journal (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE stop_levels, transactions, cash_flows, journal_entries, entry_tags, tags RESTART IDENTITY CASCADE',
+      'TRUNCATE stop_levels, transactions, cash_flows, dividends, journal_entries, entry_tags, tags RESTART IDENTITY CASCADE',
     );
   });
 
@@ -357,6 +357,66 @@ describe('Journal (e2e)', () => {
         occurredAt: '2026-08-29T14:30:00.000Z',
       })
       .expect(404);
+  });
+
+  it('a dividend raises cash but not contributed capital', async () => {
+    await post({
+      kind: 'CASH',
+      body: '',
+      occurredAt: '2026-08-01T14:30:00.000Z',
+      cash: { direction: 'DEPOSIT', amount: 10000 },
+    }).expect(201);
+
+    await post({
+      kind: 'DIVIDEND',
+      body: 'quarterly',
+      occurredAt: '2026-08-20T14:30:00.000Z',
+      dividend: { symbol: 'NVDA', amount: 250 },
+    }).expect(201);
+
+    const portfolio = await request(app.getHttpServer())
+      .get('/portfolio')
+      .expect(200);
+    // Cash rises by the dividend...
+    expect(portfolio.body.cash).toBe(10250);
+    // ...but contributed capital does not. A dividend is earned, not added.
+    expect(portfolio.body.contributedCapital).toBe(10000);
+    expect(portfolio.body.dividendsReceived).toBe(250);
+    // And it creates no position.
+    expect(portfolio.body.positions).toEqual([]);
+  });
+
+  it('rejects a dividend on an unknown ticker', async () => {
+    await post({
+      kind: 'DIVIDEND',
+      body: '',
+      occurredAt: '2026-08-20T14:30:00.000Z',
+      dividend: { symbol: 'ZZZZNOTREAL', amount: 100 },
+    }).expect(404);
+  });
+
+  it('deletes a dividend and removes it from cash', async () => {
+    const created = await post({
+      kind: 'DIVIDEND',
+      body: '',
+      occurredAt: '2026-08-20T14:30:00.000Z',
+      dividend: { symbol: 'NVDA', amount: 250 },
+    }).expect(201);
+
+    expect(created.body.dividend).toMatchObject({
+      symbol: 'NVDA',
+      amount: 250,
+    });
+
+    await request(app.getHttpServer())
+      .delete(`/journal/${created.body.id}`)
+      .expect(200);
+
+    const portfolio = await request(app.getHttpServer())
+      .get('/portfolio')
+      .expect(200);
+    expect(portfolio.body.cash).toBe(0);
+    expect(portfolio.body.dividendsReceived).toBe(0);
   });
 
   it('can change an entry from a trade into a note', async () => {

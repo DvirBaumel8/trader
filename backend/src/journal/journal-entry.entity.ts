@@ -7,12 +7,13 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export type EntryKind = 'TRADE' | 'NOTE' | 'CASH';
+export type EntryKind = 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
 
 /**
  * The single timeline. A TRADE entry owns one transaction, a CASH entry owns
- * one cash flow, a NOTE owns neither. Transactions are ONLY ever created
- * through an entry, so there is exactly one write path into the portfolio.
+ * one cash flow, a DIVIDEND owns one dividend row, a NOTE owns nothing.
+ * Transactions are ONLY ever created through an entry, so there is exactly one
+ * write path into the portfolio.
  */
 @Entity('journal_entries')
 export class JournalEntry {

@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
+import { Dividend } from '../transactions/dividend.entity.js';
+import { StopLevel } from '../transactions/stop-level.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
@@ -12,9 +14,12 @@ import { JournalService } from '../journal/journal.service.js';
 import {
   derivePositions,
   deriveCash,
+  deriveContributedCapital,
   type DerivedTxn,
   type DerivedFlow,
+  type DerivedDividend,
 } from './derive.js';
+import { deriveTrades, summariseTrades } from './derive-trades.js';
 
 export interface SeedHolding {
   symbol: string;
@@ -35,6 +40,10 @@ export class PortfolioService {
     private readonly txns: Repository<Transaction>,
     @InjectRepository(CashFlow)
     private readonly flows: Repository<CashFlow>,
+    @InjectRepository(Dividend)
+    private readonly dividendRows: Repository<Dividend>,
+    @InjectRepository(StopLevel)
+    private readonly stopLevels: Repository<StopLevel>,
     @InjectRepository(JournalEntry)
     private readonly entries: Repository<JournalEntry>,
     @InjectRepository(Instrument)
@@ -48,9 +57,10 @@ export class PortfolioService {
 
   async getPortfolio(opts: { refresh?: boolean } = {}) {
     const user = await this.users.ensureDefaultUser();
-    const [txnRows, flowRows, instrumentRows] = await Promise.all([
+    const [txnRows, flowRows, divRows, instrumentRows] = await Promise.all([
       this.txns.find({ where: { userId: user.id } }),
       this.flows.find({ where: { userId: user.id } }),
+      this.dividendRows.find({ where: { userId: user.id } }),
       this.instruments.find(),
     ]);
 
@@ -71,8 +81,14 @@ export class PortfolioService {
       occurredAt: f.occurredAt,
     }));
 
+    const derivedDividends: DerivedDividend[] = divRows.map((d) => ({
+      symbol: symbolById.get(d.instrumentId) ?? 'UNKNOWN',
+      amount: d.amount,
+      occurredAt: d.occurredAt,
+    }));
+
     const derived = derivePositions(derivedTxns).filter((p) => p.isOpen);
-    const cash = deriveCash(derivedTxns, derivedFlows);
+    const cash = deriveCash(derivedTxns, derivedFlows, derivedDividends);
 
     const quotes = await this.marketData.getQuotes(
       derived.map((p) => p.symbol),
@@ -117,6 +133,10 @@ export class PortfolioService {
       positionsValue,
       accountValue: cash + positionsValue,
       hasStalePrices: positions.some((p) => p.stale),
+      // Capital the owner actually put in. Dividends raise cash but are
+      // earned, not contributed — see dividend.entity.ts.
+      contributedCapital: deriveContributedCapital(derivedFlows),
+      dividendsReceived: derivedDividends.reduce((s, d) => s + d.amount, 0),
       // One session for the header badge. Quotes come from the same market, so
       // the first priced position is representative.
       marketSession: positions.find((p) => p.session !== null)?.session ?? null,
@@ -124,6 +144,46 @@ export class PortfolioService {
       // When the client last got real numbers, so the UI can say "updated 17:31".
       pricedAt: new Date().toISOString(),
     };
+  }
+
+  async getStats() {
+    const user = await this.users.ensureDefaultUser();
+    const [txnRows, instrumentRows, levelRows] = await Promise.all([
+      this.txns.find({ where: { userId: user.id } }),
+      this.instruments.find(),
+      this.stopLevels.find(),
+    ]);
+    const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
+
+    const levelsByTxn = new Map<string, StopLevel[]>();
+    for (const l of levelRows) {
+      levelsByTxn.set(l.transactionId, [
+        ...(levelsByTxn.get(l.transactionId) ?? []),
+        l,
+      ]);
+    }
+
+    const trades = deriveTrades(
+      txnRows.map((t) => ({
+        symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
+        side: t.side,
+        quantity: t.quantity,
+        price: t.price,
+        fee: t.fee,
+        executedAt: t.executedAt,
+        stopLevels: (levelsByTxn.get(t.id) ?? [])
+          .sort((a, b) => a.ordinal - b.ordinal)
+          .map((l) => ({
+            kind: l.kind,
+            price: l.price,
+            trailPercent: l.trailPercent,
+            quantity: l.quantity,
+          })),
+        plannedTarget: t.plannedTarget,
+      })),
+    );
+
+    return { ...summariseTrades(trades), trades };
   }
 
   async isSeeded(): Promise<boolean> {

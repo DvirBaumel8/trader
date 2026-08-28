@@ -49,6 +49,11 @@ export class PortfolioController {
     });
   }
 
+  @Get('stats')
+  stats() {
+    return this.portfolio.getStats();
+  }
+
   @Get('status')
   async status() {
     return { seeded: await this.portfolio.isSeeded() };

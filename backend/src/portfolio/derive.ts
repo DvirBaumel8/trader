@@ -16,6 +16,16 @@ export interface DerivedFlow {
   occurredAt: Date;
 }
 
+/**
+ * Income paid by a holding. Increases cash but is NOT a contribution — see
+ * dividend.entity.ts for why that distinction matters to the benchmark.
+ */
+export interface DerivedDividend {
+  symbol: string;
+  amount: number; // always positive
+  occurredAt: Date;
+}
+
 export interface DerivedPosition {
   symbol: string;
   /** Negative means short. */
@@ -119,6 +129,7 @@ export function derivePositions(txns: DerivedTxn[]): DerivedPosition[] {
 export function deriveCash(
   txns: DerivedTxn[],
   flows: DerivedFlow[],
+  dividends: DerivedDividend[] = [],
 ): number {
   let cash = 0;
   for (const f of flows) {
@@ -129,7 +140,20 @@ export function deriveCash(
     cash += t.side === 'BUY' ? -notional : notional;
     cash -= t.fee;
   }
+  // Dividends add to cash but never to contributed capital.
+  for (const d of dividends) {
+    cash += d.amount;
+  }
   return round(cash);
+}
+
+/** Net capital the owner actually put in. Dividends deliberately excluded. */
+export function deriveContributedCapital(flows: DerivedFlow[]): number {
+  let total = 0;
+  for (const f of flows) {
+    total += f.direction === 'DEPOSIT' ? f.amount : -f.amount;
+  }
+  return round(total);
 }
 
 /** Kills floating-point dust without pulling in a decimal library. */
