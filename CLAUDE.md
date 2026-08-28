@@ -3,11 +3,24 @@
 A portfolio and trading journal for one active trader. Mobile-first dark web app,
 installable to the iPhone home screen, running locally.
 
-> **Read first:** [`docs/product-brief.md`](docs/product-brief.md) — who this is
-> for, why it exists, and the principles that break ties (start slow, free for
-> now, mobile first, honest numbers).
-> [`docs/working-agreement.md`](docs/working-agreement.md) — how to work on it:
-> small testable slices, human checkpoints, and the rules learned the hard way.
+## Required reading
+
+These are **imported into context automatically** — not optional links. Read them
+as part of this file.
+
+@docs/product-brief.md
+@docs/working-agreement.md
+
+If the imports above did not resolve for any reason, open both files directly
+before doing anything else. The short version, which must hold either way:
+
+- **The owner is an active daily trader.** Value to him first; friends and a
+  subscription second. That second goal is why the UI bar is a product bar.
+- **Start slow, resist features, stay free.** No paid services while this serves
+  one user.
+- **Small testable slices with human checkpoints.** Never a batch of work handed
+  over unverified. Never destructive commands against his real database.
+- **Mobile is the primary device**, and honest numbers beat pretty ones.
 
 ## The core idea
 
@@ -103,9 +116,26 @@ frontend/src/
 - **Phase 3 — vs the market**: not started. `daily_closes` backfill, TWR series,
   the three-line benchmark chart.
 
-Design spec: `docs/superpowers/specs/2026-08-28-trader-design.md`
-Phase 1 plan and its recorded deviations:
-`docs/superpowers/plans/2026-08-28-trader-phase-1-portfolio.md`
+## Documentation map
+
+Which file answers which question, and whether it loads on its own:
+
+| File | Answers | Loaded |
+|---|---|---|
+| `CLAUDE.md` | How to work in this codebase | Automatically |
+| `docs/product-brief.md` | Who it is for, why it exists, the principles | Imported above |
+| `docs/working-agreement.md` | How work should proceed | Imported above |
+| `docs/superpowers/specs/2026-08-28-trader-design.md` | What v1 is and the reasoning behind each decision | On demand |
+| `docs/superpowers/plans/2026-08-28-trader-phase-1-portfolio.md` | Phase 1 task-by-task plan and its recorded deviations | On demand |
+
+The two spec/plan documents are deliberately **not** imported: they are long,
+mostly historical, and only relevant when revisiting a decision or writing the
+next phase. Read them when that is the task.
+
+**When adding a new document**, decide which category it is in. If it changes how
+work should be done or what the product is for, import it here. If it is
+reference material for a specific task, add a row to this table and leave it on
+demand. A document nobody is pointed at will not be read.
 
 ## Known shortcuts
 
