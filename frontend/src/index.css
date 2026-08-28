@@ -12,10 +12,14 @@
   --color-down: #f43f5e;
 }
 
-html,
+html {
+  height: 100%;
+  background: var(--color-surface-0);
+}
+
 body,
 #root {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
@@ -24,4 +28,14 @@ body {
   -webkit-font-smoothing: antialiased;
   /* tabular figures so columns of numbers line up */
   font-variant-numeric: tabular-nums;
+
+  /*
+   * Installed to the home screen the app runs full-screen under a translucent
+   * status bar, so content would otherwise sit beneath the notch and the home
+   * indicator. These resolve to 0 in a normal browser tab.
+   */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
