@@ -44,19 +44,15 @@ export function AppShell() {
 
       <ConnectionBanner />
 
+      {/*
+        Only real destinations belong here. The dev-only ticker probe is
+        deliberately absent and reachable by typing /probe — scaffolding should
+        not take up space in the product's navigation.
+      */}
       <nav className="flex border-b border-border px-2">
         <NavLink to="/" className={linkClass} end>
           Portfolio
         </NavLink>
-        {/*
-          Dev-only scaffolding: lets us confirm the price provider knows every
-          ticker before the portfolio is built on that assumption. Never ships.
-        */}
-        {import.meta.env.DEV && (
-          <NavLink to="/probe" className={linkClass}>
-            Probe
-          </NavLink>
-        )}
       </nav>
 
       <main className="flex-1 px-4 py-5">
