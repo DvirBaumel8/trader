@@ -53,6 +53,9 @@ export function AppShell() {
         <NavLink to="/" className={linkClass} end>
           Portfolio
         </NavLink>
+        <NavLink to="/journal" className={linkClass}>
+          Journal
+        </NavLink>
       </nav>
 
       <main className="flex-1 px-4 py-5">
