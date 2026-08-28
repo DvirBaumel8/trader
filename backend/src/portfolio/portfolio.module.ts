@@ -9,6 +9,7 @@ import { PortfolioController } from './portfolio.controller.js';
 import { InstrumentsModule } from '../instruments/instruments.module.js';
 import { MarketDataModule } from '../market-data/market-data.module.js';
 import { UsersModule } from '../users/users.module.js';
+import { JournalModule } from '../journal/journal.module.js';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { UsersModule } from '../users/users.module.js';
     InstrumentsModule,
     MarketDataModule,
     UsersModule,
+    JournalModule,
   ],
   providers: [PortfolioService],
   controllers: [PortfolioController],

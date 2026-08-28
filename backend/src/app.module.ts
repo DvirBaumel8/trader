@@ -5,6 +5,7 @@ import { HealthModule } from './health/health.module.js';
 import { UsersModule } from './users/users.module.js';
 import { InstrumentsModule } from './instruments/instruments.module.js';
 import { PortfolioModule } from './portfolio/portfolio.module.js';
+import { JournalModule } from './journal/journal.module.js';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { PortfolioModule } from './portfolio/portfolio.module.js';
     }),
     UsersModule,
     InstrumentsModule,
+    JournalModule,
     PortfolioModule,
     HealthModule,
   ],

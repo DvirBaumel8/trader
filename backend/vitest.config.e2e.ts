@@ -7,5 +7,12 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    /**
+     * Every e2e file shares one `trader_test` database and truncates tables in
+     * beforeEach. Run in parallel they deadlock and stomp on each other's rows,
+     * producing failures that look like application bugs but are not. Unit
+     * tests are unaffected — they touch no database and still run in parallel.
+     */
+    fileParallelism: false,
   },
 });

@@ -8,6 +8,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { MarketDataService } from '../market-data/market-data.service.js';
 import { UsersService } from '../users/users.service.js';
+import { JournalService } from '../journal/journal.service.js';
 import {
   derivePositions,
   deriveCash,
@@ -41,6 +42,7 @@ export class PortfolioService {
     private readonly instrumentsService: InstrumentsService,
     private readonly marketData: MarketDataService,
     private readonly users: UsersService,
+    private readonly journal: JournalService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -172,51 +174,36 @@ export class PortfolioService {
     );
     const contributed = req.startingCash + holdingsCost;
 
-    await this.dataSource.transaction(async (manager) => {
-      if (contributed !== 0) {
-        const entry = await manager.save(
-          manager.create(JournalEntry, {
-            userId: user.id,
-            kind: 'CASH',
-            body: 'Opening capital (seeded)',
-            occurredAt: asOf,
-          }),
-        );
-        await manager.save(
-          manager.create(CashFlow, {
-            userId: user.id,
-            entryId: entry.id,
-            direction: contributed > 0 ? 'DEPOSIT' : 'WITHDRAW',
-            amount: Math.abs(contributed),
-            occurredAt: asOf,
-          }),
-        );
-      }
+    // Written through the journal service, the single write path into
+    // transactions and cash flows. Tickers were validated above, so the
+    // realistic failure mode is already gone; a partial seed is recoverable
+    // with reset-and-re-seed.
+    if (contributed !== 0) {
+      await this.journal.create({
+        kind: 'CASH',
+        body: 'Opening capital (seeded)',
+        occurredAt: asOf.toISOString(),
+        cash: {
+          direction: contributed > 0 ? 'DEPOSIT' : 'WITHDRAW',
+          amount: Math.abs(contributed),
+        },
+      });
+    }
 
-      for (const { holding, instrument } of resolved) {
-        const entry = await manager.save(
-          manager.create(JournalEntry, {
-            userId: user.id,
-            kind: 'TRADE',
-            body: `Opening position (seeded): ${instrument.symbol}`,
-            occurredAt: asOf,
-          }),
-        );
-        await manager.save(
-          manager.create(Transaction, {
-            userId: user.id,
-            entryId: entry.id,
-            instrumentId: instrument.id,
-            side: holding.quantity >= 0 ? 'BUY' : 'SELL',
-            quantity: Math.abs(holding.quantity),
-            price: holding.avgCost,
-            // Seeding is not a real trade, so it carries no fee.
-            fee: 0,
-            executedAt: asOf,
-          }),
-        );
-      }
-    });
+    for (const { holding, instrument } of resolved) {
+      await this.journal.create({
+        kind: 'TRADE',
+        body: `Opening position (seeded): ${instrument.symbol}`,
+        occurredAt: asOf.toISOString(),
+        trade: {
+          symbol: instrument.symbol,
+          quantity: holding.quantity,
+          price: holding.avgCost,
+          // Seeding is not a real trade, so it carries no fee.
+          fee: 0,
+        },
+      });
+    }
 
     return this.getPortfolio();
   }
