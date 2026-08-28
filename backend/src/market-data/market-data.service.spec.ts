@@ -19,6 +19,9 @@ const NVDA: RawQuote = {
   name: 'NVIDIA',
   price: 168.2,
   currency: 'USD',
+  session: 'REGULAR',
+  extended: false,
+  regularPrice: 168.2,
 };
 
 describe('MarketDataService', () => {
@@ -86,7 +89,18 @@ describe('MarketDataService', () => {
     let calls = 0;
     const svc = new MarketDataService(
       fakeClient(
-        [NVDA, { symbol: 'AAPL', name: 'Apple', price: 214, currency: 'USD' }],
+        [
+          NVDA,
+          {
+            symbol: 'AAPL',
+            name: 'Apple',
+            price: 214,
+            currency: 'USD',
+            session: 'REGULAR',
+            extended: false,
+            regularPrice: 214,
+          },
+        ],
         () => calls++,
       ),
     );
@@ -114,6 +128,26 @@ describe('MarketDataService', () => {
     expect(calls).toBe(1);
     await svc.getQuotes(['NVDA'], true); // forced
     expect(calls).toBe(2);
+  });
+
+  it('carries the trading session and extended flag through', async () => {
+    const afterHours: RawQuote = {
+      symbol: 'NVDA',
+      name: 'NVIDIA',
+      price: 217.73,
+      currency: 'USD',
+      session: 'POST',
+      extended: true,
+      regularPrice: 217.55,
+    };
+    const svc = new MarketDataService(fakeClient([afterHours]));
+    const q = await svc.getQuote('NVDA');
+    expect(q).toMatchObject({
+      price: 217.73,
+      session: 'POST',
+      extended: true,
+      regularPrice: 217.55,
+    });
   });
 
   it('deduplicates symbols and ignores case in a batch', async () => {

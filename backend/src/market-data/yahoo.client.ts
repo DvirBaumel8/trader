@@ -1,11 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import YahooFinance from 'yahoo-finance2';
+import { selectPrice, type MarketSession } from './select-price.js';
 
 export interface RawQuote {
   symbol: string;
   name: string | null;
   price: number;
   currency: string | null;
+  session: MarketSession;
+  /** True when `price` is an extended-hours print rather than the close. */
+  extended: boolean;
+  /** The regular-session price, kept so the UI can show the move since close. */
+  regularPrice: number | null;
 }
 
 /** The shape we actually read off a Yahoo quote, regardless of its full type. */
@@ -14,6 +20,9 @@ interface QuoteLike {
   shortName?: string;
   longName?: string;
   regularMarketPrice?: number;
+  preMarketPrice?: number;
+  postMarketPrice?: number;
+  marketState?: string;
   currency?: string;
 }
 
@@ -35,20 +44,21 @@ export class YahooClient {
     if (symbols.length === 0) return [];
     const raw = (await this.yf.quote(symbols)) as QuoteLike[] | undefined;
     if (!Array.isArray(raw)) return [];
-    return raw
-      .map(toRawQuote)
-      .filter((q): q is RawQuote => q !== null);
+    return raw.map(toRawQuote).filter((q): q is RawQuote => q !== null);
   }
 }
 
 function toRawQuote(raw: QuoteLike | undefined): RawQuote | null {
-  if (!raw || typeof raw.regularMarketPrice !== 'number' || !raw.symbol) {
-    return null;
-  }
+  if (!raw || !raw.symbol) return null;
+  const selected = selectPrice(raw);
+  if (!selected) return null;
   return {
     symbol: raw.symbol,
     name: raw.shortName ?? raw.longName ?? null,
-    price: raw.regularMarketPrice,
+    price: selected.price,
     currency: raw.currency ?? null,
+    session: selected.session,
+    extended: selected.extended,
+    regularPrice: raw.regularMarketPrice ?? null,
   };
 }

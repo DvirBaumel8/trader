@@ -1,11 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { YahooClient } from './yahoo.client.js';
+import { YahooClient, type RawQuote } from './yahoo.client.js';
+import type { MarketSession } from './select-price.js';
 
 export interface Quote {
   symbol: string;
   name: string | null;
   price: number;
   stale: boolean;
+  /** Which trading session `price` came from. */
+  session: MarketSession;
+  /** True when `price` is an extended-hours print rather than the close. */
+  extended: boolean;
+  /** The regular-session price, for showing the move since the close. */
+  regularPrice: number | null;
   fetchedAt?: Date;
 }
 
@@ -40,7 +47,7 @@ export class MarketDataService {
     try {
       const raw = await this.yahoo.quote(key);
       if (!raw) return null;
-      return this.store(key, raw.name, raw.price);
+      return this.store(key, raw);
     } catch {
       // Never show a wrong number as if it were fresh.
       return cached ? { ...cached.quote, stale: true } : null;
@@ -68,7 +75,7 @@ export class MarketDataService {
     try {
       for (const raw of await this.yahoo.quoteMany(missing)) {
         const key = raw.symbol.toUpperCase();
-        out.set(key, this.store(key, raw.name, raw.price));
+        out.set(key, this.store(key, raw));
       }
     } catch {
       for (const key of missing) {
@@ -79,13 +86,16 @@ export class MarketDataService {
     return out;
   }
 
-  private store(key: string, name: string | null, price: number): Quote {
+  private store(key: string, raw: RawQuote): Quote {
     const now = new Date();
     const quote: Quote = {
       symbol: key,
-      name,
-      price,
+      name: raw.name,
+      price: raw.price,
       stale: false,
+      session: raw.session,
+      extended: raw.extended,
+      regularPrice: raw.regularPrice,
       fetchedAt: now,
     };
     this.cache.set(key, { quote, fetchedAt: now.getTime() });

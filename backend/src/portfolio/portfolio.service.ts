@@ -91,6 +91,10 @@ export class PortfolioService {
         realizedPnl: p.realizedPnl,
         price,
         stale: quote?.stale ?? true,
+        // Which session this price came from, so the row can say so.
+        session: quote?.session ?? null,
+        extended: quote?.extended ?? false,
+        regularPrice: quote?.regularPrice ?? null,
         marketValue,
         unrealizedPnl: marketValue === null ? null : marketValue - p.costBasis,
         unrealizedPct:
@@ -111,6 +115,10 @@ export class PortfolioService {
       positionsValue,
       accountValue: cash + positionsValue,
       hasStalePrices: positions.some((p) => p.stale),
+      // One session for the header badge. Quotes come from the same market, so
+      // the first priced position is representative.
+      marketSession: positions.find((p) => p.session !== null)?.session ?? null,
+      pricesAreExtended: positions.some((p) => p.extended),
       // When the client last got real numbers, so the UI can say "updated 17:31".
       pricedAt: new Date().toISOString(),
     };

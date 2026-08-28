@@ -3,6 +3,12 @@
 A portfolio and trading journal for one active trader. Mobile-first dark web app,
 installable to the iPhone home screen, running locally.
 
+> **Read first:** [`docs/product-brief.md`](docs/product-brief.md) — who this is
+> for, why it exists, and the principles that break ties (start slow, free for
+> now, mobile first, honest numbers).
+> [`docs/working-agreement.md`](docs/working-agreement.md) — how to work on it:
+> small testable slices, human checkpoints, and the rules learned the hard way.
+
 ## The core idea
 
 **Seed the portfolio once. From then on, the diary maintains it.**
@@ -48,6 +54,10 @@ paths, which Vite proxies to the backend — so the identical build works from
    Swapping data providers should touch one file.
 6. **Never show a stale price as if it were fresh.** On provider failure, serve
    the cached quote flagged `stale` and surface that in the UI.
+7. **Price by session.** `select-price.ts` chooses pre-market, regular or
+   after-hours based on Yahoo's `marketState`, so the portfolio is current
+   outside regular hours. Extended-hours prints are thinner and can gap, so
+   they are always labelled in the UI, never passed off as the close.
 
 ## Testing conventions
 

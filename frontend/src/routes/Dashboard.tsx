@@ -22,6 +22,9 @@ interface Position {
   realizedPnl: number;
   price: number | null;
   stale: boolean;
+  session: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
+  extended: boolean;
+  regularPrice: number | null;
   marketValue: number | null;
   unrealizedPnl: number | null;
   unrealizedPct: number | null;
@@ -34,6 +37,40 @@ interface Portfolio {
   accountValue: number;
   hasStalePrices: boolean;
   pricedAt: string;
+  marketSession: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
+  pricesAreExtended: boolean;
+}
+
+const SESSION_LABEL: Record<string, string> = {
+  PRE: 'PRE-MARKET',
+  POST: 'AFTER HOURS',
+  CLOSED: 'MARKET CLOSED',
+};
+
+/**
+ * Says which session the numbers come from. Silent during regular hours, when
+ * a live price needs no explanation; extended-hours prints are thinner and can
+ * gap, so they are always labelled rather than passed off as the close.
+ */
+function SessionBadge({
+  session,
+  extended,
+}: {
+  session: string | null;
+  extended: boolean;
+}) {
+  if (!session || session === 'REGULAR') return null;
+  const label = SESSION_LABEL[session];
+  if (!label) return null;
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide ${
+        extended ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-muted'
+      }`}
+    >
+      {label}
+    </span>
+  );
 }
 
 const SORT_KEY = 'trader.holdingsSort.v1';
@@ -266,8 +303,14 @@ export function Dashboard() {
       <section>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-xs uppercase tracking-wide text-muted">
-              Account value
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wide text-muted">
+                Account value
+              </span>
+              <SessionBadge
+                session={data.marketSession}
+                extended={data.pricesAreExtended}
+              />
             </div>
             <div className="mt-1 text-4xl font-semibold">
               <Money value={data.accountValue} />
