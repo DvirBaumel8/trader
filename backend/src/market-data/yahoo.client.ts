@@ -1,0 +1,54 @@
+import { Injectable } from '@nestjs/common';
+import YahooFinance from 'yahoo-finance2';
+
+export interface RawQuote {
+  symbol: string;
+  name: string | null;
+  price: number;
+  currency: string | null;
+}
+
+/** The shape we actually read off a Yahoo quote, regardless of its full type. */
+interface QuoteLike {
+  symbol?: string;
+  shortName?: string;
+  longName?: string;
+  regularMarketPrice?: number;
+  currency?: string;
+}
+
+/**
+ * The only file permitted to import yahoo-finance2. Everything else depends on
+ * this interface, so swapping the data provider touches exactly one file.
+ */
+@Injectable()
+export class YahooClient {
+  private readonly yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+
+  async quote(symbol: string): Promise<RawQuote | null> {
+    // An unknown ticker resolves to undefined here rather than throwing.
+    const raw = (await this.yf.quote(symbol)) as QuoteLike | undefined;
+    return toRawQuote(raw);
+  }
+
+  async quoteMany(symbols: string[]): Promise<RawQuote[]> {
+    if (symbols.length === 0) return [];
+    const raw = (await this.yf.quote(symbols)) as QuoteLike[] | undefined;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map(toRawQuote)
+      .filter((q): q is RawQuote => q !== null);
+  }
+}
+
+function toRawQuote(raw: QuoteLike | undefined): RawQuote | null {
+  if (!raw || typeof raw.regularMarketPrice !== 'number' || !raw.symbol) {
+    return null;
+  }
+  return {
+    symbol: raw.symbol,
+    name: raw.shortName ?? raw.longName ?? null,
+    price: raw.regularMarketPrice,
+    currency: raw.currency ?? null,
+  };
+}
