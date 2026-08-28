@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { clearDraft, loadDraft, saveDraft } from '../lib/draftStorage';
 
 type Side = 'LONG' | 'SHORT';
 
@@ -18,6 +19,24 @@ const blankRow: HoldingRow = {
   quantity: '',
   avgCost: '',
 };
+
+const DRAFT_KEY = 'trader.seedDraft.v1';
+
+interface SeedDraft {
+  asOf: string;
+  cashNegative: boolean;
+  cashAmount: string;
+  rows: HoldingRow[];
+}
+
+function emptyDraft(): SeedDraft {
+  return {
+    asOf: new Date().toISOString().slice(0, 10),
+    cashNegative: false,
+    cashAmount: '',
+    rows: [{ ...blankRow }],
+  };
+}
 
 const inputClass =
   'w-full min-w-0 rounded-lg border border-border bg-surface-1 px-3 py-2 text-base outline-none focus:border-accent';
@@ -62,12 +81,27 @@ function Segmented<T extends string>({
 }
 
 export function Seed() {
-  const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
-  const [cashNegative, setCashNegative] = useState(false);
-  const [cashAmount, setCashAmount] = useState('');
-  const [rows, setRows] = useState<HoldingRow[]>([{ ...blankRow }]);
+  // One state object rather than four, so persisting the draft is a single
+  // write and restoring it cannot leave fields out of sync with each other.
+  const [draft, setDraft] = useState<SeedDraft>(() =>
+    loadDraft(DRAFT_KEY, emptyDraft()),
+  );
+  const { asOf, cashNegative, cashAmount, rows } = draft;
+
+  useEffect(() => {
+    saveDraft(DRAFT_KEY, draft);
+  }, [draft]);
+
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  const setAsOf = (v: string) => setDraft((d) => ({ ...d, asOf: v }));
+  const setCashNegative = (v: boolean) =>
+    setDraft((d) => ({ ...d, cashNegative: v }));
+  const setCashAmount = (v: string) =>
+    setDraft((d) => ({ ...d, cashAmount: v }));
+  const setRows = (fn: (prev: HoldingRow[]) => HoldingRow[]) =>
+    setDraft((d) => ({ ...d, rows: fn(d.rows) }));
 
   const update = (i: number, patch: Partial<HoldingRow>) =>
     setRows((prev) =>
@@ -94,10 +128,14 @@ export function Seed() {
         }),
       }),
     onSuccess: async () => {
+      clearDraft(DRAFT_KEY);
       await queryClient.invalidateQueries({ queryKey: ['portfolio'] });
       navigate('/');
     },
   });
+
+  const hasTypedSomething =
+    cashAmount !== '' || rows.some((r) => r.symbol.trim() !== '');
 
   return (
     <div className="space-y-6">
@@ -106,6 +144,23 @@ export function Seed() {
         <p className="mt-1 text-sm text-muted">
           One time only. After this, the diary keeps it current.
         </p>
+        {hasTypedSomething && (
+          <p className="mt-2 flex items-center justify-between gap-3 text-xs text-muted">
+            <span>
+              Draft saved on this device — safe to switch apps and come back.
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                clearDraft(DRAFT_KEY);
+                setDraft(emptyDraft());
+              }}
+              className="shrink-0 underline underline-offset-4"
+            >
+              Clear
+            </button>
+          </p>
+        )}
       </div>
 
       {/* min-w-0 on the children: grid items default to min-width:auto, and the
