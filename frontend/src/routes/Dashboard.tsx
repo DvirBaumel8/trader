@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { Money } from '../components/Money';
 import { Percent } from '../components/Percent';
@@ -57,6 +58,68 @@ function PositionRow({ p }: { p: Position }) {
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * Seeding is a one-shot flow that is easy to get wrong on a phone, so there has
+ * to be a way back. Two-step inline confirmation rather than a browser dialog:
+ * it names what is about to be destroyed and stays inside the app's own UI.
+ */
+function ResetPortfolio({ positionCount }: { positionCount: number }) {
+  const [confirming, setConfirming] = useState(false);
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const mutation = useMutation({
+    mutationFn: () => api('/portfolio/reset', { method: 'DELETE' }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+      navigate('/seed');
+    },
+  });
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="text-xs text-muted underline underline-offset-4"
+      >
+        Reset &amp; re-seed portfolio
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-down/40 bg-down/10 p-3">
+      <p className="text-xs text-text">
+        This deletes {positionCount}{' '}
+        {positionCount === 1 ? 'position' : 'positions'}, your cash balance and
+        every journal entry, then takes you back to seeding. It cannot be
+        undone.
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={mutation.isPending}
+          onClick={() => mutation.mutate()}
+          className="rounded-lg bg-down px-3 py-2 text-sm font-medium text-surface-0 disabled:opacity-50"
+        >
+          {mutation.isPending ? 'Resetting…' : 'Delete and start over'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          className="rounded-lg border border-border px-3 py-2 text-sm text-muted"
+        >
+          Cancel
+        </button>
+      </div>
+      {mutation.isError && (
+        <p className="text-xs text-down">{(mutation.error as Error).message}</p>
+      )}
+    </div>
   );
 }
 
@@ -137,6 +200,10 @@ export function Dashboard() {
             <PositionRow key={p.symbol} p={p} />
           ))}
         </ul>
+      </section>
+
+      <section className="pt-2">
+        <ResetPortfolio positionCount={data.positions.length} />
       </section>
     </div>
   );
