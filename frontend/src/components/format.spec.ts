@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { formatMoney, formatPercent, signClass } from './format';
+import {
+  formatMoney,
+  formatPercent,
+  formatQuantity,
+  signClass,
+} from './format';
+
+describe('formatQuantity', () => {
+  it('groups thousands', () => {
+    expect(formatQuantity(1800)).toBe('1,800');
+  });
+  it('groups large share counts', () => {
+    expect(formatQuantity(18000)).toBe('18,000');
+  });
+  it('leaves small counts alone', () => {
+    expect(formatQuantity(49)).toBe('49');
+  });
+  it('keeps a negative sign for a short', () => {
+    expect(formatQuantity(-1050)).toBe('-1,050');
+  });
+  it('keeps fractional precision without padding', () => {
+    expect(formatQuantity(0.5)).toBe('0.5');
+  });
+  it('renders a dash for a missing value', () => {
+    expect(formatQuantity(null)).toBe('—');
+  });
+});
 
 describe('formatMoney', () => {
   it('formats a plain amount', () => {

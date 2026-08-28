@@ -4,9 +4,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { Money } from '../components/Money';
 import { Percent } from '../components/Percent';
-import { signClass } from '../components/format';
+import { formatQuantity, signClass } from '../components/format';
 import {
-  sortLabel,
   sortPositions,
   type SortDir,
   type SortKey,
@@ -38,12 +37,6 @@ interface Portfolio {
 }
 
 const SORT_KEY = 'trader.holdingsSort.v1';
-const SORT_KEYS: SortKey[] = [
-  'symbol',
-  'marketValue',
-  'unrealizedPct',
-  'unrealizedPnl',
-];
 
 interface SortPref {
   key: SortKey;
@@ -53,7 +46,26 @@ interface SortPref {
 /** Biggest position first — the most useful default for a working trader. */
 const defaultSort: SortPref = { key: 'marketValue', dir: 'desc' };
 
-function SortBar({
+const SORT_OPTIONS: { key: SortKey; dir: SortDir; label: string }[] = [
+  { key: 'marketValue', dir: 'desc', label: 'Value — largest first' },
+  { key: 'marketValue', dir: 'asc', label: 'Value — smallest first' },
+  { key: 'unrealizedPct', dir: 'desc', label: '% — best first' },
+  { key: 'unrealizedPct', dir: 'asc', label: '% — worst first' },
+  { key: 'unrealizedPnl', dir: 'desc', label: 'P&L — most profit' },
+  { key: 'unrealizedPnl', dir: 'asc', label: 'P&L — biggest loss' },
+  { key: 'symbol', dir: 'asc', label: 'Symbol — A to Z' },
+  { key: 'symbol', dir: 'desc', label: 'Symbol — Z to A' },
+];
+
+const encode = (s: SortPref) => `${s.key}:${s.dir}`;
+
+/**
+ * A native <select> rather than a custom menu: iOS renders its own picker
+ * wheel, which is a better control than anything hand-built, and it keeps the
+ * header to one compact element instead of a row of chips that grows every
+ * time a sort option is added.
+ */
+function SortPicker({
   sort,
   onChange,
 }: {
@@ -61,63 +73,66 @@ function SortBar({
   onChange: (s: SortPref) => void;
 }) {
   return (
-    <div className="flex gap-1 overflow-x-auto">
-      {SORT_KEYS.map((key) => {
-        const active = sort.key === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            aria-pressed={active}
-            // Tapping the active control flips direction, which is the
-            // behaviour people expect from a sortable column header.
-            onClick={() =>
-              onChange(
-                active
-                  ? { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
-                  : { key, dir: key === 'symbol' ? 'asc' : 'desc' },
-              )
-            }
-            className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
-              active
-                ? 'border-accent/40 bg-accent/10 text-accent'
-                : 'border-border text-muted'
-            }`}
-          >
-            {sortLabel(key)}
-            {active && (sort.dir === 'asc' ? ' ↑' : ' ↓')}
-          </button>
-        );
-      })}
-    </div>
+    <label className="relative shrink-0">
+      <span className="sr-only">Sort holdings</span>
+      <select
+        value={encode(sort)}
+        onChange={(e) => {
+          const found = SORT_OPTIONS.find((o) => encode(o) === e.target.value);
+          if (found) onChange({ key: found.key, dir: found.dir });
+        }}
+        className="appearance-none rounded-lg border border-border bg-surface-1 py-1.5 pr-7 pl-2.5 text-xs text-muted outline-none"
+      >
+        {SORT_OPTIONS.map((o) => (
+          <option key={encode(o)} value={encode(o)}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-muted">
+        ▼
+      </span>
+    </label>
   );
 }
 
+/**
+ * Deliberate three-tier hierarchy, because every row was previously reading as
+ * two equally-loud facts:
+ *   1. symbol and market value  — what you scan for
+ *   2. percent return           — how it is doing
+ *   3. cost basis and $ P&L     — supporting detail, quiet on purpose
+ */
 function PositionRow({ p }: { p: Position }) {
   return (
-    <li className="flex items-center justify-between border-b border-border py-3 last:border-0">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold">{p.symbol}</span>
+    <li className="flex items-baseline justify-between gap-3 border-b border-border py-2.5 last:border-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[15px] font-semibold leading-tight">
+            {p.symbol}
+          </span>
           {p.quantity < 0 && (
-            <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] tracking-wide text-muted">
+            <span className="rounded bg-down/15 px-1 py-px text-[9px] font-medium tracking-wide text-down">
               SHORT
             </span>
           )}
-          {p.stale && <span className="text-[10px] text-down">stale</span>}
+          {p.stale && (
+            <span className="text-[9px] tracking-wide text-down">STALE</span>
+          )}
         </div>
-        <div className="truncate text-xs text-muted">
-          {p.quantity} @ <Money value={p.avgCost} />
+        <div className="mt-0.5 truncate text-[11px] leading-tight text-muted">
+          {formatQuantity(p.quantity)} @ <Money value={p.avgCost} />
         </div>
       </div>
-      <div className="text-right">
-        <div className="font-medium">
+
+      <div className="shrink-0 text-right">
+        <div className="text-[15px] font-medium leading-tight">
           <Money value={p.marketValue} />
         </div>
-        <div className="text-xs">
-          <Percent value={p.unrealizedPct} />{' '}
-          <span className={signClass(p.unrealizedPnl)}>
-            (<Money value={p.unrealizedPnl} signed />)
+        <div className="mt-0.5 flex items-baseline justify-end gap-1.5 leading-tight">
+          <Percent value={p.unrealizedPct} className="text-[12px]" />
+          <span className={`text-[11px] opacity-70 ${signClass(p.unrealizedPnl)}`}>
+            <Money value={p.unrealizedPnl} signed />
           </span>
         </div>
       </div>
@@ -264,28 +279,17 @@ export function Dashboard() {
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-col items-end gap-1">
-            <button
-              type="button"
-              onClick={refreshNow}
-              disabled={refreshing}
-              aria-label="Refresh prices now"
-              className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm text-muted active:bg-surface-2 disabled:opacity-50"
-            >
-              <span className={refreshing ? 'inline-block animate-spin' : ''}>
-                ↻
-              </span>
-              <span className="ml-1.5">
-                {refreshing ? 'Updating' : 'Refresh'}
-              </span>
-            </button>
-            <span className="text-[10px] text-muted">
-              {new Date(data.pricedAt).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
+          <button
+            type="button"
+            onClick={refreshNow}
+            disabled={refreshing}
+            aria-label="Refresh prices now"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-surface-1 text-base text-muted active:bg-surface-2 disabled:opacity-50"
+          >
+            <span className={refreshing ? 'inline-block animate-spin' : ''}>
+              ↻
             </span>
-          </div>
+          </button>
         </div>
       </section>
 
@@ -314,7 +318,7 @@ export function Dashboard() {
           <span className="text-xs uppercase tracking-wide text-muted">
             Holdings
           </span>
-          <SortBar sort={sort} onChange={changeSort} />
+          <SortPicker sort={sort} onChange={changeSort} />
         </div>
         <ul>
           {sortPositions(data.positions, sort.key, sort.dir).map((p) => (

@@ -11,6 +11,19 @@ export function formatMoney(
   return opts.signed ? `+$${abs}` : `$${abs}`;
 }
 
+/**
+ * Share counts, grouped. Ungrouped, 1800 and 18000 look alike at a glance —
+ * which is exactly the mistake you do not want to make reading your own book.
+ * Fractional shares keep their precision without trailing zero padding.
+ */
+export function formatQuantity(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 8,
+  });
+}
+
 export function formatPercent(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
   const sign = value >= 0 ? '+' : '-';
