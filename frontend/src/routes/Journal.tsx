@@ -5,6 +5,7 @@ import { EntryCard, type Entry } from '../components/EntryCard';
 import { TradeCard, type Trade } from '../components/TradeCard';
 import { Money } from '../components/Money';
 import { StatsHeader } from '../components/StatsHeader';
+import { EntrySheet } from '../components/EntrySheet';
 
 type Tab = 'TRADES' | 'ACTIVITIES' | 'BALANCE';
 
@@ -97,7 +98,7 @@ function TradesTab() {
   );
 }
 
-function ActivitiesTab() {
+function ActivitiesTab({ onOpen }: { onOpen: (e: Entry) => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ['journal', 'TRADE'],
     queryFn: () => api<Entry[]>('/journal?kind=TRADE'),
@@ -116,14 +117,14 @@ function ActivitiesTab() {
         entries={entries}
         render={(id) => {
           const e = byId.get(id);
-          return e ? <EntryCard key={id} entry={e} onOpen={() => {}} /> : null;
+          return e ? <EntryCard key={id} entry={e} onOpen={onOpen} /> : null;
         }}
       />
     </div>
   );
 }
 
-function BalanceTab() {
+function BalanceTab({ onOpen }: { onOpen: (e: Entry) => void }) {
   const { data: balance } = useQuery({
     queryKey: ['portfolio'],
     queryFn: () => api<Balance>('/portfolio'),
@@ -160,20 +161,27 @@ function BalanceTab() {
         )}
       </section>
 
-      <section className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-border bg-surface-1 p-3">
-          <div className="text-xs text-muted">Net deposited</div>
-          <div className="mt-1 font-medium">
-            <Money value={balance?.contributedCapital} />
+      {/*
+        A summary only earns its place once it says something the list below
+        does not. With a single deposit and no dividends it just repeats the
+        one row underneath it.
+      */}
+      {(entries.length > 1 || (balance?.dividendsReceived ?? 0) > 0) && (
+        <section className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-border bg-surface-1 p-3">
+            <div className="text-xs text-muted">Net deposited</div>
+            <div className="mt-1 font-medium">
+              <Money value={balance?.contributedCapital} />
+            </div>
           </div>
-        </div>
-        <div className="rounded-xl border border-border bg-surface-1 p-3">
-          <div className="text-xs text-muted">Dividends</div>
-          <div className="mt-1 font-medium">
-            <Money value={balance?.dividendsReceived} />
+          <div className="rounded-xl border border-border bg-surface-1 p-3">
+            <div className="text-xs text-muted">Dividends</div>
+            <div className="mt-1 font-medium">
+              <Money value={balance?.dividendsReceived} />
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {entries.length === 0 ? (
         <p className="text-sm text-muted">No money movements yet.</p>
@@ -184,7 +192,7 @@ function BalanceTab() {
             render={(id) => {
               const e = byId.get(id);
               return e ? (
-                <EntryCard key={id} entry={e} onOpen={() => {}} />
+                <EntryCard key={id} entry={e} onOpen={onOpen} />
               ) : null;
             }}
           />
@@ -196,9 +204,21 @@ function BalanceTab() {
 
 export function Journal() {
   const [tab, setTab] = useState<Tab>('TRADES');
+  const [composing, setComposing] = useState(false);
+  const [editing, setEditing] = useState<Entry | null>(null);
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api<{ defaultFee: number }>('/settings'),
+  });
+
+  const close = () => {
+    setComposing(false);
+    setEditing(null);
+  };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-20">
       <StatsHeader />
 
       <div className="flex gap-1">
@@ -220,8 +240,24 @@ export function Journal() {
       </div>
 
       {tab === 'TRADES' && <TradesTab />}
-      {tab === 'ACTIVITIES' && <ActivitiesTab />}
-      {tab === 'BALANCE' && <BalanceTab />}
+      {tab === 'ACTIVITIES' && <ActivitiesTab onOpen={setEditing} />}
+      {tab === 'BALANCE' && <BalanceTab onOpen={setEditing} />}
+
+      <button
+        type="button"
+        onClick={() => setComposing(true)}
+        aria-label="New entry"
+        className="fixed right-5 bottom-8 z-40 h-14 w-14 rounded-full bg-accent text-3xl leading-none font-light text-surface-0 shadow-lg"
+      >
+        +
+      </button>
+
+      <EntrySheet
+        open={composing || editing !== null}
+        onClose={close}
+        defaultFee={settings?.defaultFee ?? 4}
+        editing={editing}
+      />
     </div>
   );
 }

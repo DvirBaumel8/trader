@@ -21,4 +21,16 @@ export class UsersService {
     if (existing.length > 0) return existing[0];
     return this.users.save(this.users.create({ displayName: 'me' }));
   }
+
+  async getSettings() {
+    const user = await this.ensureDefaultUser();
+    return { defaultFee: user.defaultFee };
+  }
+
+  async updateSettings(defaultFee: number) {
+    const user = await this.ensureDefaultUser();
+    user.defaultFee = Math.abs(defaultFee);
+    await this.users.save(user);
+    return { defaultFee: user.defaultFee };
+  }
 }
