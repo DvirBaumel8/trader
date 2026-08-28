@@ -11,7 +11,6 @@ import {
 } from '../lib/entryDraft';
 import type { StopRow } from '../lib/stopRisk';
 import { StopLevelEditor } from './StopLevelEditor';
-import { TagPicker } from './TagPicker';
 import type { Entry } from './EntryCard';
 
 const DRAFT_KEY = 'trader.entryDraft.v1';
@@ -100,7 +99,9 @@ export function EntrySheet({
         body: JSON.stringify({
           kind: draft.kind,
           body: draft.body,
-          occurredAt: new Date(draft.occurredAt).toISOString(),
+          occurredAt: editing
+            ? new Date(draft.occurredAt).toISOString()
+            : new Date().toISOString(),
           trade:
             draft.kind === 'TRADE'
               ? {
@@ -145,13 +146,6 @@ export function EntrySheet({
                   amount: Math.abs(parseFloat(draft.dividendAmount || '0')),
                 }
               : undefined,
-          tags: [
-            ...draft.setups.map((label) => ({ type: 'SETUP' as const, label })),
-            ...draft.mistakes.map((label) => ({
-              type: 'MISTAKE' as const,
-              label,
-            })),
-          ],
         }),
       }),
     onSuccess: async () => {
@@ -314,13 +308,6 @@ export function EntrySheet({
           </div>
         )}
 
-        <input
-          type="datetime-local"
-          value={draft.occurredAt}
-          onChange={(e) => set({ occurredAt: e.target.value })}
-          className={inputClass}
-        />
-
         <textarea
           rows={3}
           placeholder={
@@ -332,21 +319,6 @@ export function EntrySheet({
           onChange={(e) => set({ body: e.target.value })}
           className={`${inputClass} resize-none`}
         />
-
-        {draft.kind === 'TRADE' && (
-          <div className="space-y-3">
-            <TagPicker
-              type="SETUP"
-              selected={draft.setups}
-              onChange={(setups) => set({ setups })}
-            />
-            <TagPicker
-              type="MISTAKE"
-              selected={draft.mistakes}
-              onChange={(mistakes) => set({ mistakes })}
-            />
-          </div>
-        )}
 
         {mutation.isError && (
           <p className="text-sm text-down">
