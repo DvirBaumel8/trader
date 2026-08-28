@@ -15,7 +15,8 @@
 **Phase 2 delivers:**
 
 - Trade entries that move the portfolio (buy / sell, with fee)
-- **Planned stop and target captured at entry** — optional, prompted
+- **Tiered stop levels captured at entry** — fixed prices and/or percentage trails, optional but prompted
+- **A one-time catch-up screen** to set stops on already-open positions
 - **Round-trip trades derived from the transaction log**
 - **Header stats: win rate, average dollar risk, expectancy**
 - Note entries that move nothing
@@ -42,6 +43,11 @@ because those cannot be reconstructed later.
 | **Full edit and delete** | Positions are derived, so recomputation is free. This becomes the real "edit a position" mechanism and retires reset-and-re-seed as the only correction tool. |
 | **Seeded entries are ordinary entries** | They already exist as `TRADE`/`CASH` entries from Phase 1. They appear in the timeline and are editable like anything else — which is what finally lets a seeding typo be fixed properly. |
 | **Stop and target optional but prompted** | The owner sets a stop on most trades but not all. Requiring one would push him to skip logging; omitting the field entirely would make R-based expectancy impossible forever. |
+| **Stops are tiered: a list of levels, not one price** | The owner scales out — part of the position exits at one level, the rest lower. A `stop_levels` table with one row per tier covers a single stop as the one-row case, and never needs a migration for a third tier. |
+| **A level is FIXED or TRAILING, and tiers may mix** | The owner sometimes trails by percentage. A percentage trail is a *rule* fixed at entry, so it does not violate immutability — the level moves, the plan does not. |
+| **Stops never move discretionarily** | There is no trailing-stop control anywhere in the UI. Stops are correctable only by editing the journal entry, which is deliberate friction: fixing a typo is a few taps, moving a stop has no fast path. This is what keeps R honest. |
+| **Risk is only counted for shares a stop actually covers** | Tiers may cover fewer shares than the position. The UI reports "covers 100 of 150 sh" rather than quietly understating risk. |
+| **Live trailing levels are Phase 3** | Knowing where a trailing stop sits today needs the high-water mark since entry, which needs daily price history. Initial risk — the number expectancy needs — is knowable at entry and captured now. |
 | **Header shows win rate, average dollar risk, expectancy** | Replaces R:R at the owner's request. Average risk answers a sizing-discipline question — "what do I typically put on the line" — and reads straight off data already computed. |
 | **Average risk includes open trades; win rate and expectancy do not** | Risk is fixed at entry and does not depend on the outcome, so an open position is just as informative. Win rate and expectancy need a result, so they cover closed trades only. Each stat states its own sample size. |
 | **Expectancy in R only over trades with a stop** | R genuinely requires risk per trade. The UI states how many trades were excluded rather than quietly averaging a smaller set. |
@@ -157,27 +163,16 @@ export class EntryTag {
 }
 ```
 
-- [ ] **Step 3: Add planned stop and target to transactions**
+- [ ] **Step 3: Add the planned target to transactions**
 
 Append to `backend/src/transactions/transaction.entity.ts`, inside the class:
 
 ```ts
   /**
-   * The plan, recorded at entry. Nullable because the owner sets a stop on most
-   * trades but not all — and a trade logged without one must still be loggable.
-   *
-   * This is the single most perishable field in the schema: risk per trade can
-   * only be known before the outcome, so it can never be backfilled. Everything
-   * R-based downstream depends on it.
+   * The profit target planned at entry. Nullable — optional like the stop.
+   * Captured from Phase 2 onward so a planned R:R can be displayed later
+   * without a backfill, even though nothing renders it yet.
    */
-  @Column('numeric', {
-    precision: 20,
-    scale: 8,
-    nullable: true,
-    transformer: numericTransformer,
-  })
-  plannedStop: number | null;
-
   @Column('numeric', {
     precision: 20,
     scale: 8,
@@ -187,16 +182,363 @@ Append to `backend/src/transactions/transaction.entity.ts`, inside the class:
   plannedTarget: number | null;
 ```
 
-- [ ] **Step 4: Verify it compiles**
+- [ ] **Step 4: Add the stop level entity**
+
+Create `backend/src/transactions/stop-level.entity.ts`:
+
+```ts
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { numericTransformer } from '../common/numeric.transformer.js';
+
+export type StopKind = 'FIXED' | 'TRAILING';
+
+/**
+ * One tier of a stop plan, attached to the opening fill. The owner scales out:
+ * part of the position exits at one level, the rest lower. A single stop is
+ * simply the one-row case.
+ *
+ * These are IMMUTABLE in normal use — there is no trailing-stop control in the
+ * UI, because a discretionary trail rewrites risk retroactively and inflates
+ * expectancy. A percentage TRAILING level is different: the rule is fixed at
+ * entry, so only the level moves, and risk at entry stays knowable.
+ */
+@Entity('stop_levels')
+export class StopLevel {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Index()
+  @Column('uuid')
+  transactionId: string;
+
+  @Column({ type: 'varchar' })
+  kind: StopKind;
+
+  /** FIXED only: the price. Null for a trailing level. */
+  @Column('numeric', {
+    precision: 20,
+    scale: 8,
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  price: number | null;
+
+  /** TRAILING only: percent below the high, e.g. 8 means 8%. */
+  @Column('numeric', {
+    precision: 8,
+    scale: 4,
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  trailPercent: number | null;
+
+  /** Shares exiting at this level. May total less than the position. */
+  @Column('numeric', {
+    precision: 20,
+    scale: 8,
+    transformer: numericTransformer,
+  })
+  quantity: number;
+
+  @Column('int', { default: 0 })
+  ordinal: number;
+}
+```
+
+- [ ] **Step 5: Verify it compiles**
 
 Run: `npm run build --prefix backend`
-Expected: build succeeds. `synchronize: true` adds both columns as nullable, so
-existing rows are unaffected.
+Expected: build succeeds. `synchronize: true` creates `stop_levels` and adds
+`plannedTarget` as nullable, so existing rows are unaffected.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A && git commit -m "feat: tag entities, stop levels and planned target"
+```
+
+---
+
+## Task 1b: Risk from stop levels
+
+A pure module, because every stat in the header is built on this number.
+
+**Files:**
+- Create: `backend/src/portfolio/risk.ts`
+- Create: `backend/src/portfolio/risk.spec.ts`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `backend/src/portfolio/risk.spec.ts`:
+
+```ts
+import { computeRisk, type StopLevelInput } from './risk.js';
+
+const fixed = (price: number, quantity: number): StopLevelInput => ({
+  kind: 'FIXED',
+  price,
+  trailPercent: null,
+  quantity,
+});
+const trailing = (
+  trailPercent: number,
+  quantity: number,
+): StopLevelInput => ({
+  kind: 'TRAILING',
+  price: null,
+  trailPercent,
+  quantity,
+});
+
+describe('computeRisk', () => {
+  it('is null with no stop levels', () => {
+    const r = computeRisk({ avgEntry: 217, quantity: 100, levels: [] });
+    expect(r.amount).toBeNull();
+    expect(r.coveredQuantity).toBe(0);
+  });
+
+  it('computes a single fixed stop on a long', () => {
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 100,
+      levels: [fixed(205, 100)],
+    });
+    expect(r.amount).toBe(1200);
+    expect(r.coveredQuantity).toBe(100);
+    expect(r.fullyCovered).toBe(true);
+  });
+
+  it('sums a tiered exit', () => {
+    // 50 out at 205 (-12) and 50 at 195 (-22)
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 100,
+      levels: [fixed(205, 50), fixed(195, 50)],
+    });
+    expect(r.amount).toBe(600 + 1100);
+  });
+
+  it('computes a percentage trail from the entry price', () => {
+    // A trailing stop starts trailPercent below entry, so risk at entry is known.
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 100,
+      levels: [trailing(8, 100)],
+    });
+    expect(r.amount).toBe(1736); // 217 * 0.08 * 100
+  });
+
+  it('mixes fixed and trailing tiers', () => {
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 100,
+      levels: [fixed(205, 50), trailing(8, 50)],
+    });
+    expect(r.amount).toBe(600 + 868);
+  });
+
+  it('reports partial coverage rather than understating risk silently', () => {
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 150,
+      levels: [fixed(205, 100)],
+    });
+    expect(r.amount).toBe(1200);
+    expect(r.coveredQuantity).toBe(100);
+    expect(r.fullyCovered).toBe(false);
+  });
+
+  it('works for a short, where the stop sits above the entry', () => {
+    const r = computeRisk({
+      avgEntry: 300,
+      quantity: 10,
+      levels: [fixed(320, 10)],
+      direction: 'SHORT',
+    });
+    expect(r.amount).toBe(200);
+  });
+
+  it('trails a short upward from entry', () => {
+    const r = computeRisk({
+      avgEntry: 300,
+      quantity: 10,
+      levels: [trailing(10, 10)],
+      direction: 'SHORT',
+    });
+    expect(r.amount).toBe(300); // 300 * 0.10 * 10
+  });
+
+  it('ignores a fixed level on the wrong side of the entry', () => {
+    // A "stop" above entry on a long is a typo, not a stop. Counting it would
+    // report negative risk, which is nonsense.
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 100,
+      levels: [fixed(230, 100)],
+    });
+    expect(r.amount).toBeNull();
+    expect(r.invalidLevels).toBe(1);
+  });
+
+  it('ignores a level with no usable price or percent', () => {
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 100,
+      levels: [{ kind: 'FIXED', price: null, trailPercent: null, quantity: 100 }],
+    });
+    expect(r.amount).toBeNull();
+    expect(r.invalidLevels).toBe(1);
+  });
+
+  it('ignores a zero or negative trail percent', () => {
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 100,
+      levels: [trailing(0, 100)],
+    });
+    expect(r.amount).toBeNull();
+  });
+
+  it('ignores a level with zero quantity', () => {
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 100,
+      levels: [fixed(205, 0)],
+    });
+    expect(r.amount).toBeNull();
+    expect(r.coveredQuantity).toBe(0);
+  });
+
+  it('caps coverage at the position size when tiers overshoot', () => {
+    // Over-covering is a data error; risk still counts only real shares.
+    const r = computeRisk({
+      avgEntry: 217,
+      quantity: 100,
+      levels: [fixed(205, 80), fixed(195, 80)],
+    });
+    expect(r.coveredQuantity).toBe(100);
+    expect(r.overCovered).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `npm run test --prefix backend -- risk`
+Expected: FAIL — `Cannot find module './risk.js'`.
+
+- [ ] **Step 3: Implement**
+
+Create `backend/src/portfolio/risk.ts`:
+
+```ts
+export type StopKind = 'FIXED' | 'TRAILING';
+
+export interface StopLevelInput {
+  kind: StopKind;
+  price: number | null;
+  trailPercent: number | null;
+  quantity: number;
+}
+
+export interface RiskInput {
+  avgEntry: number;
+  /** Position size, used to report coverage. */
+  quantity: number;
+  levels: StopLevelInput[];
+  direction?: 'LONG' | 'SHORT';
+}
+
+export interface RiskResult {
+  /** Dollars at risk across covered shares. Null when nothing is covered. */
+  amount: number | null;
+  coveredQuantity: number;
+  fullyCovered: boolean;
+  /** Tiers covering more shares than are held — a data error worth surfacing. */
+  overCovered: boolean;
+  /** Levels skipped as unusable, so the UI can say why risk looks wrong. */
+  invalidLevels: number;
+}
+
+const EPSILON = 1e-9;
+
+/**
+ * Risk at entry, summed across stop tiers.
+ *
+ * A TRAILING level starts exactly `trailPercent` below the entry (above, for a
+ * short), so risk at entry is knowable and fixed even though the level later
+ * moves with the price. That is what lets a percentage trail coexist with
+ * immutable, honest R.
+ *
+ * Levels on the wrong side of the entry are skipped rather than counted: a
+ * "stop" above entry on a long is a typo, and counting it would report
+ * negative risk.
+ */
+export function computeRisk(input: RiskInput): RiskResult {
+  const direction = input.direction ?? 'LONG';
+  const long = direction === 'LONG';
+
+  let amount = 0;
+  let covered = 0;
+  let invalid = 0;
+
+  for (const level of input.levels) {
+    if (!(level.quantity > EPSILON)) {
+      invalid += 1;
+      continue;
+    }
+
+    let perShare: number | null = null;
+
+    if (level.kind === 'FIXED' && level.price !== null && level.price > 0) {
+      const distance = long
+        ? input.avgEntry - level.price
+        : level.price - input.avgEntry;
+      perShare = distance > EPSILON ? distance : null;
+    } else if (
+      level.kind === 'TRAILING' &&
+      level.trailPercent !== null &&
+      level.trailPercent > EPSILON
+    ) {
+      perShare = input.avgEntry * (level.trailPercent / 100);
+    }
+
+    if (perShare === null) {
+      invalid += 1;
+      continue;
+    }
+
+    amount += perShare * level.quantity;
+    covered += level.quantity;
+  }
+
+  const overCovered = covered > input.quantity + EPSILON;
+  const cappedCover = Math.min(covered, input.quantity);
+
+  return {
+    amount: covered > EPSILON ? round(amount) : null,
+    coveredQuantity: round(cappedCover),
+    fullyCovered:
+      covered > EPSILON && Math.abs(cappedCover - input.quantity) < EPSILON,
+    overCovered,
+    invalidLevels: invalid,
+  };
+}
+
+function round(n: number): number {
+  return Math.round(n * 1e8) / 1e8;
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm run test --prefix backend -- risk`
+Expected: PASS — 14 tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A && git commit -m "feat: tag entities and planned stop/target on trades"
+git add -A && git commit -m "feat: risk calculation across tiered fixed and trailing stops"
 ```
 
 ---
@@ -235,6 +577,10 @@ export interface EntryView {
     quantity: number;
     price: number;
     fee: number;
+    plannedTarget: number | null;
+    stopLevels: StopLevelSpec[];
+    /** Dollars at risk from the tiers, computed for display. */
+    riskAmount: number | null;
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   tags: { id: string; type: 'SETUP' | 'MISTAKE'; label: string }[];
@@ -588,6 +934,10 @@ export interface Entry {
     quantity: number;
     price: number;
     fee: number;
+    plannedTarget: number | null;
+    stopLevels: StopLevelSpec[];
+    /** Dollars at risk from the tiers, computed for display. */
+    riskAmount: number | null;
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   tags: { id: string; type: 'SETUP' | 'MISTAKE'; label: string }[];
@@ -889,6 +1239,13 @@ export function normaliseTagLabel(label: string): string {
 Add these interfaces above the class:
 
 ```ts
+export interface StopLevelSpec {
+  kind: 'FIXED' | 'TRAILING';
+  price?: number | null;
+  trailPercent?: number | null;
+  quantity: number;
+}
+
 export interface CreateEntryInput {
   kind: 'TRADE' | 'NOTE' | 'CASH';
   body: string;
@@ -898,8 +1255,8 @@ export interface CreateEntryInput {
     quantity: number;
     price: number;
     fee: number;
-    plannedStop?: number | null;
     plannedTarget?: number | null;
+    stopLevels?: StopLevelSpec[];
   };
   cash?: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number };
   tags?: { type: 'SETUP' | 'MISTAKE'; label: string }[];
@@ -949,7 +1306,7 @@ Add these methods to `JournalService`:
       );
 
       if (input.kind === 'TRADE' && input.trade && instrumentId) {
-        await manager.save(
+        const txn = await manager.save(
           manager.create(Transaction, {
             userId: user.id,
             entryId: entry.id,
@@ -958,9 +1315,11 @@ Add these methods to `JournalService`:
             quantity,
             price: Math.abs(input.trade.price),
             fee: Math.abs(input.trade.fee ?? 0),
+            plannedTarget: input.trade.plannedTarget ?? null,
             executedAt: new Date(input.occurredAt),
           }),
         );
+        await this.writeStopLevels(manager, txn.id, input.trade.stopLevels);
       }
 
       if (input.kind === 'CASH' && input.cash) {
@@ -981,6 +1340,32 @@ Add these methods to `JournalService`:
 
     const [view] = (await this.list()).filter((e) => e.id === entryId);
     return view;
+  }
+
+  /**
+   * Replaces this transaction's stop tiers with exactly the ones given. Called
+   * on create and on edit, so a corrected stop never leaves an orphan tier.
+   */
+  private async writeStopLevels(
+    manager: EntityManager,
+    transactionId: string,
+    levels: StopLevelSpec[] | undefined,
+  ): Promise<void> {
+    await manager.delete(StopLevel, { transactionId });
+    let ordinal = 0;
+    for (const level of levels ?? []) {
+      await manager.save(
+        manager.create(StopLevel, {
+          transactionId,
+          kind: level.kind,
+          price: level.kind === 'FIXED' ? (level.price ?? null) : null,
+          trailPercent:
+            level.kind === 'TRAILING' ? (level.trailPercent ?? null) : null,
+          quantity: Math.abs(level.quantity),
+          ordinal: ordinal++,
+        }),
+      );
+    }
   }
 
   /** Find-or-create each tag, then replace the entry's joins with exactly these. */
@@ -1209,6 +1594,7 @@ Create `backend/src/journal/journal.dto.ts`:
 ```ts
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsIn,
   IsISO8601,
@@ -1239,11 +1625,32 @@ export class TradeDto {
   /** The plan at entry. Optional — see the decisions table. */
   @IsOptional()
   @IsNumber()
-  plannedStop?: number;
+  plannedTarget?: number;
 
   @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => StopLevelDto)
+  stopLevels?: StopLevelDto[];
+}
+
+export class StopLevelDto {
+  @IsIn(['FIXED', 'TRAILING'])
+  kind: 'FIXED' | 'TRAILING';
+
+  /** Required for FIXED, ignored for TRAILING. */
+  @IsOptional()
   @IsNumber()
-  plannedTarget?: number;
+  price?: number;
+
+  /** Required for TRAILING, ignored for FIXED. Percent, e.g. 8 means 8%. */
+  @IsOptional()
+  @IsNumber()
+  trailPercent?: number;
+
+  @IsNumber()
+  quantity: number;
 }
 
 export class CashDto {
@@ -2289,11 +2696,16 @@ Add to `JournalService`:
       );
 
       // Drop whatever this entry used to own, then write what it owns now.
+      // Stop levels hang off the transaction, so they go with it.
+      const old = await manager.find(Transaction, { where: { entryId: id } });
+      for (const t of old) {
+        await manager.delete(StopLevel, { transactionId: t.id });
+      }
       await manager.delete(Transaction, { entryId: id });
       await manager.delete(CashFlow, { entryId: id });
 
       if (input.kind === 'TRADE' && input.trade && instrumentId) {
-        await manager.save(
+        const txn = await manager.save(
           manager.create(Transaction, {
             userId: user.id,
             entryId: id,
@@ -2302,9 +2714,11 @@ Add to `JournalService`:
             quantity,
             price: Math.abs(input.trade.price),
             fee: Math.abs(input.trade.fee ?? 0),
+            plannedTarget: input.trade.plannedTarget ?? null,
             executedAt: new Date(input.occurredAt),
           }),
         );
+        await this.writeStopLevels(manager, txn.id, input.trade.stopLevels);
       }
       if (input.kind === 'CASH' && input.cash) {
         await manager.save(
@@ -2333,6 +2747,11 @@ Add to `JournalService`:
     if (!existing) throw new NotFoundException('Entry not found');
 
     await this.dataSource.transaction(async (manager) => {
+      // Stop levels hang off the transaction, so they must go first.
+      const txns = await manager.find(Transaction, { where: { entryId: id } });
+      for (const t of txns) {
+        await manager.delete(StopLevel, { transactionId: t.id });
+      }
       await manager.delete(Transaction, { entryId: id });
       await manager.delete(CashFlow, { entryId: id });
       await manager.delete(EntryTag, { entryId: id });
@@ -2829,8 +3248,11 @@ believed.
 Create `backend/src/portfolio/derive-trades.spec.ts`:
 
 ```ts
-import { deriveTrades, summariseTrades } from './derive-trades.js';
-import type { DerivedTxn } from './derive.js';
+import {
+  deriveTrades,
+  summariseTrades,
+  type TradeTxn,
+} from './derive-trades.js';
 
 function txn(
   symbol: string,
@@ -2838,8 +3260,8 @@ function txn(
   quantity: number,
   price: number,
   day: number,
-  extra: { fee?: number; plannedStop?: number | null } = {},
-): DerivedTxn & { plannedStop?: number | null } {
+  extra: { fee?: number; stop?: number | null } = {},
+): TradeTxn {
   return {
     symbol,
     side,
@@ -2847,7 +3269,18 @@ function txn(
     price,
     fee: extra.fee ?? 0,
     executedAt: new Date(2026, 0, day),
-    plannedStop: extra.plannedStop ?? null,
+    // A single fixed stop covering the whole fill — the common case.
+    stopLevels:
+      extra.stop == null
+        ? []
+        : [
+            {
+              kind: 'FIXED',
+              price: extra.stop,
+              trailPercent: null,
+              quantity,
+            },
+          ],
   };
 }
 
@@ -2946,7 +3379,7 @@ describe('deriveTrades', () => {
 
   it('computes risk and R from the stop on the opening fill', () => {
     const [t] = deriveTrades([
-      txn('NVDA', 'BUY', 10, 100, 1, { plannedStop: 90 }),
+      txn('NVDA', 'BUY', 10, 100, 1, { stop: 90 }),
       txn('NVDA', 'SELL', 10, 130, 5),
     ]);
     expect(t.riskAmount).toBe(100); // (100 - 90) * 10
@@ -2955,11 +3388,31 @@ describe('deriveTrades', () => {
 
   it('computes R for a short from a stop above entry', () => {
     const [t] = deriveTrades([
-      txn('TSLA', 'SELL', 10, 300, 1, { plannedStop: 320 }),
+      txn('TSLA', 'SELL', 10, 300, 1, { stop: 320 }),
       txn('TSLA', 'BUY', 10, 250, 5),
     ]);
     expect(t.riskAmount).toBe(200);
     expect(t.rMultiple).toBe(2.5);
+  });
+
+  it('sums tiered stops into one risk figure', () => {
+    const [t] = deriveTrades([
+      {
+        symbol: 'NVDA',
+        side: 'BUY',
+        quantity: 100,
+        price: 217,
+        fee: 0,
+        executedAt: new Date(2026, 0, 1),
+        stopLevels: [
+          { kind: 'FIXED', price: 205, trailPercent: null, quantity: 50 },
+          { kind: 'TRAILING', price: null, trailPercent: 8, quantity: 50 },
+        ],
+      },
+      txn('NVDA', 'SELL', 100, 240, 5),
+    ]);
+    expect(t.riskAmount).toBe(600 + 868);
+    expect(t.riskCoversFullPosition).toBe(true);
   });
 
   it('leaves R null when no stop was set', () => {
@@ -2974,7 +3427,7 @@ describe('deriveTrades', () => {
   it('leaves R null when the stop equals the entry', () => {
     // Zero risk would divide by zero and produce Infinity.
     const [t] = deriveTrades([
-      txn('NVDA', 'BUY', 10, 100, 1, { plannedStop: 100 }),
+      txn('NVDA', 'BUY', 10, 100, 1, { stop: 100 }),
       txn('NVDA', 'SELL', 10, 130, 5),
     ]);
     expect(t.rMultiple).toBeNull();
@@ -3104,9 +3557,11 @@ Create `backend/src/portfolio/derive-trades.ts`:
 ```ts
 import type { DerivedTxn } from './derive.js';
 
-/** A transaction carrying the plan recorded at entry. */
+import { computeRisk, type StopLevelInput } from './risk.js';
+
+/** A transaction carrying the stop plan recorded at entry. */
 export type TradeTxn = DerivedTxn & {
-  plannedStop?: number | null;
+  stopLevels?: StopLevelInput[];
   plannedTarget?: number | null;
 };
 
@@ -3125,8 +3580,10 @@ export interface DerivedTrade {
   realizedPnl: number | null;
   isWin: boolean | null;
   isOpen: boolean;
-  /** Dollars at risk from the opening stop. Null when no stop was set. */
+  /** Dollars at risk from the opening stop tiers. Null when none were set. */
   riskAmount: number | null;
+  /** False when the stop tiers covered only part of the position. */
+  riskCoversFullPosition: boolean;
   /** Result in units of risk. Null without a stop. */
   rMultiple: number | null;
 }
@@ -3163,7 +3620,7 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
       closeNotional: number;
       fees: number;
       enteredAt: Date;
-      stop: number | null;
+      stopLevels: StopLevelInput[];
     } | null = null;
 
     for (const t of ordered) {
@@ -3180,7 +3637,7 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
           fees: t.fee,
           enteredAt: t.executedAt,
           // The plan belongs to the opening fill; later adds do not redefine it.
-          stop: t.plannedStop ?? null,
+          stopLevels: t.stopLevels ?? [],
         };
         continue;
       }
@@ -3222,7 +3679,7 @@ function finish(
     closeNotional: number;
     fees: number;
     enteredAt: Date;
-    stop: number | null;
+    stopLevels: StopLevelInput[];
   },
   exitedAt: Date | null,
 ): DerivedTrade {
@@ -3239,12 +3696,16 @@ function finish(
     realizedPnl = round(gross - open.fees);
   }
 
-  // Risk is defined by the stop on the opening fill, against the average entry.
-  let riskAmount: number | null = null;
-  if (open.stop !== null) {
-    const perShare = Math.abs(avgEntry - open.stop);
-    if (perShare > EPSILON) riskAmount = round(perShare * open.openQty);
-  }
+  // Risk comes from the stop tiers on the opening fill, against the average
+  // entry. Tiers may cover only part of the position; computeRisk reports that
+  // rather than pretending the whole position was protected.
+  const risk = computeRisk({
+    avgEntry,
+    quantity: open.openQty,
+    levels: open.stopLevels,
+    direction: open.direction,
+  });
+  const riskAmount = risk.amount;
 
   return {
     symbol,
@@ -3266,6 +3727,7 @@ function finish(
     isWin: realizedPnl === null ? null : realizedPnl > 0,
     isOpen: exitedAt === null,
     riskAmount,
+    riskCoversFullPosition: risk.fullyCovered,
     rMultiple:
       realizedPnl !== null && riskAmount !== null
         ? round(realizedPnl / riskAmount)
@@ -3364,7 +3826,7 @@ Append inside the `describe` block of `backend/test/portfolio.e2e-spec.ts`:
       quantity: number,
       price: number,
       occurredAt: string,
-      plannedStop?: number,
+      stop?: number,
     ) =>
       request(app.getHttpServer())
         .post('/journal')
@@ -3372,7 +3834,22 @@ Append inside the `describe` block of `backend/test/portfolio.e2e-spec.ts`:
           kind: 'TRADE',
           body: 'x',
           occurredAt,
-          trade: { symbol: 'NVDA', quantity, price, fee: 0, plannedStop },
+          trade: {
+            symbol: 'NVDA',
+            quantity,
+            price,
+            fee: 0,
+            stopLevels:
+              stop === undefined
+                ? undefined
+                : [
+                    {
+                      kind: 'FIXED',
+                      price: stop,
+                      quantity: Math.abs(quantity),
+                    },
+                  ],
+          },
         })
         .expect(201);
 
@@ -3425,6 +3902,15 @@ Add to `PortfolioService`, reusing the transaction loading it already does:
     ]);
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
 
+    const levelRows = await this.stopLevels.find();
+    const levelsByTxn = new Map<string, typeof levelRows>();
+    for (const l of levelRows) {
+      levelsByTxn.set(l.transactionId, [
+        ...(levelsByTxn.get(l.transactionId) ?? []),
+        l,
+      ]);
+    }
+
     const trades = deriveTrades(
       txnRows.map((t) => ({
         symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
@@ -3433,7 +3919,14 @@ Add to `PortfolioService`, reusing the transaction loading it already does:
         price: t.price,
         fee: t.fee,
         executedAt: t.executedAt,
-        plannedStop: t.plannedStop,
+        stopLevels: (levelsByTxn.get(t.id) ?? [])
+          .sort((a, b) => a.ordinal - b.ordinal)
+          .map((l) => ({
+            kind: l.kind,
+            price: l.price,
+            trailPercent: l.trailPercent,
+            quantity: l.quantity,
+          })),
         plannedTarget: t.plannedTarget,
       })),
     );
@@ -3443,6 +3936,16 @@ Add to `PortfolioService`, reusing the transaction loading it already does:
 ```
 
 with `import { deriveTrades, summariseTrades } from './derive-trades.js';`
+
+`PortfolioService` needs the stop levels repository injected:
+
+```ts
+@InjectRepository(StopLevel)
+private readonly stopLevels: Repository<StopLevel>,
+```
+
+and `StopLevel` added to `TypeOrmModule.forFeature([...])` in
+`portfolio.module.ts`.
 
 Add to `PortfolioController`:
 
@@ -3590,6 +4093,520 @@ git add -A && git commit -m "feat: win rate, average risk and expectancy header"
 Close a round trip (or edit a seeded entry into a closed one) and check the three
 stats. **The number to scrutinise is expectancy** — it says "N of M with a stop"
 precisely so a confident-looking R figure built on two trades cannot mislead you.
+
+---
+
+---
+
+## Task 16: Stop editor in the composer
+
+**Files:**
+- Create: `frontend/src/lib/stopRisk.ts`
+- Create: `frontend/src/lib/stopRisk.spec.ts`
+- Create: `frontend/src/components/StopLevelEditor.tsx`
+- Modify: `frontend/src/lib/entryDraft.ts`
+- Modify: `frontend/src/components/EntrySheet.tsx`
+
+- [ ] **Step 1: Write the failing test**
+
+Create `frontend/src/lib/stopRisk.spec.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { draftRisk, type StopRow } from './stopRisk';
+
+const fixed = (price: string, quantity: string): StopRow => ({
+  kind: 'FIXED',
+  price,
+  trailPercent: '',
+  quantity,
+});
+const trail = (percent: string, quantity: string): StopRow => ({
+  kind: 'TRAILING',
+  price: '',
+  trailPercent: percent,
+  quantity,
+});
+
+describe('draftRisk', () => {
+  it('is null with no rows', () => {
+    expect(draftRisk('217', '100', [], 'BUY').amount).toBeNull();
+  });
+
+  it('computes a single fixed stop', () => {
+    const r = draftRisk('217', '100', [fixed('205', '100')], 'BUY');
+    expect(r.amount).toBe(1200);
+    expect(r.covered).toBe(100);
+    expect(r.fullyCovered).toBe(true);
+  });
+
+  it('sums a tiered plan mixing fixed and trailing', () => {
+    const r = draftRisk(
+      '217',
+      '100',
+      [fixed('205', '50'), trail('8', '50')],
+      'BUY',
+    );
+    expect(r.amount).toBe(600 + 868);
+  });
+
+  it('reports partial coverage', () => {
+    const r = draftRisk('217', '150', [fixed('205', '100')], 'BUY');
+    expect(r.fullyCovered).toBe(false);
+    expect(r.covered).toBe(100);
+  });
+
+  it('handles a short, where a stop sits above entry', () => {
+    const r = draftRisk('300', '10', [fixed('320', '10')], 'SELL');
+    expect(r.amount).toBe(200);
+  });
+
+  it('ignores a half-typed row rather than flashing a wrong number', () => {
+    // Mid-typing, price is empty. Showing $21,700 for a moment would be worse
+    // than showing nothing.
+    const r = draftRisk('217', '100', [fixed('', '100')], 'BUY');
+    expect(r.amount).toBeNull();
+  });
+
+  it('ignores a stop on the wrong side of the entry', () => {
+    expect(draftRisk('217', '100', [fixed('230', '100')], 'BUY').amount).toBeNull();
+  });
+
+  it('is null when the entry price is not yet filled in', () => {
+    expect(draftRisk('', '100', [fixed('205', '100')], 'BUY').amount).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Implement**
+
+Create `frontend/src/lib/stopRisk.ts`:
+
+```ts
+export type StopKind = 'FIXED' | 'TRAILING';
+
+/** Draft rows hold strings, because they mirror what is in the inputs. */
+export interface StopRow {
+  kind: StopKind;
+  price: string;
+  trailPercent: string;
+  quantity: string;
+}
+
+export interface DraftRisk {
+  amount: number | null;
+  covered: number;
+  fullyCovered: boolean;
+}
+
+const num = (s: string): number | null => {
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Mirrors the backend's computeRisk, over half-typed strings. Deliberately
+ * returns null rather than a partial figure: a risk number that flickers
+ * through wrong values while you type is worse than no number at all.
+ */
+export function draftRisk(
+  entryPrice: string,
+  positionQuantity: string,
+  rows: StopRow[],
+  side: 'BUY' | 'SELL',
+): DraftRisk {
+  const entry = num(entryPrice);
+  const size = Math.abs(num(positionQuantity) ?? 0);
+  if (entry === null || entry <= 0) {
+    return { amount: null, covered: 0, fullyCovered: false };
+  }
+
+  let amount = 0;
+  let covered = 0;
+
+  for (const row of rows) {
+    const qty = Math.abs(num(row.quantity) ?? 0);
+    if (qty <= 0) continue;
+
+    let perShare: number | null = null;
+    if (row.kind === 'FIXED') {
+      const price = num(row.price);
+      if (price !== null && price > 0) {
+        const distance = side === 'BUY' ? entry - price : price - entry;
+        if (distance > 0) perShare = distance;
+      }
+    } else {
+      const pct = num(row.trailPercent);
+      if (pct !== null && pct > 0) perShare = entry * (pct / 100);
+    }
+
+    if (perShare === null) continue;
+    amount += perShare * qty;
+    covered += qty;
+  }
+
+  const cappedCover = Math.min(covered, size || covered);
+  return {
+    amount: covered > 0 ? Math.round(amount * 100) / 100 : null,
+    covered: cappedCover,
+    fullyCovered: covered > 0 && size > 0 && cappedCover >= size,
+  };
+}
+```
+
+- [ ] **Step 3: Run the tests**
+
+Run: `npm run test --prefix frontend -- stopRisk`
+Expected: PASS — 8 tests.
+
+- [ ] **Step 4: Add stop rows to the draft**
+
+In `frontend/src/lib/entryDraft.ts`, add to `EntryDraft`:
+
+```ts
+  stops: StopRow[];
+  target: string;
+```
+
+with `import type { StopRow } from './stopRisk';`, and in `emptyDraft`:
+
+```ts
+    stops: [],
+    target: '',
+```
+
+- [ ] **Step 5: Write the editor**
+
+Create `frontend/src/components/StopLevelEditor.tsx`:
+
+```tsx
+import { draftRisk, type StopRow } from '../lib/stopRisk';
+import { formatMoney, formatQuantity } from './format';
+
+const inputClass =
+  'w-full min-w-0 rounded-lg border border-border bg-surface-1 px-2.5 py-1.5 text-sm outline-none focus:border-accent';
+
+export function StopLevelEditor({
+  rows,
+  onChange,
+  entryPrice,
+  quantity,
+  side,
+}: {
+  rows: StopRow[];
+  onChange: (rows: StopRow[]) => void;
+  entryPrice: string;
+  quantity: string;
+  side: 'BUY' | 'SELL';
+}) {
+  const risk = draftRisk(entryPrice, quantity, rows, side);
+  const size = Math.abs(parseFloat(quantity || '0'));
+
+  const update = (i: number, patch: Partial<StopRow>) =>
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs text-muted">Stop levels</span>
+        <button
+          type="button"
+          onClick={() =>
+            onChange([
+              ...rows,
+              {
+                kind: 'FIXED',
+                price: '',
+                trailPercent: '',
+                // First tier defaults to the whole position; later ones do not
+                // guess, since a scale-out is deliberate.
+                quantity: rows.length === 0 && size > 0 ? String(size) : '',
+              },
+            ])
+          }
+          className="text-xs text-accent"
+        >
+          + add level
+        </button>
+      </div>
+
+      {rows.map((row, i) => (
+        <div key={i} className="flex gap-2">
+          <div className="flex shrink-0 overflow-hidden rounded-lg border border-border">
+            {(['FIXED', 'TRAILING'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={row.kind === k}
+                onClick={() => update(i, { kind: k })}
+                className={`px-2 py-1.5 text-xs font-medium ${
+                  row.kind === k
+                    ? 'bg-surface-2 text-text'
+                    : 'bg-surface-1 text-muted'
+                }`}
+              >
+                {k === 'FIXED' ? 'Price' : 'Trail'}
+              </button>
+            ))}
+          </div>
+
+          {row.kind === 'FIXED' ? (
+            <input
+              type="number"
+              inputMode="decimal"
+              placeholder="stop"
+              value={row.price}
+              onChange={(e) => update(i, { price: e.target.value })}
+              className={inputClass}
+            />
+          ) : (
+            <input
+              type="number"
+              inputMode="decimal"
+              placeholder="% below high"
+              value={row.trailPercent}
+              onChange={(e) => update(i, { trailPercent: e.target.value })}
+              className={inputClass}
+            />
+          )}
+
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="shares"
+            value={row.quantity}
+            onChange={(e) => update(i, { quantity: e.target.value })}
+            className={inputClass}
+          />
+
+          <button
+            type="button"
+            aria-label={`Remove stop level ${i + 1}`}
+            onClick={() => onChange(rows.filter((_, idx) => idx !== i))}
+            className="shrink-0 px-1 text-lg leading-none text-muted"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+
+      {rows.length > 0 && (
+        <p className="text-[11px] text-muted">
+          {risk.amount === null ? (
+            'Risk appears once a level is complete.'
+          ) : (
+            <>
+              Total risk{' '}
+              <span className="text-text">{formatMoney(risk.amount)}</span>
+              {size > 0 && (
+                <>
+                  {' · '}
+                  <span className={risk.fullyCovered ? '' : 'text-down'}>
+                    covers {formatQuantity(risk.covered)} of{' '}
+                    {formatQuantity(size)} sh
+                  </span>
+                </>
+              )}
+            </>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 6: Wire it into the composer**
+
+In `EntrySheet.tsx`, inside the `draft.kind === 'TRADE'` block, below the
+qty/price/fee row:
+
+```tsx
+<StopLevelEditor
+  rows={draft.stops}
+  onChange={(stops) => set({ stops })}
+  entryPrice={draft.price}
+  quantity={draft.quantity}
+  side={draft.side}
+/>
+```
+
+and include the levels in the mutation payload's `trade` object:
+
+```tsx
+  plannedTarget: draft.target ? Math.abs(parseFloat(draft.target)) : undefined,
+  stopLevels: draft.stops
+    .filter(
+      (r) =>
+        parseFloat(r.quantity || '0') > 0 &&
+        (r.kind === 'FIXED' ? r.price !== '' : r.trailPercent !== ''),
+    )
+    .map((r) => ({
+      kind: r.kind,
+      price: r.kind === 'FIXED' ? parseFloat(r.price) : undefined,
+      trailPercent:
+        r.kind === 'TRAILING' ? parseFloat(r.trailPercent) : undefined,
+      quantity: Math.abs(parseFloat(r.quantity)),
+    })),
+```
+
+When editing an existing entry, seed `stops` from `editing.trade.stopLevels`.
+
+- [ ] **Step 7: Verify and commit**
+
+Run: `npm run dev`, open the composer, add two levels, watch the risk figure.
+
+```bash
+git add -A && git commit -m "feat: tiered stop editor with live risk in the composer"
+```
+
+---
+
+## Task 17: Set stops on existing positions
+
+The catch-up flow for positions seeded before stops existed.
+
+**Files:**
+- Create: `frontend/src/routes/SetStops.tsx`
+- Modify: `frontend/src/main.tsx`, `frontend/src/routes/Dashboard.tsx`
+
+- [ ] **Step 1: Write the screen**
+
+Create `frontend/src/routes/SetStops.tsx`:
+
+```tsx
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { api } from '../api/client';
+import { Money } from '../components/Money';
+import { formatQuantity } from '../components/format';
+
+interface Trade {
+  symbol: string;
+  quantity: number;
+  avgEntry: number;
+  isOpen: boolean;
+  riskAmount: number | null;
+}
+
+/**
+ * Positions seeded in Phase 1 have no stop. Editing twenty journal entries one
+ * at a time to fix that is a chore nobody completes, so this lists every open
+ * position that still needs one and links straight into it.
+ */
+export function SetStops() {
+  const { data } = useQuery({
+    queryKey: ['stats'],
+    queryFn: () => api<{ trades: Trade[] }>('/portfolio/stats'),
+  });
+
+  const open = (data?.trades ?? []).filter((t) => t.isOpen);
+  const missing = open.filter((t) => t.riskAmount === null);
+  const covered = open.filter((t) => t.riskAmount !== null);
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-lg font-semibold">Stops on open positions</h1>
+        <p className="mt-1 text-sm text-muted">
+          {missing.length === 0
+            ? 'Every open position has a stop.'
+            : `${missing.length} of ${open.length} positions have no stop yet.`}
+        </p>
+      </div>
+
+      {missing.length > 0 && (
+        <section>
+          <h2 className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+            No stop set
+          </h2>
+          <ul>
+            {missing.map((t) => (
+              <Row key={t.symbol} trade={t} />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {covered.length > 0 && (
+        <section>
+          <h2 className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+            Stop set
+          </h2>
+          <ul>
+            {covered.map((t) => (
+              <Row key={t.symbol} trade={t} />
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function Row({ trade }: { trade: Trade }) {
+  return (
+    <li className="border-b border-border last:border-0">
+      <Link
+        to={`/positions/${trade.symbol}`}
+        className="flex items-center justify-between py-3"
+      >
+        <div>
+          <div className="text-[15px] font-semibold">{trade.symbol}</div>
+          <div className="text-[11px] text-muted">
+            {formatQuantity(trade.quantity)} @{' '}
+            <Money value={trade.avgEntry} />
+          </div>
+        </div>
+        <div className="text-right text-sm">
+          {trade.riskAmount === null ? (
+            <span className="text-muted">set stop →</span>
+          ) : (
+            <>
+              <div className="text-muted text-[11px]">risk</div>
+              <Money value={trade.riskAmount} />
+            </>
+          )}
+        </div>
+      </Link>
+    </li>
+  );
+}
+```
+
+- [ ] **Step 2: Link it from the dashboard**
+
+Register `<Route path="stops" element={<SetStops />} />`, and on the dashboard
+show a prompt while any open position lacks a stop:
+
+```tsx
+{stats && stats.openCount > 0 && stats.riskTradeCount < stats.openCount && (
+  <Link
+    to="/stops"
+    className="block rounded-xl border border-border bg-surface-1 p-3 text-xs text-muted"
+  >
+    {stats.openCount - stats.riskTradeCount} open positions have no stop —
+    set them to unlock risk and expectancy →
+  </Link>
+)}
+```
+
+- [ ] **Step 3: Verify and commit**
+
+Run: `npm run dev`, open `/stops`.
+Expected: every open position listed, those without a stop first.
+
+```bash
+git add -A && git commit -m "feat: catch-up screen for stops on existing positions"
+```
+
+### ✋ TEST CHECKPOINT 6 — set your real stops
+
+Work through `/stops` and set stops on the positions where you have one. Some
+will be fixed levels, some percentage trails, some tiered. **Check the risk
+figures against what you actually consider yourself risking** — if they disagree,
+the model is wrong and I need to know before the stats are built on it.
+
 
 ---
 
