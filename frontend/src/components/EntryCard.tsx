@@ -10,7 +10,7 @@ export interface StopLevel {
 
 export interface Entry {
   id: string;
-  kind: 'TRADE' | 'NOTE' | 'CASH';
+  kind: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
   body: string;
   occurredAt: string;
   trade: {
@@ -24,6 +24,7 @@ export interface Entry {
     riskAmount: number | null;
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
+  dividend: { symbol: string; amount: number } | null;
   tags: { id: string; type: 'SETUP' | 'MISTAKE'; label: string }[];
 }
 
@@ -73,6 +74,16 @@ export function EntryCard({
               {entry.cash.direction === 'DEPOSIT' ? 'Deposit' : 'Withdraw'}
             </span>
             <Money value={entry.cash.amount} />
+          </div>
+        )}
+
+        {entry.dividend && (
+          <div className="flex items-baseline gap-2 text-sm">
+            <span className="rounded bg-up/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-up">
+              DIV
+            </span>
+            <span className="font-semibold">{entry.dividend.symbol}</span>
+            <Money value={entry.dividend.amount} className="text-up" />
           </div>
         )}
 

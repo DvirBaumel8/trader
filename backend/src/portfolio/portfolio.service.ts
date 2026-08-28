@@ -241,7 +241,8 @@ export class PortfolioService {
     if (contributed !== 0) {
       await this.journal.create({
         kind: 'CASH',
-        body: 'Opening capital (seeded)',
+        // No 'seeded' marker: where a row came from is not the user's concern.
+        body: '',
         occurredAt: asOf.toISOString(),
         cash: {
           direction: contributed > 0 ? 'DEPOSIT' : 'WITHDRAW',
@@ -253,7 +254,7 @@ export class PortfolioService {
     for (const { holding, instrument } of resolved) {
       await this.journal.create({
         kind: 'TRADE',
-        body: `Opening position (seeded): ${instrument.symbol}`,
+        body: '',
         occurredAt: asOf.toISOString(),
         trade: {
           symbol: instrument.symbol,
