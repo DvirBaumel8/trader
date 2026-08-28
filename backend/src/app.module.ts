@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthModule } from './health/health.module.js';
 import { UsersModule } from './users/users.module.js';
 import { InstrumentsModule } from './instruments/instruments.module.js';
+import { PortfolioModule } from './portfolio/portfolio.module.js';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { InstrumentsModule } from './instruments/instruments.module.js';
     }),
     UsersModule,
     InstrumentsModule,
+    PortfolioModule,
     HealthModule,
   ],
 })
