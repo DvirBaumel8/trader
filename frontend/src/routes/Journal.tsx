@@ -7,6 +7,8 @@ import { Money } from '../components/Money';
 import { StatsHeader } from '../components/StatsHeader';
 import { EntrySheet } from '../components/EntrySheet';
 import { loadUiState, saveUiState } from '../lib/uiState';
+import { FeesChart } from '../components/FeesChart';
+import { bucketFees, totalFees, type Period } from '../lib/feeBuckets';
 import { FilterBar, type SortValue } from '../components/FilterBar';
 import {
   emptyFilters,
@@ -35,12 +37,13 @@ function PencilIcon() {
   );
 }
 
-type Tab = 'TRADES' | 'ACTIVITIES' | 'BALANCE';
+type Tab = 'TRADES' | 'ACTIVITIES' | 'BALANCE' | 'FEES';
 
 const TABS: { value: Tab; label: string }[] = [
   { value: 'TRADES', label: 'Trades' },
   { value: 'ACTIVITIES', label: 'Activities' },
   { value: 'BALANCE', label: 'Balance' },
+  { value: 'FEES', label: 'Fees' },
 ];
 
 interface Stats {
@@ -285,6 +288,31 @@ function BalanceTab({
   );
 }
 
+function FeesTab() {
+  const [period, setPeriod] = useState<Period>('MONTH');
+
+  // Reuses the Activities query, so switching tabs costs no extra request.
+  const { data, isLoading } = useQuery({
+    queryKey: ['journal', 'TRADE'],
+    queryFn: () => api<Entry[]>('/journal?kind=TRADE'),
+  });
+
+  if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
+
+  const events = (data ?? [])
+    .filter((e) => e.trade !== null)
+    .map((e) => ({ occurredAt: e.occurredAt, fee: e.trade!.fee }));
+
+  return (
+    <FeesChart
+      buckets={bucketFees(events, period)}
+      total={totalFees(events)}
+      period={period}
+      onPeriodChange={setPeriod}
+    />
+  );
+}
+
 export function Journal() {
   // iOS discards backgrounded tabs, so returning from the broker app cold-
   // starts this one. Everything below exists to put the user back where they
@@ -341,14 +369,14 @@ export function Journal() {
     <div className="space-y-4 pb-20">
       <StatsHeader />
 
-      <div className="flex items-center gap-1">
+      <div className="-mx-4 flex items-center gap-1 overflow-x-auto px-4">
         {TABS.map((t) => (
           <button
             key={t.value}
             type="button"
             aria-pressed={tab === t.value}
             onClick={() => setTab(t.value)}
-            className={`rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+            className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
               tab === t.value
                 ? 'border-accent/40 bg-accent/10 text-accent'
                 : 'border-border text-muted'
@@ -358,13 +386,13 @@ export function Journal() {
           </button>
         ))}
 
-        {tab !== 'TRADES' && (
+        {(tab === 'ACTIVITIES' || tab === 'BALANCE') && (
           <button
             type="button"
             aria-pressed={editMode}
             aria-label={editMode ? 'Done editing' : 'Edit entries'}
             onClick={() => setEditMode((v) => !v)}
-            className={`ml-auto rounded-lg border px-2 py-1.5 transition-colors ${
+            className={`shrink-0 rounded-lg border px-2 py-1.5 transition-colors ${
               editMode
                 ? 'border-accent/40 bg-accent/10 text-accent'
                 : 'border-border text-muted'
@@ -375,7 +403,7 @@ export function Journal() {
         )}
       </div>
 
-      {editMode && tab !== 'TRADES' && (
+      {editMode && (tab === 'ACTIVITIES' || tab === 'BALANCE') && (
         <p className="text-[11px] text-accent">
           Tap an entry to edit or delete it.
         </p>
@@ -388,6 +416,7 @@ export function Journal() {
       {tab === 'BALANCE' && (
         <BalanceTab onOpen={setEditing} editMode={editMode} />
       )}
+      {tab === 'FEES' && <FeesTab />}
 
       <button
         type="button"
