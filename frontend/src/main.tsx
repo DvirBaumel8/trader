@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
+import { RestoreLocation } from './components/RestoreLocation';
 import { Dashboard } from './routes/Dashboard';
 import { TickerProbe } from './routes/TickerProbe';
 import { Seed } from './routes/Seed';
@@ -15,6 +16,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <RestoreLocation />
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<Dashboard />} />

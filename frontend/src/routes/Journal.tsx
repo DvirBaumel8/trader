@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { EntryCard, type Entry } from '../components/EntryCard';
@@ -6,6 +6,7 @@ import { TradeCard, type Trade } from '../components/TradeCard';
 import { Money } from '../components/Money';
 import { StatsHeader } from '../components/StatsHeader';
 import { EntrySheet } from '../components/EntrySheet';
+import { loadUiState, saveUiState } from '../lib/uiState';
 import { FilterBar, type SortValue } from '../components/FilterBar';
 import {
   emptyFilters,
@@ -285,15 +286,51 @@ function BalanceTab({
 }
 
 export function Journal() {
-  const [tab, setTab] = useState<Tab>('TRADES');
-  const [composing, setComposing] = useState(false);
-  const [editMode, setEditMode] = useState(false);
+  // iOS discards backgrounded tabs, so returning from the broker app cold-
+  // starts this one. Everything below exists to put the user back where they
+  // were rather than on the default screen.
+  const restored = useRef(loadUiState());
+  const [tab, setTab] = useState<Tab>(
+    (restored.current?.journalTab as Tab) ?? 'TRADES',
+  );
+  const [composing, setComposing] = useState(
+    restored.current?.composing ?? false,
+  );
+  const [editMode, setEditMode] = useState(
+    restored.current?.editingEntryId != null,
+  );
   const [editing, setEditing] = useState<Entry | null>(null);
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api<{ defaultFee: number }>('/settings'),
   });
+
+  // Only fetched when there is an entry to reopen, and only once.
+  const pendingEntryId = restored.current?.editingEntryId ?? null;
+  const { data: allEntries } = useQuery({
+    queryKey: ['journal', 'ALL'],
+    queryFn: () => api<Entry[]>('/journal'),
+    enabled: pendingEntryId !== null,
+  });
+
+  useEffect(() => {
+    if (!pendingEntryId || !allEntries) return;
+    const found = allEntries.find((e) => e.id === pendingEntryId);
+    // The entry may have been deleted from another device; silently skip it
+    // rather than reopening an editor onto nothing.
+    if (found) setEditing(found);
+    restored.current = null;
+  }, [pendingEntryId, allEntries]);
+
+  useEffect(() => {
+    saveUiState({
+      path: '/journal',
+      journalTab: tab,
+      editingEntryId: editing?.id ?? null,
+      composing,
+    });
+  }, [tab, editing, composing]);
 
   const close = () => {
     setComposing(false);
