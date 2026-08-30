@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  NotFoundException,
+  forwardRef,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Instrument } from './instrument.entity.js';
@@ -9,6 +14,7 @@ export class InstrumentsService {
   constructor(
     @InjectRepository(Instrument)
     private readonly repo: Repository<Instrument>,
+    @Inject(forwardRef(() => MarketDataService))
     private readonly marketData: MarketDataService,
   ) {}
 

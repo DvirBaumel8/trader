@@ -1,10 +1,24 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { MarketDataService } from './market-data.service.js';
 import { YahooClient } from './yahoo.client.js';
+import { HistoryService } from './history.service.js';
+import { HistoryController } from './history.controller.js';
+import { DailyClose } from './daily-close.entity.js';
+import { Instrument } from '../instruments/instrument.entity.js';
+import { Transaction } from '../transactions/transaction.entity.js';
+import { InstrumentsModule } from '../instruments/instruments.module.js';
 
 @Module({
+  imports: [
+    TypeOrmModule.forFeature([DailyClose, Instrument, Transaction]),
+    // Instruments depends on market data for ticker validation, so the two
+    // modules reference each other.
+    forwardRef(() => InstrumentsModule),
+  ],
   providers: [
     YahooClient,
+    HistoryService,
     {
       // Built by factory so the cache TTL stays an explicit constructor
       // argument, which is what makes the service testable without Nest.
@@ -13,6 +27,7 @@ import { YahooClient } from './yahoo.client.js';
       inject: [YahooClient],
     },
   ],
-  exports: [MarketDataService],
+  controllers: [HistoryController],
+  exports: [MarketDataService, HistoryService],
 })
 export class MarketDataModule {}
