@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { Money } from './Money';
-import { signClass } from './format';
 
 interface Stats {
   closedCount: number;
@@ -75,21 +74,6 @@ export function StatsHeader() {
               ? `${data.riskTradeCount} with a stop`
               : 'set stops to unlock'
           }
-        />
-        <Stat
-          label="Expectancy"
-          value={
-            data.expectancyR !== null
-              ? `${data.expectancyR > 0 ? '+' : ''}${data.expectancyR.toFixed(2)}R`
-              : '—'
-          }
-          sub={
-            // Never let a headline number hide how small its sample is.
-            data.rTradeCount > 0
-              ? `${data.rTradeCount} of ${data.closedCount} with a stop`
-              : 'set stops to unlock'
-          }
-          tone={signClass(data.expectancyR)}
         />
       </div>
       {data.expectancyDollars !== null && (
