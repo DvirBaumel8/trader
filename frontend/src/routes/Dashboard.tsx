@@ -11,6 +11,11 @@ import {
   type SortKey,
 } from '../lib/sortPositions';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
+import {
+  BenchmarkChart,
+  type Point,
+  type Range,
+} from '../components/BenchmarkChart';
 
 interface Position {
   symbol: string;
@@ -71,6 +76,13 @@ function SessionBadge({
       {label}
     </span>
   );
+}
+
+const RANGE_KEY = 'trader.benchmarkRange.v1';
+
+interface Performance {
+  points: Point[];
+  deltas: { vsSp500: number | null; vsNasdaq: number | null } | null;
 }
 
 const SORT_KEY = 'trader.holdingsSort.v1';
@@ -244,7 +256,15 @@ export function Dashboard() {
     loadDraft(SORT_KEY, defaultSort),
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [range, setRange] = useState<Range>(
+    () => loadDraft(RANGE_KEY, { range: 'ALL' as Range }).range,
+  );
   const queryClient = useQueryClient();
+
+  const { data: performance } = useQuery({
+    queryKey: ['performance', range],
+    queryFn: () => api<Performance>(`/performance?range=${range}`),
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['portfolio'],
@@ -355,6 +375,16 @@ export function Dashboard() {
           </div>
         </div>
       </section>
+
+      <BenchmarkChart
+        points={performance?.points ?? []}
+        deltas={performance?.deltas ?? null}
+        range={range}
+        onRangeChange={(r) => {
+          setRange(r);
+          saveDraft(RANGE_KEY, { range: r });
+        }}
+      />
 
       <section>
         <div className="mb-2 flex items-center justify-between">

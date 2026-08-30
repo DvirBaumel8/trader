@@ -97,6 +97,13 @@ frontend/src/
   routes/        Dashboard, Seed, TickerProbe (dev only, not in nav)
 ```
 
+## Do not run `nest build` while `npm run dev` is running
+
+Both write `backend/dist`, and the build wipes it out from under the watcher,
+crashing the backend with `Cannot find module dist/main`. It looks like an
+application bug and is not. To typecheck without disturbing the dev server use
+`npx tsc --noEmit -p tsconfig.json` from `backend/`. This has bitten twice.
+
 ## Mobile gotchas learned the hard way
 
 - **The iOS decimal keypad has no minus key.** Never require a typed `-`; use an

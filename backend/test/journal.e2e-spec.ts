@@ -28,7 +28,7 @@ describe('Journal (e2e)', () => {
     await app.close();
   });
 
-  const post = (body: unknown) =>
+  const post = (body: object) =>
     request(app.getHttpServer()).post('/journal').send(body);
 
   const trade = (

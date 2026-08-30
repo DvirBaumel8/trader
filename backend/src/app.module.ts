@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module.js';
 import { InstrumentsModule } from './instruments/instruments.module.js';
 import { PortfolioModule } from './portfolio/portfolio.module.js';
 import { JournalModule } from './journal/journal.module.js';
+import { PerformanceModule } from './performance/performance.module.js';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { JournalModule } from './journal/journal.module.js';
     InstrumentsModule,
     JournalModule,
     PortfolioModule,
+    PerformanceModule,
     HealthModule,
   ],
 })
