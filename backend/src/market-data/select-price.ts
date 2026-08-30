@@ -21,6 +21,8 @@ export interface SelectedPrice {
  *
  * Extended-hours prices are thinner and can gap, so `extended` is returned for
  * the UI to label — never silently pass an after-hours print off as the close.
+ *
+ * In every session the rule is the same: show the most recent actual trade.
  */
 export function selectPrice(q: PriceInputs): SelectedPrice | null {
   const session = normaliseSession(q.marketState);
@@ -29,6 +31,15 @@ export function selectPrice(q: PriceInputs): SelectedPrice | null {
     return { price: q.preMarketPrice, session, extended: true };
   }
   if (session === 'POST' && isPrice(q.postMarketPrice)) {
+    return { price: q.postMarketPrice, session, extended: true };
+  }
+  /**
+   * With the market fully closed, the last trade is the after-hours print, not
+   * the official close — and that is what brokers display. Matching the broker
+   * matters more here than accounting purity: a portfolio that disagrees with
+   * the account it mirrors is a portfolio you stop trusting.
+   */
+  if (session === 'CLOSED' && isPrice(q.postMarketPrice)) {
     return { price: q.postMarketPrice, session, extended: true };
   }
   // Falls back to the regular price whenever an extended print is missing —

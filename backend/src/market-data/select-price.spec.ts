@@ -68,7 +68,19 @@ describe('selectPrice', () => {
     ).toEqual({ price: 217.55, session: 'POST', extended: false });
   });
 
-  it('reports CLOSED on a weekend and still prices at the close', () => {
+  it('uses the last after-hours trade when the market is fully closed', () => {
+    // Brokers show the last trade, not the official close, and the portfolio
+    // has to reconcile against the broker.
+    expect(
+      selectPrice({
+        marketState: 'CLOSED',
+        regularMarketPrice: 317.76,
+        postMarketPrice: 318.4,
+      }),
+    ).toEqual({ price: 318.4, session: 'CLOSED', extended: true });
+  });
+
+  it('falls back to the close when a closed market has no after-hours print', () => {
     expect(
       selectPrice({ marketState: 'CLOSED', regularMarketPrice: 217.55 }),
     ).toEqual({ price: 217.55, session: 'CLOSED', extended: false });
