@@ -75,7 +75,15 @@ export function EntrySheet({
   // When opened on an existing entry the draft mirrors it. Editing must never
   // clobber an unsaved new entry, so only the new-entry draft is persisted.
   useEffect(() => {
-    if (open && editing) setDraft(draftFromEntry(editing, defaultFee));
+    if (!open) return;
+    if (editing) {
+      setDraft(draftFromEntry(editing, defaultFee));
+      return;
+    }
+    // A new entry always opens on today. The draft survives across days, so a
+    // restored one would otherwise arrive carrying the date it was started on
+    // — and with the field defaulted rather than blank, that is easy to miss.
+    setDraft((d) => ({ ...d, occurredAt: localDate() }));
   }, [open, editing, defaultFee]);
 
   useEffect(() => {
