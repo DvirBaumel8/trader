@@ -22,19 +22,28 @@ export interface EntryDraft {
   mistakes: string[];
 }
 
-/** Local time for a datetime-local input, not UTC. */
-export function nowLocalInput(now: Date = new Date()): string {
+/** The local calendar date, for a `<input type="date">`. */
+export function localDate(when: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return (
-    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-    `T${pad(now.getHours())}:${pad(now.getMinutes())}`
-  );
+  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`;
+}
+
+/**
+ * A picked date becomes local midday rather than midnight. Midnight sits within
+ * a timezone offset of the day boundary, so it can render or filter as the
+ * neighbouring day; midday has hours of slack in both directions.
+ */
+export function dateToIso(date: string): string {
+  const parsed = new Date(`${date}T12:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? new Date().toISOString()
+    : parsed.toISOString();
 }
 
 export function emptyDraft(defaultFee: number): EntryDraft {
   return {
     kind: 'TRADE',
-    occurredAt: nowLocalInput(),
+    occurredAt: localDate(),
     body: '',
     symbol: '',
     side: 'BUY',

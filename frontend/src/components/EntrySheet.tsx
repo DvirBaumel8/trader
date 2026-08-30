@@ -3,8 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { clearDraft, loadDraft, saveDraft } from '../lib/draftStorage';
 import {
+  dateToIso,
   emptyDraft,
-  nowLocalInput,
+  localDate,
   signedQuantity,
   type EntryDraft,
   type EntryKind,
@@ -30,7 +31,7 @@ const AFFECTED = ['journal', 'portfolio', 'stats', 'tags'];
 function draftFromEntry(entry: Entry, defaultFee: number): EntryDraft {
   return {
     kind: entry.kind,
-    occurredAt: nowLocalInput(new Date(entry.occurredAt)),
+    occurredAt: localDate(new Date(entry.occurredAt)),
     body: entry.body,
     symbol: entry.trade?.symbol ?? '',
     side: entry.trade?.side ?? 'BUY',
@@ -98,9 +99,7 @@ export function EntrySheet({
         body: JSON.stringify({
           kind: draft.kind,
           body: draft.body,
-          occurredAt: editing
-            ? new Date(draft.occurredAt).toISOString()
-            : new Date().toISOString(),
+          occurredAt: dateToIso(draft.occurredAt),
           trade:
             draft.kind === 'TRADE'
               ? {
@@ -306,6 +305,16 @@ export function EntrySheet({
             />
           </div>
         )}
+
+        <label className="block space-y-1">
+          <span className="block text-xs text-muted">Date</span>
+          <input
+            type="date"
+            value={draft.occurredAt}
+            onChange={(e) => set({ occurredAt: e.target.value })}
+            className={inputClass}
+          />
+        </label>
 
         <textarea
           rows={3}

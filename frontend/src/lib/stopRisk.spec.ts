@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { draftRisk, type StopRow } from './stopRisk';
-import { emptyDraft, nowLocalInput, signedQuantity } from './entryDraft';
+import { dateToIso, emptyDraft, localDate, signedQuantity } from './entryDraft';
 
 const fixed = (price: string, quantity: string): StopRow => ({
   kind: 'FIXED',
@@ -64,12 +64,28 @@ describe('draftRisk', () => {
   });
 });
 
-describe('nowLocalInput', () => {
-  it('formats local time for a datetime-local input', () => {
-    expect(nowLocalInput(new Date(2026, 7, 29, 9, 5))).toBe('2026-08-29T09:05');
+describe('localDate', () => {
+  it('formats the local calendar date', () => {
+    expect(localDate(new Date(2026, 7, 29, 9, 5))).toBe('2026-08-29');
   });
   it('pads single digits', () => {
-    expect(nowLocalInput(new Date(2026, 0, 2, 3, 4))).toBe('2026-01-02T03:04');
+    expect(localDate(new Date(2026, 0, 2, 3, 4))).toBe('2026-01-02');
+  });
+  it('keeps the local day even late at night', () => {
+    // Midnight-adjacent times are where UTC-based formatting slips a day.
+    expect(localDate(new Date(2026, 7, 29, 23, 50))).toBe('2026-08-29');
+  });
+});
+
+describe('dateToIso', () => {
+  it('round-trips a picked date back to the same local day', () => {
+    expect(localDate(new Date(dateToIso('2026-08-29')))).toBe('2026-08-29');
+  });
+  it('lands at local midday, away from the day boundary', () => {
+    expect(new Date(dateToIso('2026-08-29')).getHours()).toBe(12);
+  });
+  it('falls back to now rather than producing an invalid date', () => {
+    expect(Number.isNaN(new Date(dateToIso('')).getTime())).toBe(false);
   });
 });
 

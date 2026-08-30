@@ -13,12 +13,16 @@ export function hasActiveFilters(f: Filters): boolean {
 }
 
 /**
- * A date-only string compares correctly as text in ISO form, which avoids
- * timezone drift entirely — the alternative, parsing to Date, shifts a trade
- * logged at 23:00 into the next day for anyone east of UTC.
+ * The LOCAL calendar day, matching what the list displays and what the date
+ * pickers produce. Slicing the ISO string would give the UTC day instead, so a
+ * trade logged after midnight would filter into the previous day while still
+ * being shown under today.
  */
 function dayOf(iso: string): string {
-  return iso.slice(0, 10);
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function withinRange(iso: string, from: string, to: string): boolean {
