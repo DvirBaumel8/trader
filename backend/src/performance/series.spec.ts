@@ -179,17 +179,18 @@ describe('buildValuationSeries', () => {
     });
 
     // Day 1: bought 10 @ 100 with 1000 deposited => cash 0, positions 1000.
-    expect(s[0]).toMatchObject({
+    expect(s.days[0]).toMatchObject({
       date: '2026-08-28',
       value: 1000,
       externalFlow: 1000,
     });
     // Day 2: same 10 shares at 110.
-    expect(s[1]).toMatchObject({
+    expect(s.days[1]).toMatchObject({
       date: '2026-08-31',
       value: 1100,
       externalFlow: 0,
     });
+    expect(s.unpricedSymbols).toEqual([]);
   });
 
   it('carries the last known close forward when a bar is missing', () => {
@@ -202,8 +203,10 @@ describe('buildValuationSeries', () => {
       dividends: [],
     });
     // Held at the last known 100 rather than valued at zero.
-    expect(s[0].value).toBe(1000);
-    expect(s[1].value).toBe(1000);
+    expect(s.days[0].value).toBe(1000);
+    expect(s.days[1].value).toBe(1000);
+    // A bar existed at some point, and last-known carried it — not unpriced.
+    expect(s.unpricedSymbols).toEqual([]);
   });
 
   it('treats dividends as internal, not as flows', () => {
@@ -221,8 +224,8 @@ describe('buildValuationSeries', () => {
         },
       ],
     });
-    expect(s[0].value).toBe(1050);
-    expect(s[0].externalFlow).toBe(1000);
+    expect(s.days[0].value).toBe(1050);
+    expect(s.days[0].externalFlow).toBe(1000);
   });
 
   it('excludes a trade that has not happened yet', () => {
@@ -233,8 +236,8 @@ describe('buildValuationSeries', () => {
       flows: [],
       dividends: [],
     });
-    expect(s[0].value).toBe(0);
-    expect(s[1].value).toBe(1100 - 1000);
+    expect(s.days[0].value).toBe(0);
+    expect(s.days[1].value).toBe(1100 - 1000);
   });
 
   it('values a short position negatively', () => {
@@ -255,6 +258,35 @@ describe('buildValuationSeries', () => {
       dividends: [],
     });
     // Short proceeds raise cash by 1000; the position is worth -1000.
-    expect(s[0].value).toBe(0);
+    expect(s.days[0].value).toBe(0);
+  });
+
+  it('values a position at cost when the symbol has never had a price bar', () => {
+    // CRWV bought 2026-09-01: no daily_closes row exists anywhere for it yet
+    // (the backfill is manual and had not run). Dropping it to zero produced
+    // a fabricated loss; cost basis is the conservative estimate.
+    const s = buildValuationSeries({
+      dates: ['2026-09-01', '2026-09-02'],
+      closes: new Map(), // no bars for CRWV, ever
+      txns: [buy('CRWV', 100, 163.88, '2026-09-01T12:00:00Z')],
+      flows: [deposit(16388, '2026-09-01T12:00:00Z')],
+      dividends: [],
+    });
+    // 100 shares @ 163.88 cost basis = 16388, matching the cash spent, so the
+    // account value holds flat rather than reading as a loss.
+    expect(s.days[0].value).toBe(16388);
+    expect(s.days[1].value).toBe(16388);
+    expect(s.unpricedSymbols).toEqual(['CRWV']);
+  });
+
+  it('does not flag a symbol that has a real close as unpriced', () => {
+    const s = buildValuationSeries({
+      dates: ['2026-08-28'],
+      closes,
+      txns: [buy('NVDA', 10, 100, '2026-08-28T12:00:00Z')],
+      flows: [deposit(1000, '2026-08-28T12:00:00Z')],
+      dividends: [],
+    });
+    expect(s.unpricedSymbols).toEqual([]);
   });
 });

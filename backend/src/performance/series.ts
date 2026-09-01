@@ -31,6 +31,18 @@ export interface SeriesInput {
 
 const dayOf = (d: Date): string => d.toISOString().slice(0, 10);
 
+export interface ValuationSeries {
+  days: DayInput[];
+  /**
+   * Symbols that, on at least one day of the window, had never had a price
+   * bar at all (as opposed to a mid-series gap, which carries the last known
+   * price forward). Those days value the position at cost basis instead —
+   * see the comment below. Surfaced so the UI can say the figure is an
+   * estimate rather than presenting it as measured.
+   */
+  unpricedSymbols: string[];
+}
+
 /**
  * Walks the calendar, valuing the portfolio at each day's close.
  *
@@ -38,10 +50,11 @@ const dayOf = (d: Date): string => d.toISOString().slice(0, 10);
  * than mutating a running total: it is the same code path the dashboard uses,
  * so the series and the live figures can never disagree.
  */
-export function buildValuationSeries(input: SeriesInput): DayInput[] {
+export function buildValuationSeries(input: SeriesInput): ValuationSeries {
   const lastKnown = new Map<string, number>();
+  const unpriced = new Set<string>();
 
-  return input.dates.map((date) => {
+  const days = input.dates.map((date) => {
     const upTo = (when: Date) => dayOf(when) <= date;
 
     const txns = input.txns.filter((t) => upTo(t.executedAt));
@@ -58,7 +71,17 @@ export function buildValuationSeries(input: SeriesInput): DayInput[] {
       // A missing bar (holiday, halt, thin name) carries the last known price
       // rather than valuing the position at zero.
       const price = close ?? lastKnown.get(p.symbol);
-      if (price !== undefined) positionsValue += price * p.quantity;
+      if (price !== undefined) {
+        positionsValue += price * p.quantity;
+      } else {
+        // No bar has ever appeared for this symbol (e.g. bought today and the
+        // backfill hasn't run yet). Valuing at cost basis is the conservative
+        // estimate: it contributes no fictional gain or loss, unlike the
+        // previous behaviour of dropping the position to zero while cash had
+        // already paid for it.
+        positionsValue += p.costBasis;
+        unpriced.add(p.symbol);
+      }
     }
 
     const externalFlow = input.flows
@@ -74,6 +97,8 @@ export function buildValuationSeries(input: SeriesInput): DayInput[] {
       externalFlow: round(externalFlow),
     };
   });
+
+  return { days, unpricedSymbols: [...unpriced].sort() };
 }
 
 /**

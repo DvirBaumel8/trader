@@ -40,11 +40,14 @@ export function BenchmarkChart({
   deltas,
   range,
   onRangeChange,
+  unpricedSymbols = [],
 }: {
   points: Point[];
   deltas: { vsSp500: number | null; vsNasdaq: number | null } | null;
   range: Range;
   onRangeChange: (r: Range) => void;
+  /** Symbols with no price bar somewhere in this window, valued at cost. */
+  unpricedSymbols?: string[];
 }) {
   const [hover, setHover] = useState<number | null>(null);
 
@@ -189,6 +192,14 @@ export function BenchmarkChart({
           <Delta label="vs S&P 500" value={deltas.vsSp500} />
           <Delta label="vs Nasdaq" value={deltas.vsNasdaq} />
         </div>
+      )}
+
+      {unpricedSymbols.length > 0 && (
+        <p className="text-xs text-muted">
+          {unpricedSymbols.join(', ')}{' '}
+          {unpricedSymbols.length === 1 ? 'has' : 'have'} no price history yet
+          — valued at cost in this chart.
+        </p>
       )}
     </section>
   );

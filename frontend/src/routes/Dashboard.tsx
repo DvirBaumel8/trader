@@ -100,6 +100,7 @@ const sanitizeRange = (value: Range): Range =>
 interface Performance {
   points: Point[];
   deltas: { vsSp500: number | null; vsNasdaq: number | null } | null;
+  unpricedSymbols: string[];
 }
 
 const SORT_KEY = 'trader.holdingsSort.v1';
@@ -431,6 +432,7 @@ export function Dashboard() {
       <BenchmarkChart
         points={performance?.points ?? []}
         deltas={performance?.deltas ?? null}
+        unpricedSymbols={performance?.unpricedSymbols ?? []}
         range={range}
         onRangeChange={(r) => {
           setRange(r);

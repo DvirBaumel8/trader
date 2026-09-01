@@ -69,30 +69,78 @@ export class HistoryService {
         await this.instruments.save(instrument);
       }
 
-      try {
-        const bars = await this.yahoo.dailyBars(symbol, from);
-        if (bars.length === 0) continue;
-        await this.closes.upsert(
-          bars.map((b) => ({
-            instrumentId: instrument.id,
-            date: b.date,
-            close: b.close,
-            adjClose: b.adjClose,
-            open: b.open,
-            high: b.high,
-            low: b.low,
-          })),
-          ['instrumentId', 'date'],
-        );
-        barsWritten += bars.length;
+      const written = await this.fetchAndStore(instrument, symbol, from);
+      if (written > 0) {
+        barsWritten += written;
         symbols.push(symbol);
-      } catch (err) {
-        // One bad ticker must not abandon the whole backfill; the series
-        // simply carries that instrument's last known price forward.
-        this.log.warn(`daily bars failed for ${symbol}: ${String(err)}`);
       }
     }
 
     return { symbols, barsWritten };
+  }
+
+  /**
+   * Fetches bars for one symbol if — and only if — it has no `daily_closes`
+   * rows at all yet. Called at the moment a new instrument first enters a
+   * transaction (see InstrumentsService.findOrCreate), so a ticker traded for
+   * the first time is priced immediately rather than waiting for someone to
+   * remember to run the manual backfill. That gap is exactly what let CRWV
+   * and NBIS get valued at zero on 2026-09-01.
+   *
+   * Safe to call for an already-priced instrument (a no-op) and tolerates a
+   * provider failure the same way backfill() does: log and move on. Must
+   * never throw, because the caller sits directly in the journal write path
+   * and a Yahoo outage must not block writing a trade.
+   */
+  async ensurePriced(instrument: Instrument, symbol: string): Promise<void> {
+    const already = await this.closes.count({
+      where: { instrumentId: instrument.id },
+    });
+    if (already > 0) return;
+
+    // Same 45-day runway as backfill(), anchored to now rather than the
+    // trade's own date — this seam doesn't have that date available. A
+    // heavily backdated first trade may still show as unpriced for its
+    // earliest days until the next full backfill; unpricedSymbols in the
+    // performance response says so rather than hiding it.
+    const from = new Date();
+    from.setDate(from.getDate() - 45);
+
+    try {
+      await this.fetchAndStore(instrument, symbol, from);
+    } catch (err) {
+      this.log.warn(`could not price ${symbol} on first use: ${String(err)}`);
+    }
+  }
+
+  /** Fetches and upserts one symbol's bars. Returns the count written. */
+  private async fetchAndStore(
+    instrument: Instrument,
+    symbol: string,
+    from: Date,
+  ): Promise<number> {
+    try {
+      const bars = await this.yahoo.dailyBars(symbol, from);
+      if (bars.length === 0) return 0;
+      await this.closes.upsert(
+        bars.map((b) => ({
+          instrumentId: instrument.id,
+          date: b.date,
+          close: b.close,
+          adjClose: b.adjClose,
+          open: b.open,
+          high: b.high,
+          low: b.low,
+        })),
+        ['instrumentId', 'date'],
+      );
+      return bars.length;
+    } catch (err) {
+      // One bad ticker must not abandon the whole backfill; the series
+      // simply carries that instrument's last known price forward (or, if it
+      // never had one, values it at cost — see series.ts).
+      this.log.warn(`daily bars failed for ${symbol}: ${String(err)}`);
+      return 0;
+    }
   }
 }
