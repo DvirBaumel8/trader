@@ -11,6 +11,7 @@ import {
   type SortKey,
 } from '../lib/sortPositions';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
+import { AiSummary } from '../components/AiSummary';
 import {
   BenchmarkChart,
   RANGES,
@@ -428,6 +429,8 @@ export function Dashboard() {
           )}
         </div>
       </section>
+
+      <AiSummary />
 
       <BenchmarkChart
         points={performance?.points ?? []}

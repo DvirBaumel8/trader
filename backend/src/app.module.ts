@@ -8,6 +8,7 @@ import { InstrumentsModule } from './instruments/instruments.module.js';
 import { PortfolioModule } from './portfolio/portfolio.module.js';
 import { JournalModule } from './journal/journal.module.js';
 import { PerformanceModule } from './performance/performance.module.js';
+import { LlmModule } from './llm/llm.module.js';
 import { buildConnectionOptions } from './database/connection-options.js';
 
 @Module({
@@ -32,6 +33,7 @@ import { buildConnectionOptions } from './database/connection-options.js';
     JournalModule,
     PortfolioModule,
     PerformanceModule,
+    LlmModule,
     HealthModule,
     AuthModule,
   ],

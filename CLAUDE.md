@@ -159,6 +159,7 @@ Which file answers which question, and whether it loads on its own:
 | `docs/working-agreement.md` | How work should proceed | Imported above |
 | `docs/superpowers/specs/2026-08-28-trader-design.md` | What v1 is and the reasoning behind each decision | On demand |
 | `docs/superpowers/plans/2026-08-28-trader-phase-1-portfolio.md` | Phase 1 task-by-task plan and its recorded deviations | On demand |
+| `docs/trader-profile.md` | The owner's edge, setups, risk/exit rules — read by `backend/src/llm/` at runtime and fed into the AI summary prompt | On demand |
 | `docs/superpowers/plans/2026-08-29-trader-phase-2-diary.md` | Phase 2 task-by-task plan and its recorded deviations | On demand |
 | `docs/superpowers/plans/2026-08-31-trader-phase-3-benchmark.md` | Phase 3 task-by-task plan and its recorded deviations | On demand |
 | `docs/superpowers/specs/2026-09-01-trade-replay-design.md` | What Phase 4 (trade replay) is and the reasoning behind each decision, including the mid-implementation reversal from a hand-rolled chart to `lightweight-charts` | On demand |
