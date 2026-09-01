@@ -43,3 +43,31 @@ export function indexForDate(bars: Bar[], isoTimestamp: string): number {
   // Every bar is after the fill's date — it predates the whole window.
   return 0;
 }
+
+/**
+ * For a fill whose recorded price doesn't belong to its own bar (the tell
+ * for a seeded entry: it is stamped with the seed date and the owner's
+ * average cost, not a real historical print), find the most recent
+ * *earlier* bar whose own low..high range actually contains that price —
+ * the owner really did trade at this level at some real point in the
+ * window, just not on the date seeding recorded.
+ *
+ * Searches strictly backward from `fromIndex`, never including it or
+ * anything after it: that bar is exactly the one already known not to
+ * contain the price. Returns -1 when no earlier bar contains it either —
+ * the caller leaves the marker where it is rather than falling back to a
+ * nearest-price bar, which would stack a second guess on top of the first.
+ */
+export function backfillIndexForPrice(
+  bars: Bar[],
+  fromIndex: number,
+  price: number,
+): number {
+  for (let i = fromIndex - 1; i >= 0; i--) {
+    const b = bars[i];
+    if (b.low !== null && b.high !== null && price >= b.low && price <= b.high) {
+      return i;
+    }
+  }
+  return -1;
+}

@@ -6,10 +6,15 @@ import {
   LineStyle,
   createChart,
   createSeriesMarkers,
+  type Coordinate,
   type SeriesMarker,
   type Time,
 } from 'lightweight-charts';
-import { indexForDate, type Bar } from '../lib/candleScale';
+import {
+  backfillIndexForPrice,
+  indexForDate,
+  type Bar,
+} from '../lib/candleScale';
 
 export interface Fill {
   executedAt: string;
@@ -63,6 +68,15 @@ function hasRange(b: Bar): b is CandleBar {
  * seed date and the owner's average cost rather than a real historical
  * print — detected from the data, not from any assumption about which
  * trades were seeded, since transactions carry no such flag.
+ *
+ * An out-of-range fill also gets `markerBar`: the owner really did trade at
+ * that price at some real point in the window, just not on the recorded
+ * date, so the marker is relocated to the most recent earlier bar whose own
+ * range actually contains the price (see `backfillIndexForPrice`) — while
+ * `bar` (and `outOfRange` itself) keep referring to the *true* recorded
+ * bar, since that is what "out of range" means and the honesty note below
+ * has to stay accurate about it. Only an out-of-range fill is ever
+ * relocated; every genuine post-seed fill keeps its true date.
  */
 function placeFills(bars: Bar[], fills: Fill[]) {
   const candleBars = bars.filter(hasRange);
@@ -73,18 +87,25 @@ function placeFills(bars: Bar[], fills: Fill[]) {
       const bar = candleBars[index];
       const ownDay = f.executedAt.slice(0, 10);
       const snapped = bar.date !== ownDay;
-      return {
-        fill: f,
-        bar,
-        snapped,
-        // A snapped fill was borrowed onto a bar it didn't actually happen
-        // on (see indexForDate) — its price has no meaningful relationship
-        // to that borrowed day's range, so only a fill on its own real
-        // trading day can be honestly flagged as outside it. Without this
-        // guard a real print snapped onto a day whose range doesn't happen
-        // to contain it gets blamed on seeding, which is simply false.
-        outOfRange: !snapped && (f.price < bar.low || f.price > bar.high),
-      };
+      // A snapped fill was borrowed onto a bar it didn't actually happen
+      // on (see indexForDate) — its price has no meaningful relationship
+      // to that borrowed day's range, so only a fill on its own real
+      // trading day can be honestly flagged as outside it. Without this
+      // guard a real print snapped onto a day whose range doesn't happen
+      // to contain it gets blamed on seeding, which is simply false.
+      const outOfRange = !snapped && (f.price < bar.low || f.price > bar.high);
+
+      let markerBar = bar;
+      let relocated = false;
+      if (outOfRange) {
+        const backIndex = backfillIndexForPrice(candleBars, index, f.price);
+        if (backIndex !== -1) {
+          markerBar = candleBars[backIndex];
+          relocated = true;
+        }
+      }
+
+      return { fill: f, bar, markerBar, snapped, outOfRange, relocated };
     })
     .filter((p): p is NonNullable<typeof p> => p !== null);
   return { candleBars, placed };
@@ -107,6 +128,7 @@ export function TradeChart({
   const { candleBars, placed: placedFills } = placeFills(bars, fills);
   const snappedCount = placedFills.filter((p) => p.snapped).length;
   const anyOutOfRange = placedFills.some((p) => p.outOfRange);
+  const anyRelocated = placedFills.some((p) => p.relocated);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -202,15 +224,17 @@ export function TradeChart({
     // 'belowBar' (buys) / 'aboveBar' (sells) — the conventional placement
     // for trade markers — draws it just outside the candle instead, so no
     // `price` field here (it only means something for the atPrice* family).
-    // This also fixes a seeded entry whose recorded price sits nowhere near
-    // that day's real range (e.g. a fill at 13.29 on a day that traded near
-    // 17.32): anchored to the bar it reads as "this fill is recorded on
-    // this date, at this price" — exactly what the data says — instead of
-    // floating in empty space looking like a rendering bug. The
-    // out-of-range honesty line below still calls that out explicitly.
+    // A seeded entry's recorded price sits nowhere near its recorded day's
+    // range (e.g. a fill at 13.29 on a day that traded near 17.32) — the
+    // owner's explicit call was to relocate that marker to a bar that
+    // actually traded at that level (`markerBar`, from `placeFills`) rather
+    // than draw a cost line, so it reads as "this is where you actually
+    // bought" instead of a floating rendering bug. Every genuine fill's
+    // `markerBar` is just its own true bar — only an out-of-range fill ever
+    // differs. The honesty note below discloses the relocation explicitly.
     const fillMarkers = placed.map(
-      ({ fill, bar }): SeriesMarker<Time> => ({
-        time: bar.date,
+      ({ fill, markerBar }): SeriesMarker<Time> => ({
+        time: markerBar.date,
         position: fill.side === 'BUY' ? 'belowBar' : 'aboveBar',
         shape: fill.side === 'BUY' ? 'arrowUp' : 'arrowDown',
         color: fill.side === 'BUY' ? UP : DOWN,
@@ -219,12 +243,41 @@ export function TradeChart({
       }),
     );
 
+    // Two stop tiers can sit close enough in *price* to collide in *pixels*
+    // — how close depends on the window's price range, not on the dollar
+    // gap alone (39 cents is a collision on BITX's ~$10-tall chart, but
+    // would not be on a much wider one), so this is decided from the
+    // chart's real, already-computed price scale (`priceToCoordinate`)
+    // rather than a fixed price-difference guess. Sorted top-to-bottom on
+    // screen, each label is pushed down just far enough to clear a
+    // roughly-one-line gap from the one above it; the underlying dashed
+    // line stays exactly at the true stop price — only the label's
+    // position is nudged, never the price it reports.
+    const MIN_STOP_LABEL_GAP_PX = 16;
+    const stopsByScreenY = drawableStops
+      .map((s) => ({ stop: s, y: series.priceToCoordinate(s.price) }))
+      .filter(
+        (
+          x,
+        ): x is { stop: (typeof drawableStops)[number]; y: Coordinate } =>
+          x.y !== null,
+      )
+      .sort((a, b) => a.y - b.y);
+    const labelPriceByStop = new Map<(typeof drawableStops)[number], number>();
+    let previousLabelY = -Infinity;
+    for (const { stop, y } of stopsByScreenY) {
+      const labelY = Math.max(y, previousLabelY + MIN_STOP_LABEL_GAP_PX);
+      labelPriceByStop.set(stop, series.coordinateToPrice(labelY) ?? stop.price);
+      previousLabelY = labelY;
+    }
+
     // One label per stop, combining identity and price in its text, and
     // anchored well clear of the right edge — where a recent or open
     // trade's exit (and this window's truncation) both live — so it never
     // competes with a fill marker for the same pixels. Multiple stops are
-    // staggered onto their own bar so two close prices (e.g. two partial
-    // stop tiers) don't collide with *each other* either.
+    // also staggered onto their own bar horizontally, so two close prices
+    // don't collide with each other on that axis either — on top of the
+    // vertical declutter above, for whichever axis the collision is on.
     const stopMarkers = drawableStops.map((s, i): SeriesMarker<Time> => {
       const lane = 0.15 + i * 0.1;
       const anchorIndex = Math.min(
@@ -234,7 +287,7 @@ export function TradeChart({
       return {
         time: candleBars[anchorIndex].date,
         position: 'atPriceMiddle',
-        price: s.price,
+        price: labelPriceByStop.get(s) ?? s.price,
         shape: 'square',
         color: MUTED,
         size: 1,
@@ -290,6 +343,8 @@ export function TradeChart({
           Some fills sit outside the price range for their day — a seeded
           position records your average cost on the seed date, not the
           original fill.
+          {anyRelocated &&
+            ' This marker is placed on the most recent day price actually traded at that level, not a known entry date.'}
         </p>
       )}
     </div>
