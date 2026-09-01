@@ -191,6 +191,74 @@ describe('deriveTrades', () => {
     ]);
     expect(t.realizedPnl).toBe(300);
   });
+
+  it('emits every fill of a scaled trade, in execution order', () => {
+    const [trade] = deriveTrades([
+      {
+        symbol: 'AAPL',
+        side: 'BUY',
+        quantity: 10,
+        price: 100,
+        fee: 4,
+        executedAt: new Date('2026-08-28T13:30:00.000Z'),
+      },
+      {
+        symbol: 'AAPL',
+        side: 'BUY',
+        quantity: 10,
+        price: 110,
+        fee: 4,
+        executedAt: new Date('2026-08-29T13:30:00.000Z'),
+      },
+      {
+        symbol: 'AAPL',
+        side: 'SELL',
+        quantity: 20,
+        price: 120,
+        fee: 4,
+        executedAt: new Date('2026-09-01T13:30:00.000Z'),
+      },
+    ]);
+
+    expect(trade.fills).toHaveLength(3);
+    expect(trade.fills.map((f) => f.side)).toEqual(['BUY', 'BUY', 'SELL']);
+    expect(trade.fills[1].price).toBe(110);
+    expect(trade.fills[2].quantity).toBe(20);
+  });
+
+  it('keeps a re-entry’s fills out of the first trade', () => {
+    const trades = deriveTrades([
+      {
+        symbol: 'AAPL',
+        side: 'BUY',
+        quantity: 10,
+        price: 100,
+        fee: 4,
+        executedAt: new Date('2026-08-28T13:30:00.000Z'),
+      },
+      {
+        symbol: 'AAPL',
+        side: 'SELL',
+        quantity: 10,
+        price: 110,
+        fee: 4,
+        executedAt: new Date('2026-08-29T13:30:00.000Z'),
+      },
+      {
+        symbol: 'AAPL',
+        side: 'BUY',
+        quantity: 5,
+        price: 105,
+        fee: 4,
+        executedAt: new Date('2026-08-31T13:30:00.000Z'),
+      },
+    ]);
+
+    expect(trades).toHaveLength(2);
+    // Newest first (see the sort test above): the still-open re-entry leads.
+    expect(trades[0].fills).toHaveLength(1);
+    expect(trades[1].fills).toHaveLength(2);
+  });
 });
 
 describe('summariseTrades', () => {

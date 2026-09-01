@@ -1,4 +1,12 @@
-import { Body, Controller, Delete, Get, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ArrayMaxSize,
   IsArray,
@@ -52,6 +60,15 @@ export class PortfolioController {
   @Get('stats')
   stats() {
     return this.portfolio.getStats();
+  }
+
+  /**
+   * The id is a `symbol:ISO-timestamp` composite, URL-encoded by the client.
+   * Nest gives back the decoded segment, so no manual decode here.
+   */
+  @Get('trades/:id')
+  getTrade(@Param('id') id: string) {
+    return this.portfolio.getTrade(id);
   }
 
   @Get('status')

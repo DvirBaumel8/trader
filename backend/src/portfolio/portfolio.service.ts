@@ -1,12 +1,17 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Between, DataSource, MoreThanOrEqual, Repository } from 'typeorm';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
+import { DailyClose } from '../market-data/daily-close.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { MarketDataService } from '../market-data/market-data.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -19,7 +24,12 @@ import {
   type DerivedFlow,
   type DerivedDividend,
 } from './derive.js';
-import { deriveTrades, summariseTrades } from './derive-trades.js';
+import {
+  deriveTrades,
+  summariseTrades,
+  type DerivedTrade,
+} from './derive-trades.js';
+import { parseTradeId, tradeId, windowBounds } from './trade-window.js';
 
 export interface SeedHolding {
   symbol: string;
@@ -48,6 +58,8 @@ export class PortfolioService {
     private readonly entries: Repository<JournalEntry>,
     @InjectRepository(Instrument)
     private readonly instruments: Repository<Instrument>,
+    @InjectRepository(DailyClose)
+    private readonly closes: Repository<DailyClose>,
     private readonly instrumentsService: InstrumentsService,
     private readonly marketData: MarketDataService,
     private readonly users: UsersService,
@@ -95,6 +107,12 @@ export class PortfolioService {
       opts.refresh === true,
     );
 
+    const openTradeBySymbol = new Map(
+      (await this.deriveAllTrades())
+        .filter((t) => t.isOpen)
+        .map((t) => [t.symbol, tradeId(t.symbol, t.enteredAt)]),
+    );
+
     const positions = derived.map((p) => {
       const quote = quotes.get(p.symbol);
       const price = quote?.price ?? null;
@@ -119,6 +137,7 @@ export class PortfolioService {
           marketValue === null || p.costBasis === 0
             ? null
             : (marketValue - p.costBasis) / Math.abs(p.costBasis),
+        tradeId: openTradeBySymbol.get(p.symbol) ?? null,
       };
     });
 
@@ -146,7 +165,12 @@ export class PortfolioService {
     };
   }
 
-  async getStats() {
+  /**
+   * Every round trip, with the stop plan recorded at entry attached. Shared
+   * by the stats summary and the trade detail screen so the two can never
+   * disagree about what a trade is.
+   */
+  private async deriveAllTrades(): Promise<DerivedTrade[]> {
     const user = await this.users.ensureDefaultUser();
     const [txnRows, instrumentRows, levelRows] = await Promise.all([
       this.txns.find({ where: { userId: user.id } }),
@@ -163,7 +187,7 @@ export class PortfolioService {
       ]);
     }
 
-    const trades = deriveTrades(
+    return deriveTrades(
       txnRows.map((t) => ({
         symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
         side: t.side,
@@ -182,8 +206,67 @@ export class PortfolioService {
         plannedTarget: t.plannedTarget,
       })),
     );
+  }
 
-    return { ...summariseTrades(trades), trades };
+  async getStats() {
+    const trades = await this.deriveAllTrades();
+    return {
+      ...summariseTrades(trades),
+      // Fills are for the detail screen; sending them for every trade would
+      // bloat a response the list view re-fetches often.
+      trades: trades.map(({ fills, openingStops, ...rest }) => rest),
+    };
+  }
+
+  /**
+   * One trade with everything the chart draws: its fills, the stop tiers
+   * recorded at entry, and the daily bars either side of it.
+   */
+  async getTrade(id: string) {
+    const parsed = parseTradeId(id);
+    if (!parsed) throw new NotFoundException('Unknown trade');
+
+    const trades = await this.deriveAllTrades();
+    const trade = trades.find(
+      (t) =>
+        t.symbol === parsed.symbol &&
+        t.enteredAt.toISOString() === parsed.enteredAt,
+    );
+    // A stale link after the opening transaction was edited lands here. The
+    // trade still exists under a new id; this one no longer identifies it.
+    if (!trade) throw new NotFoundException('Unknown trade');
+
+    const instrument = await this.instruments.findOne({
+      where: { symbol: trade.symbol },
+    });
+    if (!instrument) throw new NotFoundException('Unknown trade');
+
+    const { fromDate, toDate } = windowBounds(trade.enteredAt, trade.exitedAt);
+    const bars = await this.closes.find({
+      where: {
+        instrumentId: instrument.id,
+        date: toDate ? Between(fromDate, toDate) : MoreThanOrEqual(fromDate),
+      },
+      order: { date: 'ASC' },
+    });
+
+    const { fills, openingStops, ...summary } = trade;
+    return {
+      trade: summary,
+      fills,
+      stopLevels: openingStops,
+      bars: bars.map((b) => ({
+        date: b.date,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+      })),
+      // The chart says what it actually has rather than implying the window
+      // is complete: the backfill is manual, so bars can end before the trade
+      // does.
+      lastBarDate: bars.at(-1)?.date ?? null,
+    };
   }
 
   async isSeeded(): Promise<boolean> {

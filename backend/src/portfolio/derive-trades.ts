@@ -7,6 +7,15 @@ export type TradeTxn = DerivedTxn & {
   plannedTarget?: number | null;
 };
 
+/** One transaction inside a trade, as executed. */
+export interface TradeFill {
+  executedAt: Date;
+  side: 'BUY' | 'SELL';
+  price: number;
+  quantity: number;
+  fee: number;
+}
+
 export interface DerivedTrade {
   symbol: string;
   direction: 'LONG' | 'SHORT';
@@ -28,6 +37,21 @@ export interface DerivedTrade {
   riskCoversFullPosition: boolean;
   /** Result in units of risk. Null without a stop. */
   rMultiple: number | null;
+
+  /**
+   * Every transaction that composed this trade, in execution order. Emitted
+   * here rather than reconstructed by the caller: the grouping walk already
+   * has exactly these rows, and re-deriving them from a date range would be
+   * ambiguous where one trade closes and another opens at the same instant.
+   */
+  fills: TradeFill[];
+
+  /**
+   * The stop tiers recorded on the transaction that opened the trade — the
+   * plan as it stood at entry, which is what the chart draws. Carried here
+   * for the same reason as `fills`: the walk already holds them.
+   */
+  openingStops: StopLevelInput[];
 }
 
 const EPSILON = 1e-9;
@@ -42,6 +66,8 @@ interface OpenTrade {
   fees: number;
   enteredAt: Date;
   stopLevels: StopLevelInput[];
+  fills: TradeFill[];
+  openingStops: StopLevelInput[];
 }
 
 /**
@@ -82,10 +108,26 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
           enteredAt: t.executedAt,
           // The plan belongs to the opening fill; later adds do not redefine it.
           stopLevels: t.stopLevels ?? [],
+          fills: [],
+          openingStops: t.stopLevels ?? [],
         };
+        open.fills.push({
+          executedAt: t.executedAt,
+          side: t.side,
+          price: t.price,
+          quantity: t.quantity,
+          fee: t.fee,
+        });
         continue;
       }
 
+      open.fills.push({
+        executedAt: t.executedAt,
+        side: t.side,
+        price: t.price,
+        quantity: t.quantity,
+        fee: t.fee,
+      });
       open.fees += t.fee;
       const adding = Math.sign(signed) === Math.sign(open.position);
       if (adding) {
@@ -164,6 +206,8 @@ function finish(
       realizedPnl !== null && risk.amount !== null && risk.amount > EPSILON
         ? round(realizedPnl / risk.amount)
         : null,
+    fills: open.fills,
+    openingStops: open.openingStops,
   };
 }
 
