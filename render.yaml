@@ -1,0 +1,45 @@
+# render.yaml
+# Render Blueprint for the Trader API.
+#
+# Postgres lives on Neon rather than Render: Render's own free Postgres
+# expires after a fixed period, whereas Neon's free tier does not. The
+# database is therefore NOT declared here — DATABASE_URL is set by hand
+# (see docs/DEPLOYMENT.md).
+#
+# Free web services sleep after roughly 15 minutes idle. See
+# docs/DEPLOYMENT.md for the keep-warm ping that prevents that in
+# practice — it targets /health/ping (no database access), not this
+# file's healthCheckPath, which Render itself only calls at deploy time.
+
+services:
+  - type: web
+    name: trader-backend
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    # devDependencies are needed to compile (nest build, typescript), then
+    # pruned: nothing in the runtime path needs them, and the free instance
+    # has 512 MB to work with.
+    buildCommand: npm ci --include=dev && npm run build && npm prune --omit=dev
+    # Migrations run from compiled output, not tsx — see
+    # src/database/migrate.ts for why the equivalent local script avoids
+    # TypeORM's own CLI.
+    startCommand: node dist/database/migrate.js && node dist/main
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      # Neon requires TLS; local Postgres serves none — off by default in
+      # code, so it must be turned on explicitly here.
+      - key: DATABASE_SSL
+        value: 'true'
+      # sync: false means "prompt me for this, do not store it in the repo".
+      - key: DATABASE_URL
+        sync: false
+      - key: WEB_ORIGINS
+        sync: false
+      - key: APP_PASSWORD_HASH
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true

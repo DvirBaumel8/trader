@@ -1,0 +1,91 @@
+name: deploy-web
+
+# Builds the frontend and deploys it to Cloudflare Pages. Pushing any
+# branch produces a preview at <branch>.trader-app.pages.dev — open it on
+# the phone before merging. Pushing main deploys production.
+#
+# See docs/DEPLOYMENT.md for the one-time Cloudflare/Render/Neon account
+# setup this depends on.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT: trader-app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck + build
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+        run: |
+          if [ -z "$VITE_API_BASE_URL" ]; then
+            echo "::error::The VITE_API_BASE_URL repository variable is not set. Without it the production build would call relative /api paths that don't exist on Cloudflare Pages, and every screen would fail to load."
+            exit 1
+          fi
+          npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Ensure the Cloudflare Pages project exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if ! npx wrangler@3 pages project list 2>/dev/null | grep -qw "$PROJECT"; then
+            npx wrangler@3 pages project create "$PROJECT" --production-branch main
+          fi
+
+      - name: Deploy
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler@3 pages deploy dist \
+            --project-name "$PROJECT" \
+            --branch "$GITHUB_REF_NAME" \
+            --commit-dirty=true | tee deploy.log
+          url=$(grep -oE 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the URL to the run summary
+        run: |
+          {
+            echo "### Trader web — \`$GITHUB_REF_NAME\`"
+            echo ""
+            echo "**${{ steps.deploy.outputs.url }}**"
+            echo ""
+            if [ "$GITHUB_REF_NAME" = "main" ]; then
+              echo "Production. Also reachable at https://$PROJECT.pages.dev"
+            else
+              echo "Preview. Open it in Safari on the iPhone to test before merging."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

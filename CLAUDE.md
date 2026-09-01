@@ -51,6 +51,13 @@ the same Wi-Fi can load it. The frontend only ever calls **relative** `/api/...`
 paths, which Vite proxies to the backend — so the identical build works from
 `localhost` and from a LAN address. **Never hardcode a host in frontend code.**
 
+## Deployment
+
+Production runs on Cloudflare Pages (frontend) + Render (API) + Neon
+(Postgres) — see `docs/DEPLOYMENT.md` for account setup, environment
+variables, and the keep-warm/data-migration runbook. Local development is
+unaffected; `main` deploys automatically on push.
+
 ## Invariants — do not break these
 
 1. **Positions are derived, never stored.** `portfolio/derive.ts` computes them
@@ -134,6 +141,7 @@ Which file answers which question, and whether it loads on its own:
 | `docs/working-agreement.md` | How work should proceed | Imported above |
 | `docs/superpowers/specs/2026-08-28-trader-design.md` | What v1 is and the reasoning behind each decision | On demand |
 | `docs/superpowers/plans/2026-08-28-trader-phase-1-portfolio.md` | Phase 1 task-by-task plan and its recorded deviations | On demand |
+| `docs/DEPLOYMENT.md` | How to deploy, and the account setup behind it | On demand |
 
 The two spec/plan documents are deliberately **not** imported: they are long,
 mostly historical, and only relevant when revisiting a decision or writing the
