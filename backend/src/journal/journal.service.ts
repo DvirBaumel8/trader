@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,6 +15,7 @@ import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
+import { HistoryService } from '../market-data/history.service.js';
 import { UsersService } from '../users/users.service.js';
 import { computeRisk } from '../portfolio/risk.js';
 
@@ -96,6 +98,8 @@ export interface ListFilters {
 
 @Injectable()
 export class JournalService {
+  private readonly log = new Logger(JournalService.name);
+
   constructor(
     @InjectRepository(JournalEntry)
     private readonly entries: Repository<JournalEntry>,
@@ -113,6 +117,7 @@ export class JournalService {
     @InjectRepository(Instrument)
     private readonly instruments: Repository<Instrument>,
     private readonly instrumentsService: InstrumentsService,
+    private readonly history: HistoryService,
     private readonly users: UsersService,
     private readonly dataSource: DataSource,
   ) {}
@@ -316,6 +321,20 @@ export class JournalService {
   /**
    * Validates and resolves the instrument BEFORE any transaction opens, so an
    * unknown ticker fails without leaving a half-written entry behind.
+   *
+   * Also ensures the instrument has price history: a symbol traded for the
+   * first time has no `daily_closes` rows until someone remembers to run the
+   * manual backfill, and until then the performance chart values it at zero
+   * instead of at cost (see series.ts) — this is what happened to CRWV and
+   * NBIS on 2026-09-01. Hung here rather than in
+   * InstrumentsService.findOrCreate: that seam sits on the far side of a
+   * module cycle already held together by forwardRef
+   * (InstrumentsModule <-> MarketDataModule), and giving InstrumentsService a
+   * direct HistoryService dependency tightened that into a cycle Node
+   * couldn't initialize (a live ReferenceError, "Cannot access
+   * 'InstrumentsService' before initialization" — tsc and the unit tests
+   * never boot the Nest container, so neither caught it). JournalModule's
+   * dependency on MarketDataModule is one-directional, so no such cycle here.
    */
   private async resolveTrade(input: CreateEntryInput) {
     if (input.kind === 'TRADE') {
@@ -326,6 +345,7 @@ export class JournalService {
       const instrument = await this.instrumentsService.findOrCreate(
         input.trade.symbol,
       );
+      await this.ensurePricedSafely(instrument);
       return { side, quantity, instrumentId: instrument.id };
     }
     if (input.kind === 'CASH' && !input.cash) {
@@ -338,9 +358,26 @@ export class JournalService {
       const instrument = await this.instrumentsService.findOrCreate(
         input.dividend.symbol,
       );
+      await this.ensurePricedSafely(instrument);
       return { side: 'BUY' as const, quantity: 0, instrumentId: instrument.id };
     }
     return null;
+  }
+
+  /**
+   * Never lets a price-history fetch failure block the journal write — a
+   * Yahoo outage, or any other hiccup here, is logged and the entry still
+   * gets written, exactly as the existing manual backfill tolerates one bad
+   * ticker.
+   */
+  private async ensurePricedSafely(instrument: Instrument): Promise<void> {
+    try {
+      await this.history.ensurePriced(instrument, instrument.symbol);
+    } catch (err) {
+      this.log.warn(
+        `could not ensure price history for ${instrument.symbol}: ${String(err)}`,
+      );
+    }
   }
 
   private async writeOwnedRows(

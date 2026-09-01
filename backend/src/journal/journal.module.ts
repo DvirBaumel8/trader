@@ -11,6 +11,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { JournalService } from './journal.service.js';
 import { JournalController } from './journal.controller.js';
 import { InstrumentsModule } from '../instruments/instruments.module.js';
+import { MarketDataModule } from '../market-data/market-data.module.js';
 import { UsersModule } from '../users/users.module.js';
 
 @Module({
@@ -26,6 +27,11 @@ import { UsersModule } from '../users/users.module.js';
       Instrument,
     ]),
     InstrumentsModule,
+    // For HistoryService, so a symbol traded for the first time gets its
+    // price history fetched immediately — see JournalService.resolveTrade.
+    // One-directional: nothing MarketDataModule imports depends on
+    // JournalModule, so this needs no forwardRef.
+    MarketDataModule,
     UsersModule,
   ],
   providers: [JournalService],
