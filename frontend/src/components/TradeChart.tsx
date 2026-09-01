@@ -55,13 +55,14 @@ function hasRange(b: Bar): b is CandleBar {
 }
 
 /**
- * Where each fill lands once snapped to the nearest *plottable* trading
+ * Where each fill lands once snapped onto the nearest *plottable* trading
  * session (a weekend or holiday fill has no bar of its own — see
- * `indexForDate`), and whether that price falls outside that day's actual
- * range. The latter is the tell for a seeded opening fill, which is stamped
- * with the seed date and the owner's average cost rather than a real
- * historical print — detected from the data, not from any assumption about
- * which trades were seeded, since transactions carry no such flag.
+ * `indexForDate`), and — for a fill that landed on its own real day, not a
+ * borrowed one — whether its price falls outside that day's actual range.
+ * That is the tell for a seeded opening fill, which is stamped with the
+ * seed date and the owner's average cost rather than a real historical
+ * print — detected from the data, not from any assumption about which
+ * trades were seeded, since transactions carry no such flag.
  */
 function placeFills(bars: Bar[], fills: Fill[]) {
   const candleBars = bars.filter(hasRange);
@@ -71,11 +72,18 @@ function placeFills(bars: Bar[], fills: Fill[]) {
       if (index === -1) return null;
       const bar = candleBars[index];
       const ownDay = f.executedAt.slice(0, 10);
+      const snapped = bar.date !== ownDay;
       return {
         fill: f,
         bar,
-        snapped: bar.date !== ownDay,
-        outOfRange: f.price < bar.low || f.price > bar.high,
+        snapped,
+        // A snapped fill was borrowed onto a bar it didn't actually happen
+        // on (see indexForDate) — its price has no meaningful relationship
+        // to that borrowed day's range, so only a fill on its own real
+        // trading day can be honestly flagged as outside it. Without this
+        // guard a real print snapped onto a day whose range doesn't happen
+        // to contain it gets blamed on seeding, which is simply false.
+        outOfRange: !snapped && (f.price < bar.low || f.price > bar.high),
       };
     })
     .filter((p): p is NonNullable<typeof p> => p !== null);

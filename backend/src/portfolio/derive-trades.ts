@@ -65,9 +65,14 @@ interface OpenTrade {
   closeNotional: number;
   fees: number;
   enteredAt: Date;
+  /**
+   * The stop plan recorded on the opening fill. Used both for the risk
+   * calculation in `finish()` and, unchanged, as `DerivedTrade.openingStops`
+   * — one field, since both readers want exactly the same value and neither
+   * mutates it.
+   */
   stopLevels: StopLevelInput[];
   fills: TradeFill[];
-  openingStops: StopLevelInput[];
 }
 
 /**
@@ -109,7 +114,6 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
           // The plan belongs to the opening fill; later adds do not redefine it.
           stopLevels: t.stopLevels ?? [],
           fills: [],
-          openingStops: t.stopLevels ?? [],
         };
         open.fills.push({
           executedAt: t.executedAt,
@@ -207,7 +211,7 @@ function finish(
         ? round(realizedPnl / risk.amount)
         : null,
     fills: open.fills,
-    openingStops: open.openingStops,
+    openingStops: open.stopLevels,
   };
 }
 

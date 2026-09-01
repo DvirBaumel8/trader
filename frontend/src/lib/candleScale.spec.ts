@@ -12,19 +12,15 @@ describe('indexForDate', () => {
     expect(indexForDate(window, '2026-08-28T14:30:00.000Z')).toBe(1);
   });
 
-  it('snaps a non-trading-day fill to the nearest bar', () => {
-    // 2026-08-30 is a Sunday: 2 days after the Friday bar, 1 day before the
-    // Monday bar — the nearer one wins.
-    expect(indexForDate(window, '2026-08-30T00:00:00.000Z')).toBe(2);
+  it('snaps a non-trading-day fill backward to the last trading day before it', () => {
+    // 2026-08-30 is a Sunday. The last trading day at or before it is
+    // Friday 2026-08-28, not the following Monday — an exit must never land
+    // on a session after the owner was already out of the trade.
+    expect(indexForDate(window, '2026-08-30T00:00:00.000Z')).toBe(1);
   });
 
-  it('breaks a tie by snapping to the earlier bar', () => {
-    const tieWindow: Bar[] = [
-      { date: '2026-08-27', open: 10, high: 12, low: 9, close: 11 },
-      { date: '2026-08-29', open: 11, high: 15, low: 10, close: 14 },
-    ];
-    // 2026-08-28 sits exactly one day from each neighbour.
-    expect(indexForDate(tieWindow, '2026-08-28T00:00:00.000Z')).toBe(0);
+  it('falls back to the first bar when the fill predates the whole window', () => {
+    expect(indexForDate(window, '2026-08-01T00:00:00.000Z')).toBe(0);
   });
 
   it('returns -1 when there are no bars at all', () => {
