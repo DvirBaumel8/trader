@@ -7,6 +7,7 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    globalSetup: ['./test/global-setup.ts'],
     /**
      * Every e2e file shares one `trader_test` database and truncates tables in
      * beforeEach. Run in parallel they deadlock and stomp on each other's rows,

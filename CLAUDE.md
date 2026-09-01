@@ -146,7 +146,11 @@ demand. A document nobody is pointed at will not be read.
 
 ## Known shortcuts
 
-- `synchronize: true` — no migrations yet. Fine while the data is one local user's.
+- Schema changes go through TypeORM migrations
+  (`backend/src/database/migrations/`), not `synchronize: true` — that
+  stopped being safe once production runs against a persistent, shared
+  Neon database. Run `npm run migration:run` after adding one, in both
+  local `trader` and (per `docs/DEPLOYMENT.md`) production.
 - No service worker, so no offline support. The manifest gives home-screen install.
 - Reset-and-re-seed is the only way to correct a position. Real editing arrives
   with the diary in Phase 2 — do not build a competing position-editing UI.
