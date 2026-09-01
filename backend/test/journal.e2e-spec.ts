@@ -1,12 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import request from 'supertest';
+import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
 
 describe('Journal (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
+  let token: string;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -16,6 +17,7 @@ describe('Journal (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
     dataSource = app.get(DataSource);
+    token = await login(app);
   });
 
   beforeEach(async () => {
@@ -29,7 +31,7 @@ describe('Journal (e2e)', () => {
   });
 
   const post = (body: object) =>
-    request(app.getHttpServer()).post('/journal').send(body);
+    http(app, token).post('/journal').send(body);
 
   const trade = (
     quantity: number,
@@ -45,12 +47,12 @@ describe('Journal (e2e)', () => {
     });
 
   it('returns an empty timeline before anything is logged', async () => {
-    const res = await request(app.getHttpServer()).get('/journal').expect(200);
+    const res = await http(app, token).get('/journal').expect(200);
     expect(res.body).toEqual([]);
   });
 
   it('shows seeded entries on the timeline', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-01-02',
@@ -59,7 +61,7 @@ describe('Journal (e2e)', () => {
       })
       .expect(201);
 
-    const res = await request(app.getHttpServer()).get('/journal').expect(200);
+    const res = await http(app, token).get('/journal').expect(200);
     expect(res.body).toHaveLength(2);
     const tradeEntry = res.body.find((e: { kind: string }) => e.kind === 'TRADE');
     expect(tradeEntry.trade).toMatchObject({
@@ -73,7 +75,7 @@ describe('Journal (e2e)', () => {
   });
 
   it('filters by kind', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-01-02',
@@ -82,7 +84,7 @@ describe('Journal (e2e)', () => {
       })
       .expect(201);
 
-    const res = await request(app.getHttpServer())
+    const res = await http(app, token)
       .get('/journal?kind=TRADE')
       .expect(200);
     expect(res.body).toHaveLength(1);
@@ -90,7 +92,7 @@ describe('Journal (e2e)', () => {
   });
 
   it('filters by symbol', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-01-02',
@@ -102,7 +104,7 @@ describe('Journal (e2e)', () => {
       })
       .expect(201);
 
-    const res = await request(app.getHttpServer())
+    const res = await http(app, token)
       .get('/journal?symbol=nvda')
       .expect(200);
     expect(res.body).toHaveLength(1);
@@ -110,7 +112,7 @@ describe('Journal (e2e)', () => {
   });
 
   it('returns an empty tag list initially', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await http(app, token)
       .get('/journal/tags')
       .expect(200);
     expect(res.body).toEqual([]);
@@ -125,7 +127,7 @@ describe('Journal (e2e)', () => {
       tags: [{ type: 'SETUP', label: 'Pullback' }],
     }).expect(201);
 
-    const portfolio = await request(app.getHttpServer())
+    const portfolio = await http(app, token)
       .get('/portfolio')
       .expect(200);
     const nvda = portfolio.body.positions.find(
@@ -141,7 +143,7 @@ describe('Journal (e2e)', () => {
     await trade(10, 200, '2026-08-01T14:30:00.000Z', { fee: 4 }).expect(201);
     await trade(-5, 250, '2026-08-15T14:30:00.000Z', { fee: 4 }).expect(201);
 
-    const portfolio = await request(app.getHttpServer())
+    const portfolio = await http(app, token)
       .get('/portfolio')
       .expect(200);
     const nvda = portfolio.body.positions.find(
@@ -158,7 +160,7 @@ describe('Journal (e2e)', () => {
       occurredAt: '2026-08-29T14:30:00.000Z',
     }).expect(201);
 
-    const portfolio = await request(app.getHttpServer())
+    const portfolio = await http(app, token)
       .get('/portfolio')
       .expect(200);
     expect(portfolio.body.positions).toEqual([]);
@@ -173,7 +175,7 @@ describe('Journal (e2e)', () => {
       cash: { direction: 'DEPOSIT', amount: 5000 },
     }).expect(201);
 
-    const portfolio = await request(app.getHttpServer())
+    const portfolio = await http(app, token)
       .get('/portfolio')
       .expect(200);
     expect(portfolio.body.cash).toBe(5000);
@@ -197,7 +199,7 @@ describe('Journal (e2e)', () => {
       tags: [{ type: 'SETUP', label: 'pullback' }],
     }).expect(201);
 
-    const tags = await request(app.getHttpServer())
+    const tags = await http(app, token)
       .get('/journal/tags')
       .expect(200);
     expect(tags.body).toHaveLength(1);
@@ -212,7 +214,7 @@ describe('Journal (e2e)', () => {
       trade: { symbol: 'ZZZZNOTREAL', quantity: 1, price: 1, fee: 0 },
     }).expect(404);
 
-    const res = await request(app.getHttpServer()).get('/journal').expect(200);
+    const res = await http(app, token).get('/journal').expect(200);
     expect(res.body).toEqual([]);
   });
 
@@ -254,7 +256,7 @@ describe('Journal (e2e)', () => {
       fee: 4,
     }).expect(201);
 
-    await request(app.getHttpServer())
+    await http(app, token)
       .patch(`/journal/${created.body.id}`)
       .send({
         kind: 'TRADE',
@@ -264,7 +266,7 @@ describe('Journal (e2e)', () => {
       })
       .expect(200);
 
-    const portfolio = await request(app.getHttpServer())
+    const portfolio = await http(app, token)
       .get('/portfolio')
       .expect(200);
     const nvda = portfolio.body.positions.find(
@@ -282,7 +284,7 @@ describe('Journal (e2e)', () => {
       ],
     }).expect(201);
 
-    const updated = await request(app.getHttpServer())
+    const updated = await http(app, token)
       .patch(`/journal/${created.body.id}`)
       .send({
         kind: 'TRADE',
@@ -311,11 +313,11 @@ describe('Journal (e2e)', () => {
       stopLevels: [{ kind: 'FIXED', price: 190, quantity: 10 }],
     }).expect(201);
 
-    await request(app.getHttpServer())
+    await http(app, token)
       .delete(`/journal/${created.body.id}`)
       .expect(200);
 
-    const portfolio = await request(app.getHttpServer())
+    const portfolio = await http(app, token)
       .get('/portfolio')
       .expect(200);
     expect(portfolio.body.positions).toEqual([]);
@@ -333,7 +335,7 @@ describe('Journal (e2e)', () => {
       trade: { symbol: 'NVDA', quantity: 1, price: 200, fee: 0 },
     }).expect(201);
 
-    const updated = await request(app.getHttpServer())
+    const updated = await http(app, token)
       .patch(`/journal/${created.body.id}`)
       .send({
         kind: 'TRADE',
@@ -349,7 +351,7 @@ describe('Journal (e2e)', () => {
   });
 
   it('404s editing an entry that does not exist', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .patch('/journal/00000000-0000-0000-0000-000000000000')
       .send({
         kind: 'NOTE',
@@ -374,7 +376,7 @@ describe('Journal (e2e)', () => {
       dividend: { symbol: 'NVDA', amount: 250 },
     }).expect(201);
 
-    const portfolio = await request(app.getHttpServer())
+    const portfolio = await http(app, token)
       .get('/portfolio')
       .expect(200);
     // Cash rises by the dividend...
@@ -408,11 +410,11 @@ describe('Journal (e2e)', () => {
       amount: 250,
     });
 
-    await request(app.getHttpServer())
+    await http(app, token)
       .delete(`/journal/${created.body.id}`)
       .expect(200);
 
-    const portfolio = await request(app.getHttpServer())
+    const portfolio = await http(app, token)
       .get('/portfolio')
       .expect(200);
     expect(portfolio.body.cash).toBe(0);
@@ -424,7 +426,7 @@ describe('Journal (e2e)', () => {
       fee: 4,
     }).expect(201);
 
-    await request(app.getHttpServer())
+    await http(app, token)
       .patch(`/journal/${created.body.id}`)
       .send({
         kind: 'NOTE',
@@ -433,7 +435,7 @@ describe('Journal (e2e)', () => {
       })
       .expect(200);
 
-    const portfolio = await request(app.getHttpServer())
+    const portfolio = await http(app, token)
       .get('/portfolio')
       .expect(200);
     expect(portfolio.body.positions).toEqual([]);

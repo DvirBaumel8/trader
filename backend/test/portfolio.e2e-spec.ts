@@ -1,12 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import request from 'supertest';
+import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
 
 describe('Portfolio (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
+  let token: string;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -16,6 +17,7 @@ describe('Portfolio (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
     dataSource = app.get(DataSource);
+    token = await login(app);
   });
 
   beforeEach(async () => {
@@ -29,14 +31,14 @@ describe('Portfolio (e2e)', () => {
   });
 
   it('returns an empty portfolio before seeding', async () => {
-    const res = await request(app.getHttpServer()).get('/portfolio').expect(200);
+    const res = await http(app, token).get('/portfolio').expect(200);
     expect(res.body.positions).toEqual([]);
     expect(res.body.cash).toBe(0);
     expect(res.body.accountValue).toBe(0);
   });
 
   it('prices seeded positions and computes account value', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-01-02',
@@ -45,7 +47,7 @@ describe('Portfolio (e2e)', () => {
       })
       .expect(201);
 
-    const res = await request(app.getHttpServer()).get('/portfolio').expect(200);
+    const res = await http(app, token).get('/portfolio').expect(200);
     expect(res.body.positions).toHaveLength(1);
 
     const p = res.body.positions[0];
@@ -64,7 +66,7 @@ describe('Portfolio (e2e)', () => {
   });
 
   it('seeds a short position with the right sign and cash', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-01-02',
@@ -73,7 +75,7 @@ describe('Portfolio (e2e)', () => {
       })
       .expect(201);
 
-    const res = await request(app.getHttpServer()).get('/portfolio').expect(200);
+    const res = await http(app, token).get('/portfolio').expect(200);
     const p = res.body.positions[0];
     expect(p.symbol).toBe('TSLA');
     expect(p.quantity).toBe(-10);
@@ -83,7 +85,7 @@ describe('Portfolio (e2e)', () => {
   });
 
   it('supports a negative starting cash balance (margin)', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-01-02',
@@ -92,12 +94,12 @@ describe('Portfolio (e2e)', () => {
       })
       .expect(201);
 
-    const res = await request(app.getHttpServer()).get('/portfolio').expect(200);
+    const res = await http(app, token).get('/portfolio').expect(200);
     expect(res.body.cash).toBe(-2500);
   });
 
   it('rejects seeding an unknown ticker', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-01-02',
@@ -108,7 +110,7 @@ describe('Portfolio (e2e)', () => {
   });
 
   it('writes nothing at all when one ticker in the batch is bad', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-01-02',
@@ -120,7 +122,7 @@ describe('Portfolio (e2e)', () => {
       })
       .expect(404);
 
-    const res = await request(app.getHttpServer()).get('/portfolio').expect(200);
+    const res = await http(app, token).get('/portfolio').expect(200);
     expect(res.body.positions).toEqual([]);
     expect(res.body.cash).toBe(0);
   });
@@ -131,23 +133,23 @@ describe('Portfolio (e2e)', () => {
       startingCash: 10000,
       holdings: [{ symbol: 'NVDA', quantity: 1, avgCost: 100 }],
     };
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send(body)
       .expect(201);
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send(body)
       .expect(409);
   });
 
   it('reports seeded status', async () => {
-    const before = await request(app.getHttpServer())
+    const before = await http(app, token)
       .get('/portfolio/status')
       .expect(200);
     expect(before.body.seeded).toBe(false);
 
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-01-02',
@@ -156,14 +158,14 @@ describe('Portfolio (e2e)', () => {
       })
       .expect(201);
 
-    const after = await request(app.getHttpServer())
+    const after = await http(app, token)
       .get('/portfolio/status')
       .expect(200);
     expect(after.body.seeded).toBe(true);
   });
 
   it('rejects a malformed seed payload', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .post('/portfolio/seed')
       .send({ asOf: 'not-a-date', startingCash: 'lots', holdings: 'nope' })
       .expect(400);

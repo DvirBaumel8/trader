@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthModule } from './health/health.module.js';
+import { AuthModule } from './auth/auth.module.js';
 import { UsersModule } from './users/users.module.js';
 import { InstrumentsModule } from './instruments/instruments.module.js';
 import { PortfolioModule } from './portfolio/portfolio.module.js';
@@ -32,6 +33,7 @@ import { buildConnectionOptions } from './database/connection-options.js';
     PortfolioModule,
     PerformanceModule,
     HealthModule,
+    AuthModule,
   ],
 })
 export class AppModule {}

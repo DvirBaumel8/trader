@@ -1,12 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import request from 'supertest';
+import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
 
 describe('History (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
+  let token: string;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -16,6 +17,7 @@ describe('History (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
     dataSource = app.get(DataSource);
+    token = await login(app);
   });
 
   beforeEach(async () => {
@@ -29,7 +31,7 @@ describe('History (e2e)', () => {
   });
 
   const seed = () =>
-    request(app.getHttpServer())
+    http(app, token)
       .post('/portfolio/seed')
       .send({
         asOf: '2026-08-03',
@@ -41,7 +43,7 @@ describe('History (e2e)', () => {
   it('backfills closes for held instruments and both benchmarks', async () => {
     await seed();
 
-    const res = await request(app.getHttpServer())
+    const res = await http(app, token)
       .post('/history/backfill')
       .expect(201);
 
@@ -58,11 +60,11 @@ describe('History (e2e)', () => {
 
   it('is idempotent — running twice does not duplicate bars', async () => {
     await seed();
-    await request(app.getHttpServer()).post('/history/backfill').expect(201);
+    await http(app, token).post('/history/backfill').expect(201);
     const first = await dataSource.query(
       'SELECT COUNT(*)::int AS n FROM daily_closes',
     );
-    await request(app.getHttpServer()).post('/history/backfill').expect(201);
+    await http(app, token).post('/history/backfill').expect(201);
     const second = await dataSource.query(
       'SELECT COUNT(*)::int AS n FROM daily_closes',
     );
@@ -71,7 +73,7 @@ describe('History (e2e)', () => {
 
   it('stores an adjusted close alongside the raw one', async () => {
     await seed();
-    await request(app.getHttpServer()).post('/history/backfill').expect(201);
+    await http(app, token).post('/history/backfill').expect(201);
     const rows = await dataSource.query(
       'SELECT close, "adjClose" FROM daily_closes LIMIT 5',
     );
@@ -83,7 +85,7 @@ describe('History (e2e)', () => {
   });
 
   it('writes nothing when there are no transactions', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await http(app, token)
       .post('/history/backfill')
       .expect(201);
     expect(res.body).toEqual({ symbols: [], barsWritten: 0 });

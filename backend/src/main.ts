@@ -5,6 +5,14 @@ import { AppModule } from './app.module.js';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // Unset locally: the frontend and backend are the same origin there
+  // (Vite's dev proxy), so no CORS handling is needed. In production the
+  // frontend is on Cloudflare Pages, a different origin — see render.yaml.
+  if (process.env.WEB_ORIGINS) {
+    app.enableCors({
+      origin: process.env.WEB_ORIGINS.split(',').map((o) => o.trim()),
+    });
+  }
   // 0.0.0.0 so the phone on the same Wi-Fi can reach it.
   await app.listen(3000, '0.0.0.0');
 }

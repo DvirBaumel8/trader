@@ -1,10 +1,11 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import request from 'supertest';
+import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
 
 describe('Instruments (e2e)', () => {
   let app: INestApplication;
+  let token: string;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -13,6 +14,7 @@ describe('Instruments (e2e)', () => {
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
+    token = await login(app);
   });
 
   afterAll(async () => {
@@ -20,7 +22,7 @@ describe('Instruments (e2e)', () => {
   });
 
   it('looks up a real ticker and returns its price', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await http(app, token)
       .get('/instruments/lookup?symbol=nvda')
       .expect(200);
     expect(res.body.symbol).toBe('NVDA');
@@ -30,12 +32,12 @@ describe('Instruments (e2e)', () => {
   });
 
   it('404s on a ticker that does not exist', async () => {
-    await request(app.getHttpServer())
+    await http(app, token)
       .get('/instruments/lookup?symbol=ZZZZNOTREAL')
       .expect(404);
   });
 
   it('400s when no symbol is supplied', async () => {
-    await request(app.getHttpServer()).get('/instruments/lookup').expect(400);
+    await http(app, token).get('/instruments/lookup').expect(400);
   });
 });
