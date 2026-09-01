@@ -28,6 +28,32 @@ Both are recorded here rather than silently applied:
 1. **No trades list endpoint.** The spec named two endpoints. `Journal.tsx`'s `TradesTab` already gets the full derived `trades` array from `/portfolio/stats`, so a list endpoint would ship unused. Only the detail route, `GET /portfolio/trades/:id`, is built.
 2. **`DerivedTrade` gains a `fills` field.** The detail screen needs each individual fill. Reconstructing them in the service by filtering transactions inside `[enteredAt, exitedAt]` would be correct only until two trades in one symbol touch at the same timestamp. `deriveTrades` already walks exactly those transactions while grouping, so it emits them. The stats response strips the field to keep that payload lean.
 
+## Deviations recorded after implementation
+
+This plan's **Tech Stack** line (above) and **Task 3**'s steps describe a
+hand-rolled SVG chart, and are left as written — a plan is a record of what
+was planned, not a running rewrite. What actually shipped diverged from both,
+recorded here instead:
+
+1. **The chart was rebuilt on `lightweight-charts@5.2.1`**, not the hand-rolled
+   SVG the Tech Stack line and Task 3 describe. On-device testing showed the
+   hand-rolled version could not give a touch crosshair, a full right-hand
+   price scale, or legible markers without effectively reimplementing a
+   charting library on a phone screen — see decision 7 (reversed) in
+   `docs/superpowers/specs/2026-09-01-trade-replay-design.md`. Task 3's SVG
+   code no longer exists in the codebase; `frontend/src/components/TradeChart.tsx`
+   is the current implementation.
+2. **The "Open in TradingView" link was built, then removed** at the owner's
+   request once the rebuilt chart did the job he had previously been leaving
+   the app for.
+3. **Fill markers moved from being drawn at their exact price to being
+   anchored to their bar**, so a marker no longer sits on top of, and hides,
+   the candle it annotates.
+4. **Five rounds of on-device feedback were needed** to get here. A later
+   review then found that the direction fills snap in when they land on a
+   non-trading day had been wrong throughout — snapping forward instead of
+   backward — and had not been re-examined after the chart rebuild.
+
 ---
 
 ## Task 1: OHLC in the data layer

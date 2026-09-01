@@ -92,16 +92,20 @@ unaffected; `main` deploys automatically on push.
 
 ```
 backend/src/
-  market-data/   Yahoo adapter + quote cache (in memory, 60s TTL, force-refreshable)
+  market-data/   Yahoo adapter + quote cache (in memory, 60s TTL, force-refreshable);
+                 daily_closes backfill (OHLC + adjClose) for held instruments and benchmarks
   instruments/   ticker validation and storage
-  journal/       journal entry entity
+  journal/       journal entry, tag and stop-level entities; the only write path
+                 into transactions and cash flows
   transactions/  transaction + cash flow entities
-  portfolio/     derive.ts (pure), service, controller
+  portfolio/     derive.ts (pure), derive-trades.ts (pure), risk.ts (pure),
+                 service, controller — including /portfolio/trades/:id
+  performance/   series.ts (pure): valuation -> time-weighted return -> rebased series
 frontend/src/
   api/           fetch wrapper over /api
-  components/    formatters and display primitives
-  lib/           pure logic (sorting, draft persistence)
-  routes/        Dashboard, Seed, TickerProbe (dev only, not in nav)
+  components/    formatters, display primitives, BenchmarkChart, TradeChart
+  lib/           pure logic (sorting, draft persistence, candle/date scaling)
+  routes/        Dashboard, Journal, TradeDetail, Seed, TickerProbe (dev only, not in nav)
 ```
 
 ## Do not run `nest build` while `npm run dev` is running
@@ -125,10 +129,24 @@ application bug and is not. To typecheck without disturbing the dev server use
 
 - **Phase 1 — portfolio, live**: complete. Seed, derived positions, live pricing,
   cash and account value, sorting, manual refresh, PWA install.
-- **Phase 2 — the diary**: not started. Journal UI, notes, cash entries, tags,
-  position detail. Entities already exist and are used by seeding.
-- **Phase 3 — vs the market**: not started. `daily_closes` backfill, TWR series,
-  the three-line benchmark chart.
+- **Phase 2 — the diary**: complete. Trade, note and cash journal entries that
+  are the only write path into the portfolio; tiered stops (fixed and
+  percentage-trailing) captured at entry; setup/mistake tags; full edit and
+  delete (retiring reset-and-re-seed as the correction tool); position detail;
+  round-trip trades derived from the transaction log; a stats header (win
+  rate, average dollar risk, expectancy in R); default-fee settings; and a
+  fees tab with a per-period bar chart.
+- **Phase 3 — vs the market**: complete. `daily_closes` backfill for held
+  instruments plus SPY and QQQ; a time-weighted return series so deposits
+  never register as gains; the three-line benchmark chart (you vs S&P 500 vs
+  Nasdaq) with a range selector and delta chips, on the Portfolio tab.
+- **Phase 4 — trade replay**: complete. `daily_closes` gained OHLC and the
+  backfill window widened to give a month of context either side; a
+  `GET /portfolio/trades/:id` endpoint serves one trade plus its bars, fills
+  and stop levels; an annotated daily candle chart of a single trade
+  (`lightweight-charts`, after a hand-rolled-SVG attempt was reversed on
+  device) is reachable from the Journal's Trades tab and from a Portfolio
+  position.
 
 ## Documentation map
 
@@ -141,11 +159,15 @@ Which file answers which question, and whether it loads on its own:
 | `docs/working-agreement.md` | How work should proceed | Imported above |
 | `docs/superpowers/specs/2026-08-28-trader-design.md` | What v1 is and the reasoning behind each decision | On demand |
 | `docs/superpowers/plans/2026-08-28-trader-phase-1-portfolio.md` | Phase 1 task-by-task plan and its recorded deviations | On demand |
+| `docs/superpowers/plans/2026-08-29-trader-phase-2-diary.md` | Phase 2 task-by-task plan and its recorded deviations | On demand |
+| `docs/superpowers/plans/2026-08-31-trader-phase-3-benchmark.md` | Phase 3 task-by-task plan and its recorded deviations | On demand |
+| `docs/superpowers/specs/2026-09-01-trade-replay-design.md` | What Phase 4 (trade replay) is and the reasoning behind each decision, including the mid-implementation reversal from a hand-rolled chart to `lightweight-charts` | On demand |
+| `docs/superpowers/plans/2026-09-01-trader-phase-4-replay.md` | Phase 4 task-by-task plan and its recorded deviations | On demand |
 | `docs/DEPLOYMENT.md` | How to deploy, and the account setup behind it | On demand |
 
-The two spec/plan documents are deliberately **not** imported: they are long,
-mostly historical, and only relevant when revisiting a decision or writing the
-next phase. Read them when that is the task.
+The spec and plan documents above are deliberately **not** imported: they are
+long, mostly historical, and only relevant when revisiting a decision or
+writing the next phase. Read them when that is the task.
 
 **When adding a new document**, decide which category it is in. If it changes how
 work should be done or what the product is for, import it here. If it is
@@ -160,5 +182,7 @@ demand. A document nobody is pointed at will not be read.
   Neon database. Run `npm run migration:run` after adding one, in both
   local `trader` and (per `docs/DEPLOYMENT.md`) production.
 - No service worker, so no offline support. The manifest gives home-screen install.
-- Reset-and-re-seed is the only way to correct a position. Real editing arrives
-  with the diary in Phase 2 — do not build a competing position-editing UI.
+- Reset-and-re-seed is no longer the only way to correct a position: Phase 2
+  shipped full edit and delete on journal entries, which recomputes the
+  derived portfolio. Do not build a separate position-editing UI — editing a
+  journal entry is the one correction path.

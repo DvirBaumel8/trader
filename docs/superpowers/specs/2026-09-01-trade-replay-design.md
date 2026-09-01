@@ -131,23 +131,62 @@ uses. The list is not rebuilt; it becomes tappable.
 - **Portfolio tab.** Tapping a position opens the detail screen for its open
   trade — the way in for a position still being held, matching where the app
   already sends open positions.
-- **New component: `TradeChart.tsx`** — hand-rolled SVG, following
+- **New component: `TradeChart.tsx`** — ~~hand-rolled SVG, following
   `BenchmarkChart.tsx`'s conventions (viewBox scaling, `w-full`, theme tokens,
-  no external dependency).
+  no external dependency)~~ **REVERSED 2026-09-02, per decision 7 above: built
+  on `lightweight-charts@5.2.1`.** It still matches the app's own dark palette
+  (colours declared as local constants — `BG`, `TEXT`, `MUTED`, `GRID`, `UP`,
+  `DOWN`, `ACCENT` — passed into the library's `layout`/`grid`/`crosshair`
+  options) rather than the library's defaults, so it reads as part of the app
+  and not a bolted-on widget. `createChart` renders a `CandlestickSeries` with
+  `autoSize: true` inside a fixed-height container; `handleScroll`/
+  `handleScale` stay off per decision 7a. Fill and stop annotations are
+  `lightweight-charts` series markers (`createSeriesMarkers`), not hand-drawn
+  SVG shapes — see "The chart" below.
 
 ### The chart
 
-- **Candles.** Body from open to close, wick from low to high. Up bodies use
-  the existing `--color-up` (`#22c55e`), down bodies `--color-down`
-  (`#f43f5e`) — the tokens already defined in `index.css`.
-- **Fill markers.** One per individual fill, at its own price and date: a
-  triangle pointing up for a buy, down for a sell. Scale-ins and scale-outs are
-  therefore visible as separate marks, which is the point of decision #6.
-- **Stop levels.** Dashed horizontal lines at each tier's price. A trailing
-  tier has no fixed price to draw; it is listed in the header instead of drawn,
-  rather than drawn at a guessed level.
-- **Header.** Symbol, direction, P&L, R multiple, holding days, avg entry and
-  exit — all fields `DerivedTrade` already provides.
+**REVERSED 2026-09-02 (decision #7): this section described the pre-reversal
+hand-rolled SVG design. What actually shipped, in `TradeChart.tsx`:**
+
+- **Candles.** Still a body from open to close and a wick from low to high,
+  now drawn by `lightweight-charts`' `CandlestickSeries` rather than hand-built
+  geometry. Up/down colours are still `#22c55e` / `#f43f5e` — the same values
+  as `--color-up`/`--color-down` — but passed to the library as literal hex
+  constants (`UP`, `DOWN` in the component), since a series option cannot read
+  a CSS custom property.
+- **Fill markers.** ~~One per individual fill, at its own price and date: a
+  triangle pointing up for a buy, down for a sell~~ **One per individual fill,
+  anchored to its bar rather than its exact price** — an arrow (`arrowUp` for
+  a buy, `arrowDown` for a sell) placed `belowBar`/`aboveBar` via the
+  library's series-marker API, labelled with the fill price as text. Anchoring
+  to the bar (not `atPriceMiddle`) was chosen so the marker never sits on top
+  of, and hides, the candle it annotates — including a seeded fill whose
+  recorded price falls outside that day's real range, which now reads as "this
+  fill, on this date" instead of a rendering glitch. Colour follows decision
+  7d: buys green (matching up candles), sells red (matching down candles), so
+  shape and position — not colour — carry "this was my action." A fill that
+  landed on a non-trading day (weekend, holiday) snaps to the last trading
+  session **at or before** the fill's date, the session that was actually open
+  when the fill happened — snapping forward, which an earlier version did,
+  could draw an exit on the session *after* the trade had already closed. The
+  UI states below the chart when a fill was snapped, or falls outside its
+  day's range, rather than showing either silently.
+- **Stop levels.** A `FIXED` tier still gets a dashed horizontal line
+  (`createPriceLine`, muted colour) across the full width. Its built-in price
+  label is suppressed — the library ties a price line's title and axis chip to
+  the same visibility switch, and both would collide with the price scale and
+  a recent/open trade's exit marker at the chart's right edge — so each
+  `FIXED` tier also gets its own square marker (`atPriceMiddle`), staggered
+  onto a bar away from that edge, labelled `Stop <price>`. A `TRAILING` tier
+  still has no fixed price to draw and stays out of the chart; it is listed in
+  the trade detail screen's text instead (not the "header" — see below),
+  exactly as this section originally specified.
+- **Header.** Unchanged from the original design: symbol, direction, P&L, R
+  multiple, holding days, avg entry and exit, on `TradeDetail.tsx` above the
+  chart — all fields `DerivedTrade` already provides. (Trailing-stop text
+  lives in that screen's body copy near the chart, not literally inside this
+  header block.)
 
 ## Known limitations, accepted
 
