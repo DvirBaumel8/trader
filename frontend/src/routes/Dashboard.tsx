@@ -13,6 +13,7 @@ import {
 import { loadDraft, saveDraft } from '../lib/draftStorage';
 import {
   BenchmarkChart,
+  RANGES,
   type Point,
   type Range,
 } from '../components/BenchmarkChart';
@@ -36,6 +37,11 @@ interface Position {
   tradeId: string | null;
 }
 
+interface AtRisk {
+  amount: number;
+  positionsWithoutStop: { count: number; symbols: string[] };
+}
+
 interface Portfolio {
   positions: Position[];
   cash: number;
@@ -45,6 +51,7 @@ interface Portfolio {
   pricedAt: string;
   marketSession: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
   pricesAreExtended: boolean;
+  atRisk: AtRisk;
 }
 
 const SESSION_LABEL: Record<string, string> = {
@@ -80,6 +87,15 @@ function SessionBadge({
 }
 
 const RANGE_KEY = 'trader.benchmarkRange.v1';
+
+// The owner trades daily, so the week is the default lens — but a value
+// saved before 1W existed (or any value that is not a real range, ever)
+// must still load without throwing, rather than handing an unrecognised
+// string down to the chart and the API.
+const DEFAULT_RANGE: Range = '1W';
+const RANGE_VALUES = new Set<Range>(RANGES.map((r) => r.value));
+const sanitizeRange = (value: Range): Range =>
+  RANGE_VALUES.has(value) ? value : DEFAULT_RANGE;
 
 interface Performance {
   points: Point[];
@@ -274,8 +290,8 @@ export function Dashboard() {
     loadDraft(SORT_KEY, defaultSort),
   );
   const [refreshing, setRefreshing] = useState(false);
-  const [range, setRange] = useState<Range>(
-    () => loadDraft(RANGE_KEY, { range: 'ALL' as Range }).range,
+  const [range, setRange] = useState<Range>(() =>
+    sanitizeRange(loadDraft(RANGE_KEY, { range: DEFAULT_RANGE }).range),
   );
   const queryClient = useQueryClient();
 
@@ -374,8 +390,8 @@ export function Dashboard() {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-border bg-surface-1 p-3">
+      <section className="flex flex-wrap gap-3">
+        <div className="min-w-[140px] flex-1 rounded-xl border border-border bg-surface-1 p-3">
           <div className="text-xs text-muted">Cash</div>
           <div
             className={`mt-1 text-lg font-medium ${data.cash < 0 ? 'text-down' : ''}`}
@@ -386,11 +402,29 @@ export function Dashboard() {
             <div className="text-[10px] tracking-wide text-down">ON MARGIN</div>
           )}
         </div>
-        <div className="rounded-xl border border-border bg-surface-1 p-3">
+        <div className="min-w-[140px] flex-1 rounded-xl border border-border bg-surface-1 p-3">
           <div className="text-xs text-muted">Deployed</div>
           <div className="mt-1 text-lg font-medium">
             <Money value={data.positionsValue} />
           </div>
+        </div>
+        <div className="min-w-[140px] flex-1 rounded-xl border border-border bg-surface-1 p-3">
+          <div className="text-xs text-muted">At risk</div>
+          <div className="mt-1 text-lg font-medium">
+            <Money value={data.atRisk.amount} />
+          </div>
+          {data.atRisk.positionsWithoutStop.count > 0 && (
+            <div
+              className="mt-0.5 text-[10px] tracking-wide text-down"
+              title={data.atRisk.positionsWithoutStop.symbols.join(', ')}
+            >
+              +{data.atRisk.positionsWithoutStop.count}{' '}
+              {data.atRisk.positionsWithoutStop.count === 1
+                ? 'POSITION'
+                : 'POSITIONS'}{' '}
+              WITHOUT A STOP
+            </div>
+          )}
         </div>
       </section>
 

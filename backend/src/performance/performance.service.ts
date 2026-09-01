@@ -14,7 +14,7 @@ import {
   toCumulativeReturns,
 } from './series.js';
 
-export type Range = '1M' | '6M' | 'YTD' | '1Y' | 'ALL';
+export type Range = '1W' | '1M' | '6M' | 'YTD' | '1Y' | 'ALL';
 
 @Injectable()
 export class PerformanceService {
@@ -44,7 +44,7 @@ export class PerformanceService {
       ]);
 
     if (txnRows.length === 0 && flowRows.length === 0) {
-      return { range, points: [], deltas: null };
+      return { range, points: [], deltas: null, unpricedSymbols: [] };
     }
 
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
@@ -77,7 +77,7 @@ export class PerformanceService {
     if (firstActivity) dates = dates.filter((d) => d >= firstActivity);
     dates = dates.filter((d) => d >= startOf(range, dates));
 
-    const valuation = buildValuationSeries({
+    const { days: valuation, unpricedSymbols } = buildValuationSeries({
       dates,
       closes,
       txns: txnRows.map((t) => ({
@@ -129,6 +129,9 @@ export class PerformanceService {
                 : null,
           }
         : null,
+      // Symbols valued at cost basis for want of a price bar somewhere in
+      // this window — an estimate, not a measurement. See buildValuationSeries.
+      unpricedSymbols,
     };
   }
 }
@@ -138,6 +141,11 @@ function startOf(range: Range, dates: string[]): string {
   if (range === 'ALL' || dates.length === 0) return dates[0] ?? '0000-01-01';
   const latest = new Date(dates[dates.length - 1]);
   if (range === 'YTD') return `${latest.getUTCFullYear()}-01-01`;
+  if (range === '1W') {
+    const from = new Date(latest);
+    from.setUTCDate(from.getUTCDate() - 7);
+    return from.toISOString().slice(0, 10);
+  }
   const months = range === '1M' ? 1 : range === '6M' ? 6 : 12;
   const from = new Date(latest);
   from.setUTCMonth(from.getUTCMonth() - months);

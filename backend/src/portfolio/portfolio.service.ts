@@ -30,6 +30,7 @@ import {
   type DerivedTrade,
 } from './derive-trades.js';
 import { parseTradeId, tradeId, windowBounds } from './trade-window.js';
+import { computeRiskFromCurrentPrice, type StopLevelInput } from './risk.js';
 
 export interface SeedHolding {
   symbol: string;
@@ -107,10 +108,18 @@ export class PortfolioService {
       opts.refresh === true,
     );
 
+    const openTrades = (await this.deriveAllTrades()).filter((t) => t.isOpen);
     const openTradeBySymbol = new Map(
-      (await this.deriveAllTrades())
-        .filter((t) => t.isOpen)
-        .map((t) => [t.symbol, tradeId(t.symbol, t.enteredAt)]),
+      openTrades.map((t) => [t.symbol, tradeId(t.symbol, t.enteredAt)]),
+    );
+    // The stop plan lives on the opening fill, keyed the same way, so risk
+    // "from here" can reuse the trade lookup this endpoint already does for
+    // tradeId rather than a second pass over transactions.
+    const openTradeStopsBySymbol = new Map(
+      openTrades.map((t) => [
+        t.symbol,
+        { direction: t.direction, avgEntry: t.avgEntry, levels: t.openingStops },
+      ]),
     );
 
     const positions = derived.map((p) => {
@@ -146,6 +155,8 @@ export class PortfolioService {
       0,
     );
 
+    const atRisk = this.computeAtRisk(positions, openTradeStopsBySymbol);
+
     return {
       positions,
       cash,
@@ -162,6 +173,73 @@ export class PortfolioService {
       pricesAreExtended: positions.some((p) => p.extended),
       // When the client last got real numbers, so the UI can say "updated 17:31".
       pricedAt: new Date().toISOString(),
+      atRisk,
+    };
+  }
+
+  /**
+   * Total dollars lost if every recorded stop tier were hit right now, plus
+   * how many open positions carry no stop at all — an unbounded risk that
+   * must stay visible rather than being silently folded into "no risk".
+   *
+   * A position whose only stop is a trail raised above the current price (a
+   * profit lock) prices out negative — a gain, not a loss. That is correct
+   * per position, but it is deliberately NOT allowed to net against real risk
+   * elsewhere in the total: this box answers "how much could I lose", and
+   * letting a locked-in gain quietly cancel out someone else's real exposure
+   * would understate risk exactly when a big winner is carrying a small,
+   * dangerous position along with it. Each position's contribution to the sum
+   * is floored at zero; the unfloored, possibly-negative number is still the
+   * one attached to the position, it just is not summed as if it were risk.
+   */
+  private computeAtRisk(
+    positions: Array<{
+      symbol: string;
+      quantity: number;
+      price: number | null;
+    }>,
+    stopsBySymbol: Map<
+      string,
+      {
+        direction: 'LONG' | 'SHORT';
+        avgEntry: number;
+        levels: StopLevelInput[];
+      }
+    >,
+  ) {
+    let amount = 0;
+    const symbolsWithoutStop: string[] = [];
+
+    for (const p of positions) {
+      const plan = stopsBySymbol.get(p.symbol);
+      if (!plan || plan.levels.length === 0) {
+        symbolsWithoutStop.push(p.symbol);
+        continue;
+      }
+      // A stop plan exists but there is no live price to measure it against
+      // (never successfully quoted). Rare, and not the same situation as
+      // having no stop at all, so it is left out of both the sum and the
+      // "without a stop" count rather than guessed at.
+      if (p.price === null) continue;
+
+      const risk = computeRiskFromCurrentPrice({
+        avgEntry: plan.avgEntry,
+        currentPrice: p.price,
+        quantity: Math.abs(p.quantity),
+        levels: plan.levels,
+        direction: plan.direction,
+      });
+      if (risk.amount !== null) {
+        amount += Math.max(0, risk.amount);
+      }
+    }
+
+    return {
+      amount: round(amount),
+      positionsWithoutStop: {
+        count: symbolsWithoutStop.length,
+        symbols: symbolsWithoutStop,
+      },
     };
   }
 
@@ -360,4 +438,8 @@ export class PortfolioService {
       await manager.delete(JournalEntry, { userId: user.id });
     });
   }
+}
+
+function round(n: number): number {
+  return Math.round(n * 1e8) / 1e8;
 }
