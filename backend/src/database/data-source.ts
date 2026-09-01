@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { buildConnectionOptions } from './connection-options.js';
 import { InitialSchema1788220800000 } from './migrations/1788220800000-InitialSchema.js';
+import { AddDailyCloseOhlc1788307200000 } from './migrations/1788307200000-AddDailyCloseOhlc.js';
 
 // Migrations are imported explicitly rather than via a glob string. A glob
 // silently matched zero files under some execution contexts in a sibling
@@ -11,7 +12,7 @@ import { InitialSchema1788220800000 } from './migrations/1788220800000-InitialSc
 const dataSource = new DataSource({
   type: 'postgres',
   ...buildConnectionOptions(process.env),
-  migrations: [InitialSchema1788220800000],
+  migrations: [InitialSchema1788220800000, AddDailyCloseOhlc1788307200000],
   synchronize: false,
 });
 

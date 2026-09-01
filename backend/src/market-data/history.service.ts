@@ -42,10 +42,12 @@ export class HistoryService {
     );
     if (earliest === null) return { symbols: [], barsWritten: 0 };
 
-    // A few days of runway before the first trade, so the first day of the
-    // series has a prior close to compare against.
+    // Runway before the first trade. Seven days was enough for the benchmark
+    // series to have a prior close; the trade chart needs about a month of
+    // context before an entry, and Yahoo serves daily history indefinitely
+    // for free, so this costs nothing but a slightly longer first backfill.
     const from = new Date(earliest);
-    from.setDate(from.getDate() - 7);
+    from.setDate(from.getDate() - 45);
 
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
     const wanted = new Set(
@@ -76,6 +78,9 @@ export class HistoryService {
             date: b.date,
             close: b.close,
             adjClose: b.adjClose,
+            open: b.open,
+            high: b.high,
+            low: b.low,
           })),
           ['instrumentId', 'date'],
         );

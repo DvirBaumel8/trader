@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import YahooFinance from 'yahoo-finance2';
 import { selectPrice, type MarketSession } from './select-price.js';
 
@@ -18,6 +18,10 @@ export interface RawBar {
   date: string; // YYYY-MM-DD
   close: number;
   adjClose: number;
+  /** Intraday range. Null when Yahoo omits it for that bar. */
+  open: number | null;
+  high: number | null;
+  low: number | null;
 }
 
 /** The shape we actually read off a Yahoo quote, regardless of its full type. */
@@ -38,7 +42,16 @@ interface QuoteLike {
  */
 @Injectable()
 export class YahooClient {
-  private readonly yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+  private readonly yf: InstanceType<typeof YahooFinance>;
+
+  // `yf` is optional and unregistered with Nest on purpose: yahoo-finance2 is
+  // not a Nest provider, so an undecorated required parameter would fail to
+  // resolve at bootstrap. @Optional() lets Nest pass `undefined`, which falls
+  // through to the real client below; tests pass a fake directly, bypassing
+  // Nest entirely.
+  constructor(@Optional() yf?: InstanceType<typeof YahooFinance>) {
+    this.yf = yf ?? new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+  }
 
   async quote(symbol: string): Promise<RawQuote | null> {
     // An unknown ticker resolves to undefined here rather than throwing.
@@ -58,9 +71,15 @@ export class YahooClient {
     });
     const quotes = (result?.quotes ?? []) as {
       date: Date | string;
+      open?: number | null;
+      high?: number | null;
+      low?: number | null;
       close?: number | null;
       adjclose?: number | null;
     }[];
+
+    const finite = (n: number | null | undefined): number | null =>
+      typeof n === 'number' && Number.isFinite(n) ? n : null;
 
     return quotes
       .map((q) => {
@@ -75,6 +94,11 @@ export class YahooClient {
             typeof q.adjclose === 'number' && Number.isFinite(q.adjclose)
               ? q.adjclose
               : close,
+          // A bar missing part of its range is still worth its close: the
+          // chart skips that candle, the benchmark is unaffected.
+          open: finite(q.open),
+          high: finite(q.high),
+          low: finite(q.low),
         };
       })
       .filter((b): b is RawBar => b !== null);
