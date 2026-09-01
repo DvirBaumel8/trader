@@ -9,6 +9,7 @@ import { TickerProbe } from './routes/TickerProbe';
 import { Seed } from './routes/Seed';
 import { Journal } from './routes/Journal';
 import { Login } from './routes/Login';
+import { TradeDetail } from './routes/TradeDetail';
 import './index.css';
 
 const queryClient = new QueryClient();
@@ -23,6 +24,7 @@ createRoot(document.getElementById('root')!).render(
           <Route element={<AppShell />}>
             <Route index element={<Dashboard />} />
             <Route path="journal" element={<Journal />} />
+            <Route path="trades/:id" element={<TradeDetail />} />
             <Route path="seed" element={<Seed />} />
             <Route path="probe" element={<TickerProbe />} />
           </Route>

@@ -33,6 +33,7 @@ interface Position {
   marketValue: number | null;
   unrealizedPnl: number | null;
   unrealizedPct: number | null;
+  tradeId: string | null;
 }
 
 interface Portfolio {
@@ -153,8 +154,8 @@ function SortPicker({
  *   3. cost basis and $ P&L     — supporting detail, quiet on purpose
  */
 function PositionRow({ p }: { p: Position }) {
-  return (
-    <li className="flex items-baseline justify-between gap-3 border-b border-border py-2.5 last:border-0">
+  const content = (
+    <>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="text-[15px] font-semibold leading-tight">
@@ -185,6 +186,23 @@ function PositionRow({ p }: { p: Position }) {
           </span>
         </div>
       </div>
+    </>
+  );
+
+  return (
+    <li className="border-b border-border last:border-0">
+      {p.tradeId !== null ? (
+        <Link
+          to={`/trades/${encodeURIComponent(p.tradeId)}`}
+          className="flex items-baseline justify-between gap-3 py-2.5 transition-colors hover:bg-surface-1 active:bg-surface-2"
+        >
+          {content}
+        </Link>
+      ) : (
+        <div className="flex items-baseline justify-between gap-3 py-2.5">
+          {content}
+        </div>
+      )}
     </li>
   );
 }
