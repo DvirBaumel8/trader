@@ -87,9 +87,16 @@ real positions and P&L.
 - One password, not accounts. Stored as a bcrypt hash in a Render env var
   (`APP_PASSWORD_HASH`) — never in the repo.
 - `POST /auth/login` checks the submitted password against the hash and, on
-  success, sets a JWT in an `httpOnly` cookie. `JWT_SECRET` is Render-generated
-  (matches sapako's `generateValue: true` pattern).
-- A global guard requires that cookie on every route except `/auth/login` and
+  success, returns a JWT in the response body. `JWT_SECRET` is
+  Render-generated (matches sapako's `generateValue: true` pattern).
+- **Bearer token, not a cookie.** Frontend and backend are different origins
+  in production (Cloudflare Pages vs. Render), and cross-origin cookies are
+  exactly the kind of thing that goes flaky on iOS Safari — a source of bugs
+  `CLAUDE.md` already documents as showing up only on the phone. sapako, which
+  already runs in production on this owner's phone, uses a Bearer token for
+  the same reason. The frontend stores the token (`localStorage`) and sends it
+  as `Authorization: Bearer <token>` on every API call.
+- A global guard requires that header on every route except `/auth/login` and
   the new keep-warm ping endpoint. This includes `TickerProbe` — today it's
   kept out of the nav as its only protection, which stops being adequate once
   the app is reachable from anywhere.
