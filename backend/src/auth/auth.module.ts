@@ -8,10 +8,16 @@ import { JwtAuthGuard } from './jwt-auth.guard.js';
 @Module({
   imports: [
     JwtModule.registerAsync({
-      useFactory: () => ({
-        secret: process.env.JWT_SECRET ?? 'dev-only-secret-change-me',
-        signOptions: { expiresIn: '30d' },
-      }),
+      useFactory: () => {
+        const secret = process.env.JWT_SECRET;
+        if (!secret && process.env.NODE_ENV === 'production') {
+          throw new Error('JWT_SECRET must be set in production');
+        }
+        return {
+          secret: secret ?? 'dev-only-secret-change-me',
+          signOptions: { expiresIn: '30d' },
+        };
+      },
     }),
   ],
   controllers: [AuthController],

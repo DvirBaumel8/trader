@@ -25,8 +25,16 @@ export function buildConnectionOptions(
   overrideDatabase?: string,
 ): ConnectionOptions {
   const ssl = buildDatabaseSsl(env);
-  if (env.DATABASE_URL) {
+  if (env.DATABASE_URL && !overrideDatabase) {
     return { url: env.DATABASE_URL, ssl };
+  }
+  if (env.DATABASE_URL && overrideDatabase) {
+    // An explicit database override (the NODE_ENV=test redirect to
+    // trader_test) must never be silently discarded — that's the guard
+    // that keeps tests off a real, possibly-production database.
+    throw new Error(
+      `Refusing to redirect a DATABASE_URL connection to "${overrideDatabase}" — unset DATABASE_URL to run against a local database.`,
+    );
   }
   return {
     host: env.DB_HOST ?? 'localhost',

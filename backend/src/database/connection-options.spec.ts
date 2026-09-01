@@ -54,4 +54,15 @@ describe('buildConnectionOptions', () => {
     } as NodeJS.ProcessEnv);
     expect(opts.ssl).toEqual({ rejectUnauthorized: true });
   });
+
+  it('throws rather than silently discarding overrideDatabase when DATABASE_URL is set', () => {
+    expect(() =>
+      buildConnectionOptions(
+        {
+          DATABASE_URL: 'postgresql://u:p@example.com:5432/neondb',
+        } as NodeJS.ProcessEnv,
+        'trader_test',
+      ),
+    ).toThrow(/Refusing to redirect a DATABASE_URL connection/);
+  });
 });

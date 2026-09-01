@@ -13,7 +13,8 @@ async function bootstrap() {
       origin: process.env.WEB_ORIGINS.split(',').map((o) => o.trim()),
     });
   }
-  // 0.0.0.0 so the phone on the same Wi-Fi can reach it.
-  await app.listen(3000, '0.0.0.0');
+  // 0.0.0.0 so the phone on the same Wi-Fi can reach it. Render injects
+  // PORT and expects the service to bind it; 3000 is only the local default.
+  await app.listen(Number(process.env.PORT ?? 3000), '0.0.0.0');
 }
 void bootstrap();

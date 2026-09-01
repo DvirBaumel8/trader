@@ -1,5 +1,3 @@
-# docs/DEPLOYMENT.md
-
 # Deployment
 
 Three pieces, each on a free tier — the same combination already proven in
@@ -13,6 +11,20 @@ the sibling `sapako` project:
 
 Postgres is on Neon rather than Render because Render's free Postgres
 expires after a fixed period while Neon's free tier does not.
+
+## 0. Create the GitHub repo and rename the branch
+
+Cloudflare Pages and this repo's workflow both assume the production branch
+is `main`, but this repository's local branch is `master`. Rename it and
+push, before doing anything else below:
+
+```bash
+git branch -m master main
+gh repo create <choose-a-repo-name> --private --source=. --remote=origin
+git push -u origin main
+```
+
+(Or create the GitHub repo via the web UI first, then `git remote add origin <url>` and push.)
 
 ## 1. Neon (database)
 
@@ -32,13 +44,17 @@ locally (never commit the plaintext password or the hash):
 node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 10))" 'choose-a-real-password'
 ```
 
+This password is the only thing protecting your real trading data from the
+public internet — use a long, random one from a password manager (20+
+characters), not something memorable.
+
 Keep the printed hash for the next step.
 
 ## 3. Render (API)
 
 1. Render dashboard → New → **Blueprint** → connect this repo. It reads
    `render.yaml`, so nothing else is configured by hand in the UI.
-2. It prompts for the four `sync: false` variables:
+2. It prompts for the three `sync: false` variables:
 
    | Variable | Value |
    |---|---|
@@ -91,17 +107,22 @@ scale-to-zero wakes in well under a second, which nobody notices.
 
 Only after steps 1–5 are deployed and you've confirmed you can log into the
 **empty** production app from your phone (off Wi-Fi, to prove it's actually
-public), move your real data over. Run locally, once:
+public), move your real data over. That empty-app checkpoint logs in, which
+calls `ensureDefaultUser()` and inserts a throwaway `users` row into Neon —
+expected, and cleaned up below. Run locally, once:
 
 ```bash
-pg_dump -d trader --no-owner --no-privileges --no-comments \
+pg_dump -d trader --data-only --no-owner --no-privileges --no-comments \
   --exclude-table=migrations > /tmp/trader-data.sql
 psql "<the Neon pooled connection string>" < /tmp/trader-data.sql
 ```
 
-`--exclude-table=migrations` matters: Neon already has its own migrations
-bookkeeping row from Render's first deploy, and this dump should only add
-data, not fight over migration history.
+`--data-only` matters: Neon's schema was already created by the migration on
+first deploy, so restoring a full schema+data dump would error
+"relation already exists" for every table and index. `--exclude-table=migrations`
+matters too: Neon already has its own migrations bookkeeping row from
+Render's first deploy, and this dump should only add data, not fight over
+migration history.
 
 Verify row counts match before trusting it:
 
@@ -110,8 +131,28 @@ psql -d trader -c "SELECT count(*) FROM transactions;"
 psql "<the Neon pooled connection string>" -c "SELECT count(*) FROM transactions;"
 ```
 
-Repeat for `cash_flows`, `journal_entries`, and `dividends`. This is a
-one-time, by-hand step — not a script that could be run twice by accident.
+Repeat for `cash_flows`, `journal_entries`, `dividends`, `instruments`,
+`tags`, `entry_tags`, `stop_levels`, and `daily_closes` — these should match
+exactly. `users` is the one exception: Neon may show one row **more** than
+local right after the restore, because of the stray row from the empty-app
+checkpoint below — resolve that next, then `users` will match too.
+
+Then check for the stray `users` row created by the empty-app checkpoint:
+
+```bash
+psql "<the Neon pooled connection string>" -c 'SELECT id, "createdAt" FROM users ORDER BY "createdAt";'
+```
+
+This must show exactly **one** row — the real one, just restored from the
+dump. If it shows two, the stray row is the one with the more recent
+`createdAt` (the real row predates it, from the owner's actual history);
+delete it by its `id` specifically, e.g.
+`DELETE FROM users WHERE id = '<stray-id>'` — not by any other filter, since
+every other table's `userId` column references the real row's `id`
+specifically and deleting the wrong row orphans all of it.
+
+This is a one-time, by-hand step — not a script that could be run twice by
+accident.
 
 ## Environments
 

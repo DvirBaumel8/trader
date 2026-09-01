@@ -14,6 +14,11 @@ const TEST_DB_NAME = 'trader_test';
  * this helper doesn't try to generalize to that case.
  */
 export async function createTestDatabase(): Promise<void> {
+  if (process.env.DATABASE_URL) {
+    throw new Error(
+      'e2e tests must never run with DATABASE_URL set — unset it to run against local Postgres.',
+    );
+  }
   const admin = new Client({
     host: process.env.DB_HOST ?? 'localhost',
     port: parseInt(process.env.DB_PORT ?? '5432', 10),

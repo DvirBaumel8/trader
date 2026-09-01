@@ -10,6 +10,10 @@ export class ApiError extends Error {
 }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+// `/api` is a dev-proxy-only prefix — Vite strips it before forwarding to
+// :3000. In production there is no proxy and the backend serves its routes
+// at the root of BASE_URL, so the segment must not be sent there.
+const PREFIX = BASE_URL ? '' : '/api';
 
 /**
  * Relative locally, so Vite's dev proxy handles it and it works from
@@ -19,12 +23,13 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
  */
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
-  const res = await fetch(`${BASE_URL}/api${path}`, {
+  const res = await fetch(`${BASE_URL}${PREFIX}${path}`, {
+    ...init,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
     },
-    ...init,
   });
   if (res.status === 401) {
     clearToken();

@@ -7,9 +7,14 @@
 # (see docs/DEPLOYMENT.md).
 #
 # Free web services sleep after roughly 15 minutes idle. See
-# docs/DEPLOYMENT.md for the keep-warm ping that prevents that in
-# practice — it targets /health/ping (no database access), not this
-# file's healthCheckPath, which Render itself only calls at deploy time.
+# docs/DEPLOYMENT.md for the keep-warm ping that prevents that in practice.
+#
+# healthCheckPath is /health/ping, not /health: the global auth guard (Task
+# 2) protects /health, so Render's own check would get a 401 and roll back
+# every deploy. /health/ping is exempt from that guard (it's @Public()) and
+# is also DB-free, for the same reason the UptimeRobot keep-warm ping
+# (docs/DEPLOYMENT.md) targets it instead of /health — a check that touched
+# Postgres would keep re-waking Neon on every poll.
 
 services:
   - type: web
@@ -26,7 +31,7 @@ services:
     # src/database/migrate.ts for why the equivalent local script avoids
     # TypeORM's own CLI.
     startCommand: node dist/database/migrate.js && node dist/main
-    healthCheckPath: /health
+    healthCheckPath: /health/ping
     envVars:
       - key: NODE_VERSION
         value: 22.13.0
