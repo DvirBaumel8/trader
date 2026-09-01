@@ -35,10 +35,10 @@ in about a second anyway.
 | 2 | **Context before *and* after the trade** | Owner's explicit request. Learning from a trade needs the setup that preceded it and what happened after he left. |
 | 3 | **Fixed window, ~1 month either side. No pan or zoom** | Fits a phone screen and shows the whole story at once. Pinch-zoom on a chart is where mobile bugs live, and the owner chose against it. |
 | 4 | **Daily candles (OHLC), not a close-only line** | He is comparing this to a TradingView daily chart, which is candles. The intraday range is also the only thing that shows whether price wicked through his stop and recovered. |
-| 5 | **Two entry points: the journal timeline *and* a new Trades tab** | Owner's choice, over either alone. The journal is where he already is after a trade; the Trades tab is the browse-and-review surface. |
+| 5 | **Two entry points: Journal's existing Trades tab, and the Portfolio tab** | Owner's choice of two ways in, corrected against the codebase. `Journal.tsx`'s `TradesTab` already lists round trips with filtering and sorting — a new top-level Trades tab would duplicate it. Closed trades are reached from Journal, open ones from Portfolio, which is how the app already splits them. |
 | 6 | **On the chart: every individual fill, plus stop levels. Nothing else** | Owner's selection. He deliberately left off the planned target and the journal note — execution facts, not narrative. Keeps a phone-sized chart readable. |
 | 7 | **Hand-rolled SVG, no charting library** | `BenchmarkChart.tsx` and `FeesChart.tsx` are already hand-rolled SVG on a CVD-validated dark palette. With a fixed window and no gestures, a library's value (pan, zoom, virtualization, touch handling) is concentrated in exactly the features decision #3 declined. A candle is a rect plus a line. |
-| 8 | **Open trades are included, not just closed ones** | Costs almost nothing: `deriveTrades` already returns them with `isOpen`, and the chart simply has no exit marker with the window running to today. Reviewing a position mid-flight is worth having. |
+| 8 | **Open trades are included, reached from Portfolio rather than Journal** | Costs almost nothing: `deriveTrades` already returns them with `isOpen`, and the chart simply has no exit marker with the window running to today. Journal's Trades tab deliberately filters to `!t.isOpen` and directs open positions to the Portfolio tab; replay follows that existing split rather than fighting it. |
 
 ## The data problem this must solve first
 
@@ -115,14 +115,18 @@ invented.
 
 ### Frontend
 
-- **New route: `/trades`** — the Trades tab, added to `AppShell`'s nav. Round
-  trips newest-first: symbol, direction, P&L, R multiple, open/closed.
+**No new nav tab.** `Journal.tsx`'s `TradesTab` (line 98) already lists round
+trips with filtering and sorting, fed by `/portfolio/stats`, and keys each row
+by `` `${t.symbol}-${t.enteredAt}` `` — already the composite id this design
+uses. The list is not rebuilt; it becomes tappable.
+
 - **New route: `/trades/:id`** — the detail screen: a header of the trade's
-  numbers, and the chart beneath it.
-- **Journal tap-through.** Tapping a trade entry in the timeline opens the
-  detail screen for the round trip that entry belongs to. Because one trade
-  spans several entries when scaling in or out, the mapping is entry → its
-  trade, not entry → its own chart.
+  numbers, and the chart beneath it. The only new route.
+- **Journal → Trades tab.** Each `TradeCard` becomes a link to its trade's
+  detail screen. Closed trades only, as that tab already filters.
+- **Portfolio tab.** Tapping a position opens the detail screen for its open
+  trade — the way in for a position still being held, matching where the app
+  already sends open positions.
 - **New component: `TradeChart.tsx`** — hand-rolled SVG, following
   `BenchmarkChart.tsx`'s conventions (viewBox scaling, `w-full`, theme tokens,
   no external dependency).
