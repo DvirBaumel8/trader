@@ -170,6 +170,19 @@ The spec and plan documents above are deliberately **not** imported: they are
 long, mostly historical, and only relevant when revisiting a decision or
 writing the next phase. Read them when that is the task.
 
+**Read a plan by section, never whole.** They are big: the Phase 2 plan alone is
+~34k tokens and the five together are ~92k, so opening one in full spends a
+third of a context window on a document you needed one task from. Find the task
+with `grep -n '^## ' <plan>`, then read just it with `sed -n 'START,ENDp'`.
+
+The same discipline applies to everything read mid-session, because context is
+cumulative — whatever is read on an early turn is re-sent on every later one, so
+cost is roughly tokens x turns remaining. In practice: `git diff --stat` before
+any `git diff`, and then one file at a time; line ranges rather than whole files
+for the big ones (`portfolio.service.ts` is ~9k tokens); verbose commands piped
+through `tail` or `grep`; a single spec file rather than the whole suite while
+iterating, with the full run saved for the checkpoint.
+
 **When adding a new document**, decide which category it is in. If it changes how
 work should be done or what the product is for, import it here. If it is
 reference material for a specific task, add a row to this table and leave it on
