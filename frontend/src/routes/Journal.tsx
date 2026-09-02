@@ -344,12 +344,19 @@ export function Journal() {
 
   useEffect(() => {
     if (!pendingEntryId || !allEntries) return;
-    const found = allEntries.find((e) => e.id === pendingEntryId);
-    // The entry may have been deleted from another device; silently skip it
-    // rather than reopening an editor onto nothing.
-    if (found) setEditing(found);
+    // The fetch behind this can take a moment, and by the time it resolves
+    // the user may already be composing a new entry or have opened a
+    // different one. Reopening the restored entry onto that would silently
+    // replace what they are doing right now, so a restore only ever lands
+    // on an idle sheet — otherwise it is simply dropped.
+    if (!composing && editing === null) {
+      const found = allEntries.find((e) => e.id === pendingEntryId);
+      // The entry may have been deleted from another device; silently skip
+      // it rather than reopening an editor onto nothing.
+      if (found) setEditing(found);
+    }
     restored.current = null;
-  }, [pendingEntryId, allEntries]);
+  }, [pendingEntryId, allEntries, composing, editing]);
 
   useEffect(() => {
     saveUiState({
