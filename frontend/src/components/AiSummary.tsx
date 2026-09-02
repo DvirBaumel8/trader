@@ -1,26 +1,35 @@
-import { useMutation } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
+import { formatTimestamp } from './format';
 
 interface PortfolioSummaryResult {
   configured: boolean;
   summary: string | null;
   factsAsOf: string | null;
   error: string | null;
+  /** The saved summary's id — null when nothing was persisted (unconfigured or failed). */
+  id: string | null;
 }
 
-/** e.g. "2:34 PM" locally, or the date too if the facts are from an earlier day. */
-function formatFactsAsOf(iso: string): string {
-  const date = new Date(iso);
-  const isToday = date.toDateString() === new Date().toDateString();
-  return isToday
-    ? date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-    : date.toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      });
+interface AiSummaryListRow {
+  id: string;
+  createdAt: string;
+  factsAsOf: string;
+  preview: string;
 }
+
+interface AiSummaryDetail {
+  id: string;
+  summary: string;
+  factsSnapshot: string;
+  model: string;
+  grounded: boolean;
+  factsAsOf: string;
+  createdAt: string;
+}
+
+const HISTORY_QUERY_KEY = ['ai-summaries'];
 
 /**
  * Clearly separated from the app's own computed figures: this is an opinion
@@ -55,7 +64,7 @@ function ResultCard({ result }: { result: PortfolioSummaryResult }) {
         </span>
         {result.factsAsOf && (
           <span className="text-muted normal-case">
-            from data as of {formatFactsAsOf(result.factsAsOf)}
+            from data as of {formatTimestamp(result.factsAsOf)}
           </span>
         )}
       </div>
@@ -66,9 +75,157 @@ function ResultCard({ result }: { result: PortfolioSummaryResult }) {
   );
 }
 
+/** The full record for one history row: the same badge/body treatment as a fresh result, plus its facts snapshot, collapsed by default — context, not the headline. */
+function HistoryDetail({ id }: { id: string }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: [...HISTORY_QUERY_KEY, id],
+    queryFn: () => api<AiSummaryDetail>(`/ai/summaries/${id}`),
+  });
+
+  if (isLoading) {
+    return <p className="px-3 pb-3 text-xs text-muted">Loading…</p>;
+  }
+  if (isError || !data) {
+    return <p className="px-3 pb-3 text-xs text-muted">Couldn't load this summary.</p>;
+  }
+
+  return (
+    <div className="space-y-2 border-t border-border px-3 pb-3 pt-2">
+      <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-accent">
+        <span className="rounded bg-accent/15 px-1.5 py-0.5 font-medium">
+          AI generated
+        </span>
+        <span className="text-muted normal-case">
+          from data as of {formatTimestamp(data.factsAsOf)}
+        </span>
+      </div>
+      <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">
+        {data.summary}
+      </p>
+      <details className="text-xs">
+        <summary className="cursor-pointer select-none font-medium text-accent">
+          Facts snapshot
+        </summary>
+        <pre className="mt-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-surface-2 p-2 text-[11px] leading-relaxed text-muted">
+          {data.factsSnapshot}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
+interface HistoryRowProps {
+  row: AiSummaryListRow;
+  isOpen: boolean;
+  onToggle: () => void;
+  pendingDelete: boolean;
+  onRequestDelete: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+  isDeleting: boolean;
+}
+
+/**
+ * One saved summary in the history list. Delete is two taps, never one — a
+ * phone screen is exactly where a stray tap on a destructive action happens,
+ * and this record can't be recovered once removed.
+ */
+function HistoryRow({
+  row,
+  isOpen,
+  onToggle,
+  pendingDelete,
+  onRequestDelete,
+  onCancelDelete,
+  onConfirmDelete,
+  isDeleting,
+}: HistoryRowProps) {
+  return (
+    <li className="overflow-hidden rounded-lg border border-border bg-surface-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-start justify-between gap-2 px-3 py-2.5 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-[10px] uppercase tracking-wide text-muted">
+            {formatTimestamp(row.createdAt)}
+          </span>
+          <span className="mt-0.5 block truncate text-sm text-text">
+            {row.preview}
+          </span>
+        </span>
+        <span className="mt-1 shrink-0 text-[10px] text-muted">
+          {isOpen ? '▲' : '▼'}
+        </span>
+      </button>
+
+      {isOpen && <HistoryDetail id={row.id} />}
+
+      <div className="border-t border-border px-3 py-2">
+        {pendingDelete ? (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-muted">Delete this summary?</span>
+            <span className="flex gap-2">
+              <button
+                type="button"
+                onClick={onCancelDelete}
+                className="rounded px-2 py-1 text-xs font-medium text-muted active:bg-surface-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onConfirmDelete}
+                disabled={isDeleting}
+                className="rounded bg-down/10 px-2 py-1 text-xs font-medium text-down active:bg-down/20 disabled:opacity-60"
+              >
+                {isDeleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onRequestDelete}
+            className="text-xs font-medium text-down active:opacity-70"
+          >
+            Delete
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export function AiSummary() {
+  const queryClient = useQueryClient();
+  const [showHistory, setShowHistory] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
   const mutation = useMutation({
     mutationFn: () => api<PortfolioSummaryResult>('/ai/portfolio-summary', { method: 'POST' }),
+    onSuccess: () => {
+      // A fresh summary just got persisted (if the call succeeded) — the
+      // history list, if open, should reflect it without a manual reload.
+      void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
+    },
+  });
+
+  const historyQuery = useQuery({
+    queryKey: HISTORY_QUERY_KEY,
+    queryFn: () => api<AiSummaryListRow[]>('/ai/summaries'),
+    enabled: showHistory,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api<{ ok: boolean }>(`/ai/summaries/${id}`, { method: 'DELETE' }),
+    onSuccess: (_data, id) => {
+      void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
+      setPendingDeleteId(null);
+      setOpenId((current) => (current === id ? null : current));
+    },
   });
 
   return (
@@ -98,6 +255,52 @@ export function AiSummary() {
             : "Something went wrong generating the summary. Try again in a bit."}
         </p>
       )}
+
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowHistory((v) => !v)}
+          className="text-xs font-medium text-muted underline decoration-dotted underline-offset-4"
+        >
+          {showHistory ? 'Hide history' : 'Show history'}
+        </button>
+
+        {showHistory && (
+          <div className="mt-2">
+            {historyQuery.isLoading && (
+              <p className="text-xs text-muted">Loading…</p>
+            )}
+            {historyQuery.isError && (
+              <p className="text-xs text-muted">Couldn't load history.</p>
+            )}
+            {historyQuery.data && historyQuery.data.length === 0 && (
+              <p className="text-xs text-muted">No summaries saved yet.</p>
+            )}
+            {historyQuery.data && historyQuery.data.length > 0 && (
+              <ul className="space-y-1.5">
+                {historyQuery.data.map((row) => (
+                  <HistoryRow
+                    key={row.id}
+                    row={row}
+                    isOpen={openId === row.id}
+                    onToggle={() =>
+                      setOpenId((current) => (current === row.id ? null : row.id))
+                    }
+                    pendingDelete={pendingDeleteId === row.id}
+                    onRequestDelete={() => setPendingDeleteId(row.id)}
+                    onCancelDelete={() => setPendingDeleteId(null)}
+                    onConfirmDelete={() => deleteMutation.mutate(row.id)}
+                    isDeleting={
+                      deleteMutation.isPending &&
+                      deleteMutation.variables === row.id
+                    }
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

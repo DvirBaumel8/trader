@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   formatMoney,
   formatPercent,
   formatQuantity,
+  formatTimestamp,
   signClass,
 } from './format';
 
@@ -63,6 +64,26 @@ describe('formatPercent', () => {
   });
   it('renders a dash for a missing value', () => {
     expect(formatPercent(null)).toBe('—');
+  });
+});
+
+describe('formatTimestamp', () => {
+  it('shows only a time for a moment earlier today', () => {
+    const now = new Date(2026, 8, 2, 16, 0, 0);
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const earlierToday = new Date(2026, 8, 2, 14, 30, 0).toISOString();
+    expect(formatTimestamp(earlierToday)).toBe('2:30 PM');
+    vi.useRealTimers();
+  });
+
+  it('shows a date and time for a moment on an earlier day', () => {
+    const now = new Date(2026, 8, 2, 16, 0, 0);
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const lastWeek = new Date(2026, 7, 12, 14, 30, 0).toISOString();
+    expect(formatTimestamp(lastWeek)).toBe('Aug 12, 2:30 PM');
+    vi.useRealTimers();
   });
 });
 

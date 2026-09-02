@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { LlmClient } from './llm.client.js';
 import { buildPortfolioContext } from './portfolio-context.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts.js';
+import { AiSummaryService } from './ai-summary.service.js';
 import { PortfolioService } from '../portfolio/portfolio.service.js';
 import { PerformanceService } from '../performance/performance.service.js';
 
@@ -23,6 +24,8 @@ export interface PortfolioSummaryResult {
   summary: string | null;
   factsAsOf: string | null;
   error: string | null;
+  /** The saved summary's id, so the frontend can jump straight to it in history. Null when nothing was persisted. */
+  id: string | null;
 }
 
 @Injectable()
@@ -33,6 +36,7 @@ export class LlmService {
     private readonly llm: LlmClient,
     private readonly portfolio: PortfolioService,
     private readonly performance: PerformanceService,
+    private readonly summaries: AiSummaryService,
   ) {}
 
   isConfigured(): boolean {
@@ -45,7 +49,7 @@ export class LlmService {
    */
   async portfolioSummary(): Promise<PortfolioSummaryResult> {
     if (!this.llm.isConfigured()) {
-      return { configured: false, summary: null, factsAsOf: null, error: null };
+      return { configured: false, summary: null, factsAsOf: null, error: null, id: null };
     }
 
     const [portfolio, stats, series] = await Promise.all([
@@ -82,7 +86,24 @@ export class LlmService {
 
     try {
       const summary = await this.llm.complete({ system, user, grounded: true });
-      return { configured: true, summary, factsAsOf: portfolio.pricedAt, error: null };
+      // Persisted only on a real result — an unconfigured provider or a
+      // failed call leaves nothing worth keeping (see the owner's framing:
+      // "once we have the summary"). This is also why there is no separate
+      // "save" step: every summary the model actually produces is history.
+      const saved = await this.summaries.create({
+        summary,
+        factsSnapshot: facts,
+        model: this.llm.modelName(),
+        grounded: true,
+        factsAsOf: portfolio.pricedAt,
+      });
+      return {
+        configured: true,
+        summary,
+        factsAsOf: portfolio.pricedAt,
+        error: null,
+        id: saved.id,
+      };
     } catch (err) {
       // A transient provider failure (rate limit, network, empty response)
       // must not 500 the endpoint — it becomes a clear, non-alarming message
@@ -94,6 +115,7 @@ export class LlmService {
         summary: null,
         factsAsOf: portfolio.pricedAt,
         error: 'The AI summary could not be generated right now. Try again shortly.',
+        id: null,
       };
     }
   }

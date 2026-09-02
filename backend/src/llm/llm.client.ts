@@ -27,6 +27,8 @@ export abstract class LlmClient {
   /** False when no provider is configured — callers must degrade, not throw. */
   abstract isConfigured(): boolean;
   abstract complete(params: CompleteParams): Promise<string>;
+  /** Which model a `complete()` call would use — recorded alongside saved summaries. */
+  abstract modelName(): string;
 }
 
 /**
@@ -48,6 +50,10 @@ export class GeminiClient extends LlmClient {
     // implements one: an unrecognised LLM_PROVIDER must not silently call
     // Gemini with someone else's key, it must report itself unconfigured.
     return this.provider === 'gemini' && Boolean(this.apiKey);
+  }
+
+  modelName(): string {
+    return this.model;
   }
 
   async complete({ system, user, grounded }: CompleteParams): Promise<string> {
