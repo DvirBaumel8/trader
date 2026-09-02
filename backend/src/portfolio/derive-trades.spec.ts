@@ -1,8 +1,13 @@
 import {
   deriveTrades,
   summariseTrades,
+  selectEntryStops,
+  selectCurrentStops,
   type TradeTxn,
+  type StopRevisionInput,
 } from './derive-trades.js';
+
+const KNOWN_CREATED_AT = new Date(2026, 0, 1).toISOString();
 
 function txn(
   symbol: string,
@@ -19,7 +24,9 @@ function txn(
     price,
     fee: extra.fee ?? 0,
     executedAt: new Date(2026, 0, day),
-    // A single fixed stop covering the whole fill — the common case.
+    // A single fixed stop covering the whole fill, recorded as revision 0
+    // with a known set-time — the common case for a fresh, revision-aware
+    // trade.
     stopLevels:
       extra.stop == null
         ? []
@@ -29,6 +36,8 @@ function txn(
               price: extra.stop,
               trailPercent: null,
               quantity,
+              revisionSeq: 0,
+              createdAt: KNOWN_CREATED_AT,
             },
           ],
   };
@@ -156,8 +165,22 @@ describe('deriveTrades', () => {
         fee: 0,
         executedAt: new Date(2026, 0, 1),
         stopLevels: [
-          { kind: 'FIXED', price: 205, trailPercent: null, quantity: 50 },
-          { kind: 'TRAILING', price: null, trailPercent: 8, quantity: 50 },
+          {
+            kind: 'FIXED',
+            price: 205,
+            trailPercent: null,
+            quantity: 50,
+            revisionSeq: 0,
+            createdAt: KNOWN_CREATED_AT,
+          },
+          {
+            kind: 'TRAILING',
+            price: null,
+            trailPercent: 8,
+            quantity: 50,
+            revisionSeq: 0,
+            createdAt: KNOWN_CREATED_AT,
+          },
         ],
       },
       txn('NVDA', 'SELL', 100, 240, 5),
@@ -182,6 +205,165 @@ describe('deriveTrades', () => {
       txn('NVDA', 'SELL', 10, 130, 5),
     ]);
     expect(t.rMultiple).toBeNull();
+  });
+
+  describe('stop revisions', () => {
+    // A trade with an original stop plus two later trail-ups: risk/R must
+    // come from the FIRST revision, current stop from the LAST.
+    it('computes risk from the original stop and currentStops from the latest', () => {
+      const [t] = deriveTrades([
+        {
+          symbol: 'NVDA',
+          side: 'BUY',
+          quantity: 10,
+          price: 100,
+          fee: 0,
+          executedAt: new Date(2026, 0, 1),
+          stopLevels: [
+            // revision 0: the original stop, set at entry.
+            {
+              kind: 'FIXED',
+              price: 90,
+              trailPercent: null,
+              quantity: 10,
+              revisionSeq: 0,
+              createdAt: new Date(2026, 0, 1).toISOString(),
+            },
+            // revision 1: trailed up as the trade worked.
+            {
+              kind: 'FIXED',
+              price: 105,
+              trailPercent: null,
+              quantity: 10,
+              revisionSeq: 1,
+              createdAt: new Date(2026, 0, 3).toISOString(),
+            },
+            // revision 2: trailed again, this is the current stop.
+            {
+              kind: 'FIXED',
+              price: 112,
+              trailPercent: null,
+              quantity: 10,
+              revisionSeq: 2,
+              createdAt: new Date(2026, 0, 4).toISOString(),
+            },
+          ],
+        },
+        txn('NVDA', 'SELL', 10, 130, 5),
+      ]);
+
+      // Risk/R from revision 0 (the original stop): (100-90)*10 = 100.
+      expect(t.riskAmount).toBe(100);
+      expect(t.rMultiple).toBe(3); // +300 on 100 risked
+
+      // currentStops is revision 2, the live stop — well above entry, as a
+      // trailed profit-lock legitimately is.
+      expect(t.currentStops).toEqual([
+        { kind: 'FIXED', price: 112, trailPercent: null, quantity: 10 },
+      ]);
+    });
+
+    it('treats a single stop as both the entry and current stop', () => {
+      const [t] = deriveTrades([
+        txn('NVDA', 'BUY', 10, 100, 1, { stop: 90 }),
+        txn('NVDA', 'SELL', 10, 130, 5),
+      ]);
+      expect(t.riskAmount).toBe(100);
+      expect(t.currentStops).toEqual([
+        { kind: 'FIXED', price: 90, trailPercent: null, quantity: 10 },
+      ]);
+    });
+
+    it('leaves both risk and currentStops empty/null with no stop at all', () => {
+      const [t] = deriveTrades([
+        txn('NVDA', 'BUY', 10, 100, 1),
+        txn('NVDA', 'SELL', 10, 130, 5),
+      ]);
+      expect(t.riskAmount).toBeNull();
+      expect(t.rMultiple).toBeNull();
+      expect(t.currentStops).toEqual([]);
+    });
+
+    // An existing-style trade: only one stop on record, but its createdAt is
+    // unknown — the migration's honest label for a row that survived the old
+    // overwrite-in-place bug. It is definitely the CURRENT stop (it's all
+    // there is), but it must NOT be trusted as the entry stop.
+    it('reports null risk for a trade whose only stop is of unknown vintage', () => {
+      const [t] = deriveTrades([
+        {
+          symbol: 'BITX',
+          side: 'BUY',
+          quantity: 100,
+          price: 13.29,
+          fee: 0,
+          executedAt: new Date(2026, 0, 1),
+          stopLevels: [
+            {
+              kind: 'FIXED',
+              price: 17.07, // above entry, on a long — the tell.
+              trailPercent: null,
+              quantity: 100,
+              revisionSeq: 0,
+              createdAt: null,
+            },
+          ],
+        },
+        txn('BITX', 'SELL', 100, 17.07, 5),
+      ]);
+
+      expect(t.riskAmount).toBeNull();
+      expect(t.riskCoversFullPosition).toBe(false);
+      expect(t.rMultiple).toBeNull();
+      // Still reported as the CURRENT stop — the dashboard and chart should
+      // keep showing it, only risk/R must refuse to use it.
+      expect(t.currentStops).toEqual([
+        { kind: 'FIXED', price: 17.07, trailPercent: null, quantity: 100 },
+      ]);
+    });
+
+    it('still refuses risk once a known revision is added on top of an unknown-vintage original', () => {
+      // Even after the owner trails the stop again (with the new,
+      // revision-aware code, so revision 1 has a known createdAt), the TRUE
+      // original at entry is still unknowable — revision 0 was already the
+      // final trailed stop from before revisions were tracked, not
+      // necessarily what was set at entry. Only the earliest revision's
+      // vintage decides this, not whether later revisions are known.
+      const [t] = deriveTrades([
+        {
+          symbol: 'BITX',
+          side: 'BUY',
+          quantity: 100,
+          price: 13.29,
+          fee: 0,
+          executedAt: new Date(2026, 0, 1),
+          stopLevels: [
+            {
+              kind: 'FIXED',
+              price: 17.07,
+              trailPercent: null,
+              quantity: 100,
+              revisionSeq: 0,
+              createdAt: null,
+            },
+            {
+              kind: 'FIXED',
+              price: 18.0,
+              trailPercent: null,
+              quantity: 100,
+              revisionSeq: 1,
+              createdAt: new Date(2026, 0, 4).toISOString(),
+            },
+          ],
+        },
+        txn('BITX', 'SELL', 100, 18.0, 5),
+      ]);
+
+      expect(t.riskAmount).toBeNull();
+      expect(t.rMultiple).toBeNull();
+      expect(t.currentStops).toEqual([
+        { kind: 'FIXED', price: 18.0, trailPercent: null, quantity: 100 },
+      ]);
+    });
   });
 
   it('orders by execution time regardless of input order', () => {
@@ -258,6 +440,45 @@ describe('deriveTrades', () => {
     // Newest first (see the sort test above): the still-open re-entry leads.
     expect(trades[0].fills).toHaveLength(1);
     expect(trades[1].fills).toHaveLength(2);
+  });
+});
+
+describe('selectEntryStops / selectCurrentStops', () => {
+  const rev = (
+    revisionSeq: number,
+    price: number,
+    createdAt: string | null,
+  ): StopRevisionInput => ({
+    kind: 'FIXED',
+    price,
+    trailPercent: null,
+    quantity: 10,
+    revisionSeq,
+    createdAt,
+  });
+
+  it('are both empty with no revisions', () => {
+    expect(selectEntryStops([])).toEqual([]);
+    expect(selectCurrentStops([])).toEqual([]);
+  });
+
+  it('picks the lowest revisionSeq for entry and the highest for current', () => {
+    const levels = [rev(0, 90, KNOWN_CREATED_AT), rev(1, 105, KNOWN_CREATED_AT)];
+    expect(selectEntryStops(levels)).toEqual([
+      { kind: 'FIXED', price: 90, trailPercent: null, quantity: 10 },
+    ]);
+    expect(selectCurrentStops(levels)).toEqual([
+      { kind: 'FIXED', price: 105, trailPercent: null, quantity: 10 },
+    ]);
+  });
+
+  it('returns no entry stop when the earliest revision has no known createdAt', () => {
+    const levels = [rev(0, 90, null)];
+    expect(selectEntryStops(levels)).toEqual([]);
+    // But it is still the current stop.
+    expect(selectCurrentStops(levels)).toEqual([
+      { kind: 'FIXED', price: 90, trailPercent: null, quantity: 10 },
+    ]);
   });
 });
 

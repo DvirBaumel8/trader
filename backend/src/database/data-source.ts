@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { buildConnectionOptions } from './connection-options.js';
 import { InitialSchema1788220800000 } from './migrations/1788220800000-InitialSchema.js';
 import { AddDailyCloseOhlc1788307200000 } from './migrations/1788307200000-AddDailyCloseOhlc.js';
+import { AddStopLevelRevisions1788393600000 } from './migrations/1788393600000-AddStopLevelRevisions.js';
 
 // Migrations are imported explicitly rather than via a glob string. A glob
 // silently matched zero files under some execution contexts in a sibling
@@ -12,7 +13,11 @@ import { AddDailyCloseOhlc1788307200000 } from './migrations/1788307200000-AddDa
 const dataSource = new DataSource({
   type: 'postgres',
   ...buildConnectionOptions(process.env),
-  migrations: [InitialSchema1788220800000, AddDailyCloseOhlc1788307200000],
+  migrations: [
+    InitialSchema1788220800000,
+    AddDailyCloseOhlc1788307200000,
+    AddStopLevelRevisions1788393600000,
+  ],
   synchronize: false,
 });
 

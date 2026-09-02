@@ -276,7 +276,7 @@ describe('Journal (e2e)', () => {
     expect(portfolio.body.cash).toBe(-2004);
   });
 
-  it('replaces stop levels on edit rather than leaving orphans', async () => {
+  it('shows only the current stop tiers on edit, keeping the earlier revision as history', async () => {
     const created = await trade(100, 217, '2026-08-29T14:30:00.000Z', {
       stopLevels: [
         { kind: 'FIXED', price: 205, quantity: 50 },
@@ -300,11 +300,74 @@ describe('Journal (e2e)', () => {
       })
       .expect(200);
 
+    // The view shows only the CURRENT tiers — not the superseded ones.
     expect(updated.body.trade.stopLevels).toHaveLength(1);
     expect(updated.body.trade.riskAmount).toBe(1700);
 
-    const orphans = await dataSource.query('SELECT COUNT(*) FROM stop_levels');
-    expect(Number(orphans[0].count)).toBe(1);
+    // But the superseded revision is not gone — it's history, not deleted.
+    // 2 rows from the original revision plus 1 from the new one.
+    const rows = await dataSource.query('SELECT COUNT(*) FROM stop_levels');
+    expect(Number(rows[0].count)).toBe(3);
+  });
+
+  it('moving a stop appends a new revision rather than overwriting the old one', async () => {
+    const created = await trade(100, 217, '2026-08-29T14:30:00.000Z', {
+      stopLevels: [{ kind: 'FIXED', price: 205, quantity: 100 }],
+    }).expect(201);
+
+    await http(app, token)
+      .patch(`/journal/${created.body.id}`)
+      .send({
+        kind: 'TRADE',
+        body: 'trailed the stop up',
+        occurredAt: '2026-08-29T14:30:00.000Z',
+        trade: {
+          symbol: 'NVDA',
+          quantity: 100,
+          price: 217,
+          fee: 0,
+          stopLevels: [{ kind: 'FIXED', price: 212, quantity: 100 }],
+        },
+      })
+      .expect(200);
+
+    const rows = await dataSource.query(
+      'SELECT price, "revisionSeq", "createdAt" FROM stop_levels ORDER BY "revisionSeq" ASC',
+    );
+    expect(rows).toHaveLength(2);
+    expect(Number(rows[0].price)).toBe(205);
+    expect(rows[0].revisionSeq).toBe(0);
+    expect(Number(rows[1].price)).toBe(212);
+    expect(rows[1].revisionSeq).toBe(1);
+    // Both revisions were written by the new, revision-aware path, so both
+    // have a known set-time.
+    expect(rows[0].createdAt).not.toBeNull();
+    expect(rows[1].createdAt).not.toBeNull();
+  });
+
+  it('does not write a new revision when an unrelated field is edited', async () => {
+    const created = await trade(100, 217, '2026-08-29T14:30:00.000Z', {
+      stopLevels: [{ kind: 'FIXED', price: 205, quantity: 100 }],
+    }).expect(201);
+
+    await http(app, token)
+      .patch(`/journal/${created.body.id}`)
+      .send({
+        kind: 'TRADE',
+        body: 'fixed a typo in the note',
+        occurredAt: '2026-08-29T14:30:00.000Z',
+        trade: {
+          symbol: 'NVDA',
+          quantity: 100,
+          price: 217,
+          fee: 0,
+          stopLevels: [{ kind: 'FIXED', price: 205, quantity: 100 }],
+        },
+      })
+      .expect(200);
+
+    const rows = await dataSource.query('SELECT COUNT(*) FROM stop_levels');
+    expect(Number(rows[0].count)).toBe(1);
   });
 
   it('deletes an entry and removes its effect on the portfolio', async () => {

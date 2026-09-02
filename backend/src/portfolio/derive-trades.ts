@@ -1,11 +1,66 @@
 import type { DerivedTxn } from './derive.js';
 import { computeRisk, type StopLevelInput } from './risk.js';
 
-/** A transaction carrying the stop plan recorded at entry. */
+/**
+ * One stop tier as recorded by a specific revision. `stopLevels` on a
+ * `TradeTxn` carries every revision ever written for that transaction, not
+ * just the live one — `selectEntryStops`/`selectCurrentStops` below are the
+ * only code that should pick one revision out of that history.
+ */
+export interface StopRevisionInput extends StopLevelInput {
+  /** 0 is the first revision ever recorded; increasing thereafter. */
+  revisionSeq: number;
+  /**
+   * When this revision was recorded, ISO 8601. Null means "unknown" — true
+   * only of revision 0 rows written before revisions were tracked. See
+   * `selectEntryStops`.
+   */
+  createdAt: string | null;
+}
+
+/** A transaction carrying every stop revision recorded against it. */
 export type TradeTxn = DerivedTxn & {
-  stopLevels?: StopLevelInput[];
+  stopLevels?: StopRevisionInput[];
   plannedTarget?: number | null;
 };
+
+function stripRevisionMeta(l: StopRevisionInput): StopLevelInput {
+  return {
+    kind: l.kind,
+    price: l.price,
+    trailPercent: l.trailPercent,
+    quantity: l.quantity,
+  };
+}
+
+/**
+ * The stop plan as it stood at entry — the earliest revision — which is what
+ * defines risk and R. Returned empty (not the earliest revision's rows) when
+ * that earliest revision's `createdAt` is unknown: an unknown-vintage
+ * revision is the *final* trailed stop from before revisions were tracked,
+ * mislabelled as revision 0 by the migration, and is NOT known to be what
+ * the owner actually set at entry. Guessing risk from it would be worse than
+ * reporting none — see stop-level.entity.ts.
+ */
+export function selectEntryStops(levels: StopRevisionInput[]): StopLevelInput[] {
+  if (levels.length === 0) return [];
+  const minSeq = Math.min(...levels.map((l) => l.revisionSeq));
+  const earliest = levels.filter((l) => l.revisionSeq === minSeq);
+  if (earliest.some((l) => l.createdAt === null)) return [];
+  return earliest.map(stripRevisionMeta);
+}
+
+/**
+ * The stop plan live right now — the latest revision — which is what the
+ * At-risk box and the trade chart draw. Unlike `selectEntryStops`, an
+ * unknown-vintage revision is still perfectly good here: it is genuinely the
+ * most recent stop the owner recorded, just not provably the first one.
+ */
+export function selectCurrentStops(levels: StopRevisionInput[]): StopLevelInput[] {
+  if (levels.length === 0) return [];
+  const maxSeq = Math.max(...levels.map((l) => l.revisionSeq));
+  return levels.filter((l) => l.revisionSeq === maxSeq).map(stripRevisionMeta);
+}
 
 /** One transaction inside a trade, as executed. */
 export interface TradeFill {
@@ -31,11 +86,17 @@ export interface DerivedTrade {
   realizedPnl: number | null;
   isWin: boolean | null;
   isOpen: boolean;
-  /** Dollars at risk from the opening stop tiers. Null when none were set. */
+  /**
+   * Dollars at risk from the stop tiers recorded AT ENTRY (the earliest
+   * revision). Null when none were set, or when the earliest revision on
+   * record is of unknown vintage — see `selectEntryStops`. This is the
+   * figure R-multiple and expectancy are built from; it is deliberately
+   * never computed from whatever stop happens to be live now.
+   */
   riskAmount: number | null;
-  /** False when the stop tiers covered only part of the position. */
+  /** False when the entry stop tiers covered only part of the position. */
   riskCoversFullPosition: boolean;
-  /** Result in units of risk. Null without a stop. */
+  /** Result in units of entry risk. Null without a known entry stop. */
   rMultiple: number | null;
 
   /**
@@ -47,11 +108,13 @@ export interface DerivedTrade {
   fills: TradeFill[];
 
   /**
-   * The stop tiers recorded on the transaction that opened the trade — the
-   * plan as it stood at entry, which is what the chart draws. Carried here
-   * for the same reason as `fills`: the walk already holds them.
+   * The stop tiers live RIGHT NOW — the latest revision recorded against the
+   * opening transaction — which is what the dashboard's At-risk box and the
+   * trade chart draw. This is NOT the plan as it stood at entry; see
+   * `riskAmount`'s doc comment for that one. Carried here for the same
+   * reason as `fills`: the walk already holds the revision history.
    */
-  openingStops: StopLevelInput[];
+  currentStops: StopLevelInput[];
 }
 
 const EPSILON = 1e-9;
@@ -66,12 +129,12 @@ interface OpenTrade {
   fees: number;
   enteredAt: Date;
   /**
-   * The stop plan recorded on the opening fill. Used both for the risk
-   * calculation in `finish()` and, unchanged, as `DerivedTrade.openingStops`
-   * — one field, since both readers want exactly the same value and neither
-   * mutates it.
+   * Every stop revision ever recorded on the opening fill. `finish()` splits
+   * this into the entry stop (earliest revision, for risk/R) and the current
+   * stop (latest revision, for `DerivedTrade.currentStops`) — see
+   * `selectEntryStops`/`selectCurrentStops`.
    */
-  stopLevels: StopLevelInput[];
+  stopLevels: StopRevisionInput[];
   fills: TradeFill[];
 }
 
@@ -175,13 +238,19 @@ function finish(
     realizedPnl = round(gross - open.fees);
   }
 
-  // Risk comes from the stop tiers on the opening fill, against the average
-  // entry. Tiers may cover only part of the position; computeRisk reports that
-  // rather than pretending the whole position was protected.
+  // Risk comes from the stop tiers AT ENTRY — the earliest revision — against
+  // the average entry price. Tiers may cover only part of the position;
+  // computeRisk reports that rather than pretending the whole position was
+  // protected. An unknown-vintage revision (see selectEntryStops) yields no
+  // entry tiers at all, so risk stays null rather than being guessed from
+  // whatever stop is live now.
+  const entryStops = selectEntryStops(open.stopLevels);
+  const currentStops = selectCurrentStops(open.stopLevels);
+
   const risk = computeRisk({
     avgEntry,
     quantity: open.openQty,
-    levels: open.stopLevels,
+    levels: entryStops,
     direction: open.direction,
   });
 
@@ -211,7 +280,7 @@ function finish(
         ? round(realizedPnl / risk.amount)
         : null,
     fills: open.fills,
-    openingStops: open.stopLevels,
+    currentStops,
   };
 }
 

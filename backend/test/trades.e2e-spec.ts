@@ -81,9 +81,9 @@ describe('Trades (e2e)', () => {
     const stats = await http(app, token).get('/portfolio/stats').expect(200);
     const [trade] = stats.body.trades;
     expect(trade.symbol).toBe('NVDA');
-    // The stats payload stays lean: no fills or opening stops on this route.
+    // The stats payload stays lean: no fills or current stops on this route.
     expect(trade.fills).toBeUndefined();
-    expect(trade.openingStops).toBeUndefined();
+    expect(trade.currentStops).toBeUndefined();
 
     const id = `${trade.symbol}:${trade.enteredAt}`;
     const detail = await http(app, token)

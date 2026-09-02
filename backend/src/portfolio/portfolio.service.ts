@@ -112,13 +112,14 @@ export class PortfolioService {
     const openTradeBySymbol = new Map(
       openTrades.map((t) => [t.symbol, tradeId(t.symbol, t.enteredAt)]),
     );
-    // The stop plan lives on the opening fill, keyed the same way, so risk
-    // "from here" can reuse the trade lookup this endpoint already does for
-    // tradeId rather than a second pass over transactions.
-    const openTradeStopsBySymbol = new Map(
+    // "How much could I lose from here" wants the stop that is LIVE now, not
+    // the one set at entry — see DerivedTrade.currentStops. Keyed the same
+    // way the trade lookup above already is, so this reuses that pass rather
+    // than a second one over transactions.
+    const openTradeCurrentStopsBySymbol = new Map(
       openTrades.map((t) => [
         t.symbol,
-        { direction: t.direction, avgEntry: t.avgEntry, levels: t.openingStops },
+        { direction: t.direction, avgEntry: t.avgEntry, levels: t.currentStops },
       ]),
     );
 
@@ -155,7 +156,7 @@ export class PortfolioService {
       0,
     );
 
-    const atRisk = this.computeAtRisk(positions, openTradeStopsBySymbol);
+    const atRisk = this.computeAtRisk(positions, openTradeCurrentStopsBySymbol);
 
     return {
       positions,
@@ -198,7 +199,7 @@ export class PortfolioService {
       quantity: number;
       price: number | null;
     }>,
-    stopsBySymbol: Map<
+    currentStopsBySymbol: Map<
       string,
       {
         direction: 'LONG' | 'SHORT';
@@ -211,7 +212,7 @@ export class PortfolioService {
     const symbolsWithoutStop: string[] = [];
 
     for (const p of positions) {
-      const plan = stopsBySymbol.get(p.symbol);
+      const plan = currentStopsBySymbol.get(p.symbol);
       if (!plan || plan.levels.length === 0) {
         symbolsWithoutStop.push(p.symbol);
         continue;
@@ -273,13 +274,17 @@ export class PortfolioService {
         price: t.price,
         fee: t.fee,
         executedAt: t.executedAt,
+        // Every revision ever recorded, not just the live one — deriveTrades
+        // picks the entry (earliest) and current (latest) revision itself.
         stopLevels: (levelsByTxn.get(t.id) ?? [])
-          .sort((a, b) => a.ordinal - b.ordinal)
+          .sort((a, b) => a.revisionSeq - b.revisionSeq || a.ordinal - b.ordinal)
           .map((l) => ({
             kind: l.kind,
             price: l.price,
             trailPercent: l.trailPercent,
             quantity: l.quantity,
+            revisionSeq: l.revisionSeq,
+            createdAt: l.createdAt ? l.createdAt.toISOString() : null,
           })),
         plannedTarget: t.plannedTarget,
       })),
@@ -292,7 +297,7 @@ export class PortfolioService {
       ...summariseTrades(trades),
       // Fills are for the detail screen; sending them for every trade would
       // bloat a response the list view re-fetches often.
-      trades: trades.map(({ fills, openingStops, ...rest }) => rest),
+      trades: trades.map(({ fills, currentStops, ...rest }) => rest),
     };
   }
 
@@ -328,11 +333,14 @@ export class PortfolioService {
       order: { date: 'ASC' },
     });
 
-    const { fills, openingStops, ...summary } = trade;
+    const { fills, currentStops, ...summary } = trade;
     return {
       trade: summary,
       fills,
-      stopLevels: openingStops,
+      // The chart draws the stop that is live now, not the one at entry —
+      // see DerivedTrade.currentStops. The JSON key stays `stopLevels`,
+      // which is what the frontend chart already expects.
+      stopLevels: currentStops,
       bars: bars.map((b) => ({
         date: b.date,
         open: b.open,

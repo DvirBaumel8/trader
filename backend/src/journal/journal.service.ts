@@ -50,6 +50,34 @@ export interface StopLevelSpec {
   quantity: number;
 }
 
+const REVISION_EPSILON = 1e-9;
+
+function numEq(a: number | null, b: number | null): boolean {
+  if (a === null || b === null) return a === b;
+  return Math.abs(a - b) < REVISION_EPSILON;
+}
+
+/**
+ * Whether a requested tier set is identical, tier for tier and in order, to
+ * the stop's current (ordinal-sorted) revision — used to decide whether
+ * saving an entry should append a new stop revision at all. Order matters:
+ * the tiers come from the same ordinal-ordered UI list both times, so two
+ * revisions with the same levels in a different order are treated as a real
+ * change rather than special-cased as equal.
+ */
+function sameTierSet(current: StopLevel[], requested: StopLevelSpec[]): boolean {
+  if (current.length !== requested.length) return false;
+  return current.every((level, i) => {
+    const other = requested[i];
+    return (
+      level.kind === other.kind &&
+      numEq(level.price, other.price ?? null) &&
+      numEq(level.trailPercent, other.trailPercent ?? null) &&
+      numEq(level.quantity, Math.abs(other.quantity))
+    );
+  });
+}
+
 export type EntryKindInput = 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
 
 export interface EntryView {
@@ -145,6 +173,9 @@ export class JournalService {
     const divByEntry = new Map(divs.map((d) => [d.entryId, d]));
     const tagById = new Map(allTags.map((t) => [t.id, t]));
 
+    // stopLevels holds every revision ever recorded, not just the live one
+    // (see stop-level.entity.ts) — this view always wants the current one,
+    // both for editing and for the risk figure shown per entry.
     const levelsByTxn = new Map<string, StopLevel[]>();
     for (const l of levels) {
       levelsByTxn.set(l.transactionId, [
@@ -152,6 +183,14 @@ export class JournalService {
         l,
       ]);
     }
+    const currentLevels = (txnId: string): StopLevel[] => {
+      const all = levelsByTxn.get(txnId) ?? [];
+      if (all.length === 0) return [];
+      const maxSeq = Math.max(...all.map((l) => l.revisionSeq));
+      return all
+        .filter((l) => l.revisionSeq === maxSeq)
+        .sort((a, b) => a.ordinal - b.ordinal);
+    };
 
     const tagIdsByEntry = new Map<string, string[]>();
     for (const j of joins) {
@@ -168,9 +207,7 @@ export class JournalService {
 
       let trade: EntryView['trade'] = null;
       if (t) {
-        const tiers = (levelsByTxn.get(t.id) ?? []).sort(
-          (a, b) => a.ordinal - b.ordinal,
-        );
+        const tiers = currentLevels(t.id);
         const risk = computeRisk({
           avgEntry: t.price,
           quantity: t.quantity,
@@ -261,7 +298,7 @@ export class JournalService {
         }),
       );
 
-      await this.writeOwnedRows(manager, user.id, entry.id, input, resolved);
+      await this.writeOwnedRows(manager, user.id, entry.id, input, resolved, null);
       await this.applyTags(manager, user.id, entry.id, input.tags ?? []);
       return entry.id;
     });
@@ -275,6 +312,15 @@ export class JournalService {
    * derived, so deleting and rewriting the transaction is both simpler and
    * exactly equivalent — and it makes changing an entry's kind fall out for
    * free.
+   *
+   * Stop levels are the one exception: they are history, not state, so they
+   * must survive the transaction row being deleted and recreated underneath
+   * them. The previous transaction (if this was already a TRADE entry) is
+   * looked up before `clearOwnedRows` deletes it, and its stop-level rows are
+   * re-parented onto whatever new transaction this update produces — see
+   * `writeOwnedRows`. If the entry stops being a TRADE, or was never one,
+   * there is no new transaction to re-parent onto, so any leftover history
+   * is deleted along with everything else this entry owned.
    */
   async update(id: string, input: CreateEntryInput): Promise<EntryView> {
     const user = await this.users.ensureDefaultUser();
@@ -286,6 +332,10 @@ export class JournalService {
     const resolved = await this.resolveTrade(input);
 
     await this.dataSource.transaction(async (manager) => {
+      const previousTxn = await manager.findOne(Transaction, {
+        where: { entryId: id },
+      });
+
       await manager.update(
         JournalEntry,
         { id },
@@ -296,8 +346,24 @@ export class JournalService {
         },
       );
       await this.clearOwnedRows(manager, id);
-      await this.writeOwnedRows(manager, user.id, id, input, resolved);
+      await this.writeOwnedRows(
+        manager,
+        user.id,
+        id,
+        input,
+        resolved,
+        previousTxn?.id ?? null,
+      );
       await this.applyTags(manager, user.id, id, input.tags ?? []);
+
+      // A previous trade transaction whose stop history was not re-parented
+      // above (because this update no longer produces a TRADE transaction to
+      // re-parent it onto) can no longer be reached through any live row —
+      // delete it rather than leave it orphaned.
+      const stillTrade = input.kind === 'TRADE' && !!resolved;
+      if (previousTxn && !stillTrade) {
+        await manager.delete(StopLevel, { transactionId: previousTxn.id });
+      }
     });
 
     const [view] = (await this.list()).filter((e) => e.id === id);
@@ -312,6 +378,10 @@ export class JournalService {
     if (!existing) throw new NotFoundException('Entry not found');
 
     await this.dataSource.transaction(async (manager) => {
+      const txns = await manager.find(Transaction, { where: { entryId: id } });
+      for (const t of txns) {
+        await manager.delete(StopLevel, { transactionId: t.id });
+      }
       await this.clearOwnedRows(manager, id);
       await manager.delete(EntryTag, { entryId: id });
       await manager.delete(JournalEntry, { id });
@@ -386,6 +456,15 @@ export class JournalService {
     entryId: string,
     input: CreateEntryInput,
     resolved: { side: 'BUY' | 'SELL'; quantity: number; instrumentId: string } | null,
+    /**
+     * The TRADE transaction this entry owned before this write, if any.
+     * `update()` deletes and recreates the transaction row on every save (see
+     * its doc comment), which would otherwise sever `stop_levels` from its
+     * history — this is what re-parents that history onto the new row rather
+     * than losing it. `null` for `create()`, where there is no previous
+     * transaction to carry forward.
+     */
+    previousTransactionId: string | null,
   ): Promise<void> {
     if (input.kind === 'TRADE' && input.trade && resolved) {
       const txn = await manager.save(
@@ -401,7 +480,14 @@ export class JournalService {
           executedAt: new Date(input.occurredAt),
         }),
       );
-      await this.writeStopLevels(manager, txn.id, input.trade.stopLevels);
+      if (previousTransactionId && previousTransactionId !== txn.id) {
+        await manager.update(
+          StopLevel,
+          { transactionId: previousTransactionId },
+          { transactionId: txn.id },
+        );
+      }
+      await this.writeStopRevision(manager, txn.id, input.trade.stopLevels);
     }
 
     if (input.kind === 'CASH' && input.cash) {
@@ -429,32 +515,57 @@ export class JournalService {
     }
   }
 
-  /** Stop levels hang off the transaction, so they must go before it. */
+  /**
+   * Deletes the entry's Transaction/CashFlow/Dividend rows. Stop levels are
+   * deliberately NOT touched here — they are history, kept across an
+   * `update()`'s delete-and-recreate of the transaction row (see
+   * `writeOwnedRows`) and only ever hard-deleted by `remove()`, or by
+   * `update()` itself when the entry stops being a TRADE at all.
+   */
   private async clearOwnedRows(
     manager: EntityManager,
     entryId: string,
   ): Promise<void> {
-    const txns = await manager.find(Transaction, { where: { entryId } });
-    for (const t of txns) {
-      await manager.delete(StopLevel, { transactionId: t.id });
-    }
     await manager.delete(Transaction, { entryId });
     await manager.delete(CashFlow, { entryId });
     await manager.delete(Dividend, { entryId });
   }
 
   /**
-   * Replaces this transaction's stop tiers with exactly the ones given, so a
-   * corrected stop never leaves an orphan tier behind.
+   * Appends a new stop revision only when the requested tier set actually
+   * differs from the current one — so re-saving an entry whose stops were
+   * untouched (e.g. correcting a typo in the note) does not spam a revision
+   * with no real change. This is the ONLY write path for `stop_levels`: a
+   * revision, once written, is never edited or deleted (only re-parented
+   * onto a new transaction id — see `writeOwnedRows` — or removed wholesale
+   * with its entry). This is the fix for the bug that made every closed
+   * trade's R-multiple null: trailing a stop used to delete and rewrite the
+   * row in place, destroying the stop set at entry the moment it was ever
+   * moved.
    */
-  private async writeStopLevels(
+  private async writeStopRevision(
     manager: EntityManager,
     transactionId: string,
     levels: StopLevelSpec[] | undefined,
   ): Promise<void> {
-    await manager.delete(StopLevel, { transactionId });
+    const requested = levels ?? [];
+    const current = (
+      await manager.find(StopLevel, { where: { transactionId } })
+    ).sort((a, b) => a.ordinal - b.ordinal);
+
+    const maxSeq =
+      current.length === 0
+        ? -1
+        : Math.max(...current.map((l) => l.revisionSeq));
+    const latestRevision = current.filter((l) => l.revisionSeq === maxSeq);
+
+    if (maxSeq === -1 && requested.length === 0) return; // Nothing to record.
+    if (maxSeq !== -1 && sameTierSet(latestRevision, requested)) return;
+
+    const nextSeq = maxSeq + 1;
+    const now = new Date();
     let ordinal = 0;
-    for (const level of levels ?? []) {
+    for (const level of requested) {
       await manager.save(
         manager.create(StopLevel, {
           transactionId,
@@ -464,6 +575,8 @@ export class JournalService {
             level.kind === 'TRAILING' ? (level.trailPercent ?? null) : null,
           quantity: Math.abs(level.quantity),
           ordinal: ordinal++,
+          revisionSeq: nextSeq,
+          createdAt: now,
         }),
       );
     }
