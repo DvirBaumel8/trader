@@ -12,6 +12,7 @@ import {
 } from '../lib/sortPositions';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { AiSummary } from '../components/AiSummary';
+import { SessionBadge } from '../components/SessionBadge';
 import {
   BenchmarkChart,
   RANGES,
@@ -53,38 +54,6 @@ interface Portfolio {
   marketSession: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
   pricesAreExtended: boolean;
   atRisk: AtRisk;
-}
-
-const SESSION_LABEL: Record<string, string> = {
-  PRE: 'PRE-MARKET',
-  POST: 'AFTER HOURS',
-  CLOSED: 'MARKET CLOSED',
-};
-
-/**
- * Says which session the numbers come from. Silent during regular hours, when
- * a live price needs no explanation; extended-hours prints are thinner and can
- * gap, so they are always labelled rather than passed off as the close.
- */
-function SessionBadge({
-  session,
-  extended,
-}: {
-  session: string | null;
-  extended: boolean;
-}) {
-  if (!session || session === 'REGULAR') return null;
-  const label = SESSION_LABEL[session];
-  if (!label) return null;
-  return (
-    <span
-      className={`rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide ${
-        extended ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-muted'
-      }`}
-    >
-      {label}
-    </span>
-  );
 }
 
 const RANGE_KEY = 'trader.benchmarkRange.v1';

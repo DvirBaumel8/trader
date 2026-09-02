@@ -98,6 +98,65 @@ describe('Portfolio (e2e)', () => {
     expect(res.body.cash).toBe(-2500);
   });
 
+  it('exposes one stop-tier row per stop, priced against the live quote', async () => {
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'scaled stop',
+        occurredAt: '2026-01-03T14:30:00.000Z',
+        trade: {
+          symbol: 'NVDA',
+          quantity: 100,
+          price: 217,
+          fee: 0,
+          stopLevels: [
+            { kind: 'FIXED', price: 205, quantity: 60 },
+            { kind: 'FIXED', price: 210, quantity: 40 },
+          ],
+        },
+      })
+      .expect(201);
+
+    const res = await http(app, token).get('/portfolio').expect(200);
+    const rows = res.body.stopTiers.filter(
+      (r: { symbol: string }) => r.symbol === 'NVDA',
+    );
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(r.direction).toBe('LONG');
+      expect(r.currentPrice).toBe(res.body.positions[0].price);
+      expect(typeof r.distance).toBe('number');
+      expect(typeof r.passed).toBe('boolean');
+    }
+    expect(rows.map((r: { stopPrice: number }) => r.stopPrice).sort()).toEqual([
+      205, 210,
+    ]);
+    expect(rows.map((r: { quantity: number }) => r.quantity).sort()).toEqual([
+      40, 60,
+    ]);
+    // NVDA now has a stop, so it must not also appear in the unstopped list.
+    expect(res.body.atRisk.positionsWithoutStop.symbols).not.toContain('NVDA');
+  });
+
+  it('leaves an unstopped position out of stopTiers and reports it as unstopped', async () => {
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'no stop set',
+        occurredAt: '2026-01-03T14:30:00.000Z',
+        trade: { symbol: 'NVDA', quantity: 10, price: 217, fee: 0 },
+      })
+      .expect(201);
+
+    const res = await http(app, token).get('/portfolio').expect(200);
+    expect(
+      res.body.stopTiers.filter((r: { symbol: string }) => r.symbol === 'NVDA'),
+    ).toEqual([]);
+    expect(res.body.atRisk.positionsWithoutStop.symbols).toContain('NVDA');
+  });
+
   it('rejects seeding an unknown ticker', async () => {
     await http(app, token)
       .post('/portfolio/seed')

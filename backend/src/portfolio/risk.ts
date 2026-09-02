@@ -29,6 +29,35 @@ export interface RiskResult {
 const EPSILON = 1e-9;
 
 /**
+ * The stop price a tier implies right now: the level itself for FIXED, or
+ * `trailPercent` measured from the entry for TRAILING (see the caveat on
+ * `computeRiskFromCurrentPrice` — a trail has no live-updating price in this
+ * model, so its implied price is fixed at what it was worth at entry).
+ * Shared by `computeRiskFromCurrentPrice` and the stops page's per-tier
+ * distance so the two never disagree about what a tier's price is.
+ */
+export function resolveStopPrice(
+  level: StopLevelInput,
+  avgEntry: number,
+  direction: 'LONG' | 'SHORT',
+): number | null {
+  const long = direction === 'LONG';
+  if (level.kind === 'FIXED' && level.price !== null && level.price > 0) {
+    return level.price;
+  }
+  if (
+    level.kind === 'TRAILING' &&
+    level.trailPercent !== null &&
+    level.trailPercent > EPSILON
+  ) {
+    return long
+      ? avgEntry * (1 - level.trailPercent / 100)
+      : avgEntry * (1 + level.trailPercent / 100);
+  }
+  return null;
+}
+
+/**
  * Risk at entry, summed across stop tiers.
  *
  * A TRAILING level starts exactly `trailPercent` below the entry (above, for a
@@ -139,19 +168,7 @@ export function computeRiskFromCurrentPrice(
       continue;
     }
 
-    let stopPrice: number | null = null;
-
-    if (level.kind === 'FIXED' && level.price !== null && level.price > 0) {
-      stopPrice = level.price;
-    } else if (
-      level.kind === 'TRAILING' &&
-      level.trailPercent !== null &&
-      level.trailPercent > EPSILON
-    ) {
-      stopPrice = long
-        ? input.avgEntry * (1 - level.trailPercent / 100)
-        : input.avgEntry * (1 + level.trailPercent / 100);
-    }
+    const stopPrice = resolveStopPrice(level, input.avgEntry, direction);
 
     if (stopPrice === null) {
       invalid += 1;

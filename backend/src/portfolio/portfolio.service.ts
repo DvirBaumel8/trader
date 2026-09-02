@@ -32,6 +32,7 @@ import {
 import { parseTradeId, tradeId, windowBounds } from './trade-window.js';
 import { computeRiskFromCurrentPrice, type StopLevelInput } from './risk.js';
 import { computeRelativeVolumeAtEntry } from './relative-volume.js';
+import { computeStopDistances } from './stop-distance.js';
 
 export interface SeedHolding {
   symbol: string;
@@ -165,6 +166,28 @@ export class PortfolioService {
 
     const atRisk = this.computeAtRisk(positions, openTradeCurrentStopsBySymbol);
 
+    // One row per stop TIER, priced against each position's live quote —
+    // what the Stops page reads. Reuses the exact positions/quotes already
+    // computed above, so this page can never disagree with the dashboard or
+    // the At-risk box about a stop's distance. See stop-distance.ts.
+    const stopTiers = computeStopDistances(
+      positions
+        .filter((p) => openTradeCurrentStopsBySymbol.has(p.symbol))
+        .map((p) => {
+          const plan = openTradeCurrentStopsBySymbol.get(p.symbol)!;
+          return {
+            symbol: p.symbol,
+            direction: plan.direction,
+            avgEntry: plan.avgEntry,
+            currentPrice: p.price,
+            session: p.session,
+            extended: p.extended,
+            stale: p.stale,
+            levels: plan.levels,
+          };
+        }),
+    );
+
     return {
       positions,
       cash,
@@ -182,6 +205,7 @@ export class PortfolioService {
       // When the client last got real numbers, so the UI can say "updated 17:31".
       pricedAt: new Date().toISOString(),
       atRisk,
+      stopTiers,
     };
   }
 
