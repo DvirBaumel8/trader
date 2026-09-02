@@ -14,7 +14,15 @@ const CRWV: Instrument = {
 
 function makeService(opts: {
   existingBarCount: number;
-  bars?: { date: string; close: number; adjClose: number; open: number | null; high: number | null; low: number | null }[];
+  bars?: {
+    date: string;
+    close: number;
+    adjClose: number;
+    open: number | null;
+    high: number | null;
+    low: number | null;
+    volume: number | null;
+  }[];
   yahooError?: Error;
   upsert?: (rows: unknown[]) => void;
 }) {
@@ -61,6 +69,7 @@ describe('HistoryService.ensurePriced', () => {
           open: null,
           high: null,
           low: null,
+          volume: 5_123_456,
         },
       ],
     });
@@ -69,7 +78,11 @@ describe('HistoryService.ensurePriced', () => {
     expect(closes.upsert).toHaveBeenCalledTimes(1);
     const [rows] = closes.upsert.mock.calls[0];
     expect(rows).toEqual([
-      expect.objectContaining({ instrumentId: 'inst-crwv', date: '2026-09-01' }),
+      expect.objectContaining({
+        instrumentId: 'inst-crwv',
+        date: '2026-09-01',
+        volume: 5_123_456,
+      }),
     ]);
   });
 

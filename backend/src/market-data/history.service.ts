@@ -131,6 +131,7 @@ export class HistoryService {
           open: b.open,
           high: b.high,
           low: b.low,
+          volume: b.volume,
         })),
         ['instrumentId', 'date'],
       );

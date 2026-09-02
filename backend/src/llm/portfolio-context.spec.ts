@@ -15,6 +15,8 @@ function position(overrides: Partial<ContextPosition> = {}): ContextPosition {
     unrealizedPnl: 1000,
     unrealizedPct: 0.0667,
     stale: false,
+    peRatio: null,
+    entryRelativeVolume: null,
     ...overrides,
   };
 }

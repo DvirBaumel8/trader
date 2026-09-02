@@ -31,6 +31,7 @@ import {
 } from './derive-trades.js';
 import { parseTradeId, tradeId, windowBounds } from './trade-window.js';
 import { computeRiskFromCurrentPrice, type StopLevelInput } from './risk.js';
+import { computeRelativeVolumeAtEntry } from './relative-volume.js';
 
 export interface SeedHolding {
   symbol: string;
@@ -141,6 +142,12 @@ export class PortfolioService {
         session: quote?.session ?? null,
         extended: quote?.extended ?? false,
         regularPrice: quote?.regularPrice ?? null,
+        // Trailing P/E, fetched live alongside the price rather than stored:
+        // the AI summary and the owner both want today's multiple, not a
+        // history of it, and it comes free in the same Yahoo quote call.
+        // Null — never 0 — when Yahoo has none or it isn't meaningful; see
+        // RawQuote in yahoo.client.ts.
+        peRatio: quote?.peRatio ?? null,
         marketValue,
         unrealizedPnl: marketValue === null ? null : marketValue - p.costBasis,
         unrealizedPct:
@@ -291,6 +298,59 @@ export class PortfolioService {
     );
   }
 
+  /**
+   * Relative volume at entry — entry-day volume against the 20 trading days
+   * before it — for every currently open position, keyed by symbol. This is
+   * the fact that lets the AI summary check the owner's own stated rule
+   * ("volume as a confirming indicator"); see relative-volume.ts.
+   *
+   * Deliberately not part of `getPortfolio()`: that endpoint is polled by
+   * the dashboard on a normal, frequent cadence, and this does one extra
+   * `daily_closes` query per open position. It is computed fresh here
+   * instead, only when something actually needs it — today, that is the AI
+   * summary, which already makes a fresh, uncached call on every request.
+   */
+  async getOpenTradeEntryVolume(): Promise<Map<string, number | null>> {
+    const openTrades = (await this.deriveAllTrades()).filter((t) => t.isOpen);
+    const out = new Map<string, number | null>();
+    if (openTrades.length === 0) return out;
+
+    const instrumentRows = await this.instruments.find();
+    const instrumentIdBySymbol = new Map(
+      instrumentRows.map((i) => [i.symbol, i.id]),
+    );
+
+    await Promise.all(
+      openTrades.map(async (t) => {
+        const instrumentId = instrumentIdBySymbol.get(t.symbol);
+        if (!instrumentId) {
+          out.set(t.symbol, null);
+          return;
+        }
+        const entryDate = t.enteredAt.toISOString().slice(0, 10);
+        // Same 45-day runway HistoryService uses ahead of a first trade —
+        // comfortably more calendar days than the 20 TRADING days
+        // computeRelativeVolumeAtEntry needs, even across holidays.
+        const from = new Date(t.enteredAt);
+        from.setUTCDate(from.getUTCDate() - 45);
+        const bars = await this.closes.find({
+          where: {
+            instrumentId,
+            date: Between(from.toISOString().slice(0, 10), entryDate),
+          },
+          order: { date: 'ASC' },
+        });
+        const { relativeVolume } = computeRelativeVolumeAtEntry(
+          bars.map((b) => ({ date: b.date, volume: b.volume })),
+          entryDate,
+        );
+        out.set(t.symbol, relativeVolume);
+      }),
+    );
+
+    return out;
+  }
+
   async getStats() {
     const trades = await this.deriveAllTrades();
     return {
@@ -334,19 +394,31 @@ export class PortfolioService {
     });
 
     const { fills, currentStops, ...summary } = trade;
+    // Reuses the bars already fetched for the chart window above — that
+    // window is padded ~21 trading days before entry (see windowBounds),
+    // comfortably covering the 20-day lookback this needs. Nulled honestly
+    // by computeRelativeVolumeAtEntry when a holiday-heavy stretch or a thin
+    // backfill leaves fewer bars than that.
+    const { relativeVolume: entryRelativeVolume } = computeRelativeVolumeAtEntry(
+      bars.map((b) => ({ date: b.date, volume: b.volume })),
+      trade.enteredAt.toISOString().slice(0, 10),
+    );
     return {
-      trade: summary,
+      trade: { ...summary, entryRelativeVolume },
       fills,
       // The chart draws the stop that is live now, not the one at entry —
       // see DerivedTrade.currentStops. The JSON key stays `stopLevels`,
       // which is what the frontend chart already expects.
       stopLevels: currentStops,
+      // Volume is surfaced but there is no volume pane in the chart yet —
+      // deliberately out of scope, see the volume/P/E work's plan.
       bars: bars.map((b) => ({
         date: b.date,
         open: b.open,
         high: b.high,
         low: b.low,
         close: b.close,
+        volume: b.volume,
       })),
       // The chart says what it actually has rather than implying the window
       // is complete: the backfill is manual, so bars can end before the trade

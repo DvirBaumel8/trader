@@ -75,16 +75,20 @@ export class LlmService {
       };
     }
 
-    const [portfolio, stats, series] = await Promise.all([
+    const [portfolio, stats, series, entryVolumeBySymbol] = await Promise.all([
       this.portfolio.getPortfolio(),
       this.portfolio.getStats(),
       this.performance.getSeries('1M'),
+      this.portfolio.getOpenTradeEntryVolume(),
     ]);
 
     const last = series.points.at(-1) ?? null;
     const facts = buildPortfolioContext({
       portfolio: {
-        positions: portfolio.positions,
+        positions: portfolio.positions.map((p) => ({
+          ...p,
+          entryRelativeVolume: entryVolumeBySymbol.get(p.symbol) ?? null,
+        })),
         cash: portfolio.cash,
         positionsValue: portfolio.positionsValue,
         accountValue: portfolio.accountValue,

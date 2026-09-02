@@ -104,13 +104,19 @@ verifies adherence; state a disposition and it cannot.
 - Stop coverage: which positions have a stop at all.
 - Concentration, leverage, and dollars at risk.
 - Win rate, average risk, expectancy — once enough trades have closed.
+- **Volume confirmation.** `daily_closes` now stores volume, and the app
+  computes relative volume at entry — the entry day's volume against its own
+  20-day average — deterministically, never left to the model. This is what
+  finally lets the assistant tell him whether a breakout he bought had volume
+  behind it or not.
+- **P/E.** Fetched live alongside the quote (trailing P/E) rather than
+  stored, since he wants today's multiple, not a history of it. Null, never
+  0, when Yahoo has none or it isn't a meaningful figure — ETFs and
+  unprofitable growth names both come up genuinely null, and several of his
+  holdings are the latter.
 
 **Not checkable yet, for concrete reasons:**
 
-- **Volume confirmation.** He named volume as important; `daily_closes` does
-  not store volume. It is available in the same Yahoo response the backfill
-  already reads.
-- **P/E.** Not stored anywhere. Available from Yahoo's quote summary.
 - **Risk at entry, and therefore R-multiple.** Stop revisions are not
   persisted, so the stop recorded against a trade is the *final trailed* stop,
   not the original. Every closed trade currently has a null R as a direct

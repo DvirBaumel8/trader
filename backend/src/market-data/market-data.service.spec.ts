@@ -22,6 +22,7 @@ const NVDA: RawQuote = {
   session: 'REGULAR',
   extended: false,
   regularPrice: 168.2,
+  peRatio: null,
 };
 
 describe('MarketDataService', () => {
@@ -99,6 +100,7 @@ describe('MarketDataService', () => {
             session: 'REGULAR',
             extended: false,
             regularPrice: 214,
+            peRatio: null,
           },
         ],
         () => calls++,
@@ -139,6 +141,7 @@ describe('MarketDataService', () => {
       session: 'POST',
       extended: true,
       regularPrice: 217.55,
+      peRatio: null,
     };
     const svc = new MarketDataService(fakeClient([afterHours]));
     const q = await svc.getQuote('NVDA');

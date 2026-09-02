@@ -69,4 +69,17 @@ export class DailyClose {
     transformer: numericTransformer,
   })
   low: number | null;
+
+  /**
+   * Shares traded that day — what confirms (or fails to confirm) a breakout.
+   * Nullable for the same reason as `open`/`high`/`low`: rows written before
+   * the volume migration have none until the backfill re-runs, and a bar
+   * Yahoo returns without a volume figure is still worth storing for its
+   * close.
+   */
+  @Column('bigint', {
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  volume: number | null;
 }

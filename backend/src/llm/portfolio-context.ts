@@ -20,6 +20,15 @@ export interface ContextPosition {
   unrealizedPnl: number | null;
   unrealizedPct: number | null;
   stale: boolean;
+  /** Trailing P/E. Null when Yahoo has none or it isn't meaningful (loss-making names, some ETFs). */
+  peRatio: number | null;
+  /**
+   * Entry-day volume against its 20-day average — the fact that checks the
+   * owner's own stated rule, "volume as a confirming indicator". Null when
+   * there isn't a full lookback window of bars, or the entry day had none.
+   * See relative-volume.ts.
+   */
+  entryRelativeVolume: number | null;
 }
 
 export interface ContextAtRisk {
@@ -125,6 +134,12 @@ export function buildPortfolioContext(input: PortfolioContextInput): string {
         `value ${p.marketValue !== null ? money(p.marketValue) : 'unknown'}${weight}, ` +
         `unrealized ${p.unrealizedPnl !== null ? money(p.unrealizedPnl, true) : 'unknown'}` +
         (p.unrealizedPct !== null ? ` (${percent(p.unrealizedPct, true)})` : '') +
+        `, P/E ${p.peRatio !== null ? p.peRatio.toFixed(1) : 'n/a'}` +
+        `, entry volume ${
+          p.entryRelativeVolume !== null
+            ? `${p.entryRelativeVolume.toFixed(2)}x its 20-day average`
+            : 'unknown'
+        }` +
         (p.stale ? ' [STALE PRICE]' : ''),
     );
   }

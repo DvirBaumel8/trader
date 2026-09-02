@@ -18,6 +18,7 @@ function fakePortfolioService(): PortfolioService {
           unrealizedPnl: 1000,
           unrealizedPct: 0.0667,
           stale: false,
+          peRatio: 32.1,
         },
       ],
       cash: 5000,
@@ -39,6 +40,9 @@ function fakePortfolioService(): PortfolioService {
       expectancyR: 0.5,
       rTradeCount: 8,
     }),
+    getOpenTradeEntryVolume: vi.fn().mockResolvedValue(
+      new Map([['AAPL', 1.8]]),
+    ),
     // Unused by LlmService — present only so the fake satisfies the type.
   } as unknown as PortfolioService;
 }
@@ -126,6 +130,9 @@ describe('LlmService.portfolioSummary', () => {
     expect(call.grounded).toBe(true);
     // The facts the app computed must actually reach the model, quoted.
     expect(call.user).toContain('$21,000.00');
+    // Volume and P/E facts (the reason this test suite exists) reach the model too.
+    expect(call.user).toContain('P/E 32.1');
+    expect(call.user).toContain('entry volume 1.80x its 20-day average');
     expect(call.system).toMatch(/never invent/i);
 
     // What's persisted is exactly what the model was fed and produced.

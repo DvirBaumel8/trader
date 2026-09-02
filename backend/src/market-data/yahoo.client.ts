@@ -12,6 +12,15 @@ export interface RawQuote {
   extended: boolean;
   /** The regular-session price, kept so the UI can show the move since close. */
   regularPrice: number | null;
+  /**
+   * Trailing P/E, the conventional reading of "P/E". Null — never 0 — when
+   * Yahoo has none (no trailing earnings figure) or reports a non-positive
+   * value: a company with negative or zero trailing earnings has no
+   * meaningful multiple, so a raw negative number would read as real but
+   * mean nothing. Common for ETFs to have one and for unprofitable
+   * growth names not to — both cases the owner explicitly trades.
+   */
+  peRatio: number | null;
 }
 
 export interface RawBar {
@@ -22,6 +31,8 @@ export interface RawBar {
   open: number | null;
   high: number | null;
   low: number | null;
+  /** Shares traded that day. Null when Yahoo omits it for that bar. */
+  volume: number | null;
 }
 
 /** The shape we actually read off a Yahoo quote, regardless of its full type. */
@@ -34,6 +45,7 @@ interface QuoteLike {
   postMarketPrice?: number;
   marketState?: string;
   currency?: string;
+  trailingPE?: number;
 }
 
 /**
@@ -76,6 +88,7 @@ export class YahooClient {
       low?: number | null;
       close?: number | null;
       adjclose?: number | null;
+      volume?: number | null;
     }[];
 
     const finite = (n: number | null | undefined): number | null =>
@@ -99,6 +112,7 @@ export class YahooClient {
           open: finite(q.open),
           high: finite(q.high),
           low: finite(q.low),
+          volume: finite(q.volume),
         };
       })
       .filter((b): b is RawBar => b !== null);
@@ -124,5 +138,11 @@ function toRawQuote(raw: QuoteLike | undefined): RawQuote | null {
     session: selected.session,
     extended: selected.extended,
     regularPrice: raw.regularMarketPrice ?? null,
+    peRatio:
+      typeof raw.trailingPE === 'number' &&
+      Number.isFinite(raw.trailingPE) &&
+      raw.trailingPE > 0
+        ? raw.trailingPE
+        : null,
   };
 }
