@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LlmService } from './llm.service.js';
-import type { LlmClient } from './llm.client.js';
+import { LlmFailure, type LlmClient } from './llm.client.js';
 import type { AiSummaryService } from './ai-summary.service.js';
 import type { PortfolioService } from '../portfolio/portfolio.service.js';
 import type { PerformanceService } from '../performance/performance.service.js';
@@ -82,6 +82,7 @@ describe('LlmService.portfolioSummary', () => {
       summary: null,
       factsAsOf: null,
       error: null,
+      errorKind: null,
       id: null,
     });
     expect(portfolio.getPortfolio).not.toHaveBeenCalled();
@@ -89,7 +90,17 @@ describe('LlmService.portfolioSummary', () => {
     expect(summaries.create).not.toHaveBeenCalled();
   });
 
+  // `grounded` is read from `LLM_GROUNDED` at call time (see llm.service.ts —
+  // grounding is opt-in and off by default because the free Gemini tier
+  // rejects grounded requests outright). Both tests stub the env var
+  // explicitly rather than relying on whatever happens to be in `.env`, so
+  // they assert the wiring, not the ambient environment.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('builds facts from the portfolio and performance services, passes them to the client, and persists the result', async () => {
+    vi.stubEnv('LLM_GROUNDED', 'true');
     const complete = vi.fn().mockResolvedValue('You are up 4.2% this month...');
     const client: LlmClient = {
       isConfigured: () => true,
@@ -107,6 +118,7 @@ describe('LlmService.portfolioSummary', () => {
     expect(result.summary).toBe('You are up 4.2% this month...');
     expect(result.factsAsOf).toBe('2026-09-02T14:30:00.000Z');
     expect(result.error).toBeNull();
+    expect(result.errorKind).toBeNull();
     expect(result.id).toBe('saved-id-1');
 
     expect(complete).toHaveBeenCalledTimes(1);
@@ -126,7 +138,27 @@ describe('LlmService.portfolioSummary', () => {
     expect(saved.factsAsOf).toBe('2026-09-02T14:30:00.000Z');
   });
 
-  it('returns a structured, non-throwing error when the model call fails, and persists nothing', async () => {
+  it('defaults grounded to false when LLM_GROUNDED is unset', async () => {
+    vi.stubEnv('LLM_GROUNDED', undefined);
+    const complete = vi.fn().mockResolvedValue('summary text');
+    const client: LlmClient = {
+      isConfigured: () => true,
+      complete,
+      modelName: () => 'gemini-2.5-flash',
+    };
+    const service = new LlmService(
+      client,
+      fakePortfolioService(),
+      fakePerformanceService(),
+      fakeSummaries(),
+    );
+
+    await service.portfolioSummary();
+
+    expect(complete.mock.calls[0][0].grounded).toBe(false);
+  });
+
+  it('returns a structured, non-throwing error when the model call fails with an unclassified error, and persists nothing', async () => {
     const complete = vi.fn().mockRejectedValue(new Error('rate limited'));
     const client: LlmClient = {
       isConfigured: () => true,
@@ -143,11 +175,44 @@ describe('LlmService.portfolioSummary', () => {
     expect(result.configured).toBe(true);
     expect(result.summary).toBeNull();
     expect(result.error).toBeTruthy();
+    expect(result.errorKind).toBe('unknown');
     expect(result.id).toBeNull();
     // The facts timestamp is still known even though the model call failed.
     expect(result.factsAsOf).toBe('2026-09-02T14:30:00.000Z');
     expect(summaries.create).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['busy', 'The AI model is busy right now. Worth another tap in a moment.'],
+    ['quota_exceeded', "Today's free AI quota is used up. Try again tomorrow."],
+    [
+      'setup_problem',
+      'The AI summary is not set up correctly. Ask the developer to check the model and API key.',
+    ],
+  ] as const)(
+    'maps an LlmFailure of kind %s to its own copy and errorKind',
+    async (kind, expectedCopy) => {
+      const complete = vi.fn().mockRejectedValue(new LlmFailure(kind, 'provider said so'));
+      const client: LlmClient = {
+        isConfigured: () => true,
+        complete,
+        modelName: () => 'gemini-2.5-flash',
+      };
+      const service = new LlmService(
+        client,
+        fakePortfolioService(),
+        fakePerformanceService(),
+        fakeSummaries(),
+      );
+
+      const result = await service.portfolioSummary();
+
+      expect(result.errorKind).toBe(kind);
+      expect(result.error).toBe(expectedCopy);
+      expect(result.summary).toBeNull();
+      expect(result.id).toBeNull();
+    },
+  );
 
   it('exposes isConfigured by delegating to the client', () => {
     const client: LlmClient = {

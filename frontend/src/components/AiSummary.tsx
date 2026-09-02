@@ -2,12 +2,18 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
 import { formatTimestamp } from './format';
+import { Markdown } from './Markdown';
+
+/** Mirrors `LlmFailureKind` in `backend/src/llm/llm.client.ts`. */
+type ErrorKind = 'busy' | 'quota_exceeded' | 'setup_problem' | 'unknown';
 
 interface PortfolioSummaryResult {
   configured: boolean;
   summary: string | null;
   factsAsOf: string | null;
   error: string | null;
+  /** Why `error` is set — `error` already carries the right copy for it, so today this is only here for future use (e.g. hiding "try again" for `setup_problem`). */
+  errorKind: ErrorKind | null;
   /** The saved summary's id — null when nothing was persisted (unconfigured or failed). */
   id: string | null;
 }
@@ -68,9 +74,7 @@ function ResultCard({ result }: { result: PortfolioSummaryResult }) {
           </span>
         )}
       </div>
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">
-        {result.summary}
-      </p>
+      <Markdown text={result.summary} />
     </div>
   );
 }
@@ -99,9 +103,7 @@ function HistoryDetail({ id }: { id: string }) {
           from data as of {formatTimestamp(data.factsAsOf)}
         </span>
       </div>
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">
-        {data.summary}
-      </p>
+      <Markdown text={data.summary} />
       <details className="text-xs">
         <summary className="cursor-pointer select-none font-medium text-accent">
           Facts snapshot

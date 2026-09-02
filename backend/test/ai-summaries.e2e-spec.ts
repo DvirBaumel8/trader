@@ -68,6 +68,9 @@ describe('AI summaries (e2e)', () => {
       summary: null,
       factsAsOf: null,
       error: null,
+      // Null rather than 'setup_problem': having no key at all is the
+      // configured:false case, not a misconfigured one.
+      errorKind: null,
       id: null,
     });
 
