@@ -115,9 +115,6 @@ verifies adherence; state a disposition and it cannot.
   persisted, so the stop recorded against a trade is the *final trailed* stop,
   not the original. Every closed trade currently has a null R as a direct
   result. Fixing this restores his own headline metric.
-- **Conviction.** Size is recorded; certainty is not. Until conviction is
-  captured at entry, "do my high-conviction trades actually outperform?"
-  cannot be answered.
 - **Shorts.** He reports these as his weak side, but there are no short
   positions in the recorded history at all — so the claim is a flag, not a
   finding. The next short he opens is worth attention precisely because he has
@@ -128,8 +125,9 @@ verifies adherence; state a disposition and it cannot.
 None of these are answerable today. All become answerable with a few months of
 recorded trades, and each tests something he believes about himself:
 
-1. Do his **largest positions** outperform his smallest — i.e. is conviction
-   informative, or is it just adding variance?
+1. Do his **largest positions** outperform his smallest? Since size is set by
+   conviction, position size is a usable proxy for it — no extra field needed
+   to ask the question.
 2. Do **unstopped** positions do worse than stopped ones?
 3. Which of his two edges pays — **sector vision** or **breakout timing**?
 4. How does he **trail**? Too tight and he is shaken out of moves that
