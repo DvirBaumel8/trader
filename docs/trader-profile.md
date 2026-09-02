@@ -117,10 +117,14 @@ verifies adherence; state a disposition and it cannot.
 
 **Not checkable yet, for concrete reasons:**
 
-- **Risk at entry, and therefore R-multiple.** Stop revisions are not
-  persisted, so the stop recorded against a trade is the *final trailed* stop,
-  not the original. Every closed trade currently has a null R as a direct
-  result. Fixing this restores his own headline metric.
+- **Risk at entry, and therefore R-multiple — fixed going forward only.**
+  Stops used to be overwritten when he trailed them, so what survived was the
+  *final* stop, not the one that defined his risk. Revisions are now persisted
+  (the entry stop is the earliest, the live stop the latest), so every trade
+  from 2026-09-02 onward has a real R. The four trades closed before that are
+  permanently unmeasurable — their original stops were destroyed before the
+  fix existed — and the app reports their R as null rather than inventing one
+  from the trailed stop.
 - **Shorts.** He reports these as his weak side, but there are no short
   positions in the recorded history at all — so the claim is a flag, not a
   finding. The next short he opens is worth attention precisely because he has
