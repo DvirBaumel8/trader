@@ -22,16 +22,18 @@ backfill exists — so it is now the natural next step.
 
 ## What it is
 
-A **static** annotated daily candle chart of one trade, reachable in two taps
+~~A **static** annotated daily candle chart of one trade, reachable in two taps
 from wherever the owner already is. Not an animation: he described looking at a
 chart, not watching a movie, and a daily-bar trade of a few days would animate
-in about a second anyway.
+in about a second anyway.~~ **REVERSED 2026-09-02: an annotated daily candle
+chart, static by default, with an opt-in replay.** See decision 1 below.
 
 ## Decisions
 
 | # | Decision | Rationale |
 |---|---|---|
-| 1 | **Static chart, not animated playback** | Matches the described workflow. Playback is not ruled out forever — nothing here prevents adding it — but it buys little on daily bars and costs real work. |
+| 1 | ~~Static chart, not animated playback~~ **REVERSED 2026-09-02: replay added, off by default** | The owner, after using the static version: "when I planned the feature I thought we will present candle one by one with a nice delay so a user can watch the trade on going, that's more cool... that's should feel like a replay." The point isn't decoration — seeing the whole chart at once means judging the trade with the ending already known, while revealing it forward recreates what he actually knew at each moment, which is the "learn from it" this feature exists for. The original reasoning (a daily-bar trade would animate in about a second) undersold it: real windows run 25–45 bars including the month of context either side, long enough for a reveal to read as something, not a blink. |
+| 1a | **Static by default; a Play button starts the replay** | His explicit qualification on reversing decision 1: he often opens a trade just to check where his stop sits, and being forced through an animation on every open would wear out fast — the same failure mode as the always-on staleness banner. The chart opens exactly as before (everything shown); replay is something he asks for, not something that happens to him. Reaching the end of a replay (or skipping to it) leaves the identical static chart behind. |
 | 2 | **Context before *and* after the trade** | Owner's explicit request. Learning from a trade needs the setup that preceded it and what happened after he left. |
 | 3 | **Fixed window, ~1 month either side. No pan or zoom** | Fits a phone screen and shows the whole story at once. Pinch-zoom on a chart is where mobile bugs live, and the owner chose against it. |
 | 4 | **Daily candles (OHLC), not a close-only line** | He is comparing this to a TradingView daily chart, which is candles. The intraday range is also the only thing that shows whether price wicked through his stop and recovered. |
@@ -176,12 +178,34 @@ hand-rolled SVG design. What actually shipped, in `TradeChart.tsx`:**
   (`createPriceLine`, muted colour) across the full width. Its built-in price
   label is suppressed — the library ties a price line's title and axis chip to
   the same visibility switch, and both would collide with the price scale and
-  a recent/open trade's exit marker at the chart's right edge — so each
-  `FIXED` tier also gets its own square marker (`atPriceMiddle`), staggered
-  onto a bar away from that edge, labelled `Stop <price>`. A `TRAILING` tier
-  still has no fixed price to draw and stays out of the chart; it is listed in
-  the trade detail screen's text instead (not the "header" — see below),
-  exactly as this section originally specified.
+  a recent/open trade's exit marker at the chart's right edge.
+  ~~Each `FIXED` tier also gets its own square marker (`atPriceMiddle`),
+  staggered onto a bar away from that edge, labelled `Stop <price>`.~~
+  **REVISED 2026-09-02: the label moved off the plot entirely.** The owner,
+  on the PLTR trade: "things are still bidding each other here" — a
+  fixed-fraction anchor point put a stop's label wherever the chart happened
+  to be busiest, still landing on candles or on a fill's label (the
+  fixed-fraction staggering only ever solved stop-label-vs-stop-label
+  collision, not stop-vs-candle or stop-vs-fill). Rejected in its place: (a)
+  an absolutely-positioned DOM overlay driven by `priceToCoordinate()`,
+  pinned to a chart margin — still has to dodge fill labels near that margin
+  and has to be resynced by hand on every resize/redraw; (b) searching the
+  visible window for a horizontal band no candle's high–low span crosses at
+  the stop price — not guaranteed to exist (BITX's two stops sit 39 cents
+  apart on a ~$10 range, where candles routinely span the full window), so
+  it still needs a fallback anyway. Shipped instead: the dashed lines stay
+  unlabelled, and identity + price move into a compact text line below the
+  chart, ordered top to bottom (`Stops, top to bottom: 167.13, 142.63`). A
+  label that isn't drawn on the plot cannot collide with anything on the
+  plot, which holds regardless of how tight the stops or how busy the
+  candles are. During replay (decisions 1/1a), the lines themselves are held
+  back until the entry fill's bar is revealed — the stop was set at entry,
+  so drawing it earlier would flag "something happens near this price"
+  before the owner himself knew it. The text summary below the chart is not
+  gated by replay; it is reference fact, same as the always-visible header.
+  A `TRAILING` tier still has no fixed price to draw and stays out of the
+  chart; it is listed in the trade detail screen's text instead (not the
+  "header" — see below), exactly as this section originally specified.
 - **Header.** Unchanged from the original design: symbol, direction, P&L, R
   multiple, holding days, avg entry and exit, on `TradeDetail.tsx` above the
   chart — all fields `DerivedTrade` already provides. (Trailing-stop text
@@ -207,9 +231,10 @@ hand-rolled SVG design. What actually shipped, in `TradeChart.tsx`:**
 
 ## Out of scope
 
-Animated playback; pan and zoom; intraday bars; attaching a chart image to a
-journal entry; comparing a trade against the index over the same window;
-scheduled backfill.
+~~Animated playback~~ **REVERSED 2026-09-02 — see decisions 1 and 1a: playback
+shipped, static by default with a Play button.** Pan and zoom; intraday bars;
+attaching a chart image to a journal entry; comparing a trade against the
+index over the same window; scheduled backfill.
 
 ## Testing
 
@@ -223,3 +248,13 @@ scheduled backfill.
   a stale id.
 - The chart itself is verified on the phone, per `working-agreement.md` — a
   clean typecheck proves very little about an SVG on a small screen.
+- **2026-09-02 addition:** replay's frame sequencing — which bars and which
+  fill markers are visible at step N, and whether the stop lines have
+  appeared yet — moved into `frontend/src/lib/tradeReplay.ts` as pure
+  functions (`replayFrame`, `totalReplaySteps`) with fixture tests in
+  `tradeReplay.spec.ts`, the same convention `candleScale.ts` already
+  established: no chart, no DOM, no timer. Covered: nothing revealed before
+  the first step; a marker appearing only at or after its own bar (entry and
+  exit, and two fills sharing one bar); the stop lines gated on the entry
+  fill's bar; and the final step matching the full static chart exactly,
+  including the case of a trade with no fills to gate on.

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   CandlestickSeries,
   ColorType,
@@ -6,7 +6,10 @@ import {
   LineStyle,
   createChart,
   createSeriesMarkers,
-  type Coordinate,
+  type IChartApi,
+  type IPriceLine,
+  type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type SeriesMarker,
   type Time,
 } from 'lightweight-charts';
@@ -15,6 +18,7 @@ import {
   indexForDate,
   type Bar,
 } from '../lib/candleScale';
+import { replayFrame } from '../lib/tradeReplay';
 
 export interface Fill {
   executedAt: string;
@@ -46,6 +50,17 @@ const GRID = '#232f42';
 const UP = '#22c55e';
 const DOWN = '#f43f5e';
 const ACCENT = '#2dd4bf';
+
+/** How long each newly-revealed bar stays on screen before the next one
+ * appears. Tuned for the real window sizes this chart draws (~25–45 daily
+ * bars): fast enough that a 40-bar trade finishes in well under five
+ * seconds — "a few seconds, not thirty" — slow enough that a fill marker
+ * arriving is still something the eye catches rather than a blur. A fixed
+ * per-bar tick (not a fixed total duration) was chosen over normalising
+ * every trade to the same length: it keeps a consistent, readable rhythm
+ * across the whole range instead of needing per-trade retiming for little
+ * benefit at these window sizes. */
+const REPLAY_TICK_MS = 120;
 
 /**
  * A bar with a confirmed OHLC range — the only kind lightweight-charts'
@@ -111,6 +126,17 @@ function placeFills(bars: Bar[], fills: Fill[]) {
   return { candleBars, placed };
 }
 
+/** A trailing tier has no fixed level to draw; it stays in the text below
+ * the chart instead of being drawn at a guessed price. */
+function drawableStopsOf(
+  stopLevels: StopLevel[],
+): (StopLevel & { price: number })[] {
+  return stopLevels.filter(
+    (s): s is StopLevel & { price: number } =>
+      s.kind === 'FIXED' && s.price !== null,
+  );
+}
+
 export function TradeChart({
   bars,
   fills,
@@ -121,20 +147,77 @@ export function TradeChart({
   stopLevels: StopLevel[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const markersApiRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const priceLinesRef = useRef<IPriceLine[]>([]);
 
-  // Only used for the honesty lines below — the effect recomputes its own
-  // copy from the props directly, so the chart doesn't get rebuilt every
-  // render just because this derivation produced a fresh array reference.
+  // Only used for the honesty lines and the stops summary below — these
+  // effects recompute their own copies from the props directly, so the
+  // chart doesn't get rebuilt every render just because this derivation
+  // produced a fresh array reference.
   const { candleBars, placed: placedFills } = placeFills(bars, fills);
   const snappedCount = placedFills.filter((p) => p.snapped).length;
   const anyOutOfRange = placedFills.some((p) => p.outOfRange);
   const anyRelocated = placedFills.some((p) => p.relocated);
+  const totalBars = candleBars.length;
 
+  // Stop levels, for the "top to bottom" text summary — see the label
+  // placement note on the drawing effect below for why they're not drawn
+  // as in-chart labels at all.
+  const stopSummaryPrices = drawableStopsOf(stopLevels)
+    .map((s) => s.price)
+    .sort((a, b) => b - a)
+    .map((p) => p.toFixed(2));
+
+  // Replay state. Static by default — the owner opens this chart often
+  // just to check where his stop sits, and being made to sit through an
+  // animation every time it opens would wear out fast (the same failure
+  // mode as the always-on staleness banner). `step` starts at `totalBars`,
+  // i.e. everything revealed, identical to the pre-replay static chart.
+  // No separate `isPlaying` flag: `step < totalBars` *is* "a replay is in
+  // progress" — Play sets step to 0, Skip-to-end sets it straight to
+  // `totalBars`, and the ticking effect below just keeps advancing step by
+  // one until it catches up. One state variable, one source of truth.
+  const [step, setStep] = useState(totalBars);
+
+  // A different trade (new bars/fills/stopLevels) resets back to the
+  // static, fully-revealed view rather than carrying over a stale replay
+  // position from whatever trade was open before.
+  useEffect(() => {
+    setStep(totalBars);
+    // `totalBars` is deliberately not a dependency: it's derived from
+    // `bars`/`fills` (already listed) via `placeFills`, so including it too
+    // would just be the same change firing this effect twice.
+  }, [bars, fills, stopLevels]);
+
+  // The ticking clock. A chained setTimeout, not setInterval: each tick is
+  // scheduled fresh off the *current* step, so there is exactly one timer
+  // alive at a time and the effect's own cleanup (unmount, step change,
+  // reaching the end, skip-to-end jumping `step` straight to `totalBars`)
+  // is always enough to clear it. No separate teardown path to forget.
+  useEffect(() => {
+    if (step >= totalBars) return;
+    const id = setTimeout(() => setStep((s) => s + 1), REPLAY_TICK_MS);
+    return () => clearTimeout(id);
+  }, [step, totalBars]);
+
+  const handlePlay = () => {
+    setStep(0);
+  };
+  const handleSkipToEnd = () => {
+    setStep(totalBars);
+  };
+
+  // Chart + series creation. Runs once per trade (bars/fills/stopLevels
+  // change) — the expensive part — and is otherwise left alone as `step`
+  // ticks during a replay; a second effect below pushes each frame's data
+  // into the chart this effect built.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const { candleBars, placed } = placeFills(bars, fills);
+    const { candleBars } = placeFills(bars, fills);
     if (candleBars.length === 0) return;
 
     const chart = createChart(container, {
@@ -166,6 +249,20 @@ export function TradeChart({
       handleScale: false,
     });
 
+    // The price axis's range is fixed once, from the *full* window — highs,
+    // lows and stop prices alike — and never recomputed as bars come and
+    // go during replay. Overriding the library's default per-visible-data
+    // autoscale with a constant is what makes "candles rise into the space
+    // above" true instead of the axis creeping in as each bar reveals a new
+    // extreme, and it is also why the replay's last frame renders pixel-
+    // identical to the plain static chart: both use this same range.
+    const drawableStops = drawableStopsOf(stopLevels);
+    const highs = candleBars.map((b) => b.high);
+    const lows = candleBars.map((b) => b.low);
+    const stopPrices = drawableStops.map((s) => s.price);
+    const minValue = Math.min(...lows, ...stopPrices);
+    const maxValue = Math.max(...highs, ...stopPrices);
+
     const series = chart.addSeries(CandlestickSeries, {
       upColor: UP,
       downColor: DOWN,
@@ -173,146 +270,135 @@ export function TradeChart({
       borderDownColor: DOWN,
       wickUpColor: UP,
       wickDownColor: DOWN,
+      autoscaleInfoProvider: () => ({
+        priceRange: { minValue, maxValue },
+      }),
     });
 
+    const markersApi = createSeriesMarkers(series, []);
+
+    chartRef.current = chart;
+    seriesRef.current = series;
+    markersApiRef.current = markersApi;
+    priceLinesRef.current = [];
+
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      markersApiRef.current = null;
+      priceLinesRef.current = [];
+    };
+  }, [bars, fills, stopLevels]);
+
+  // Per-frame draw. Runs on every replay tick (and once for the static
+  // default, since `step` starts at `totalBars`). Keeps every time slot in
+  // the window present in the series data at all times — real candles for
+  // revealed bars, `{ time }` whitespace placeholders for the rest — so
+  // `fitContent()` always fits the *same* full time span and the time axis
+  // never rescales as bars are revealed, matching the fixed price axis.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    const markersApi = markersApiRef.current;
+    if (!chart || !series || !markersApi) return;
+
+    const { candleBars, placed } = placeFills(bars, fills);
+    const drawableStops = drawableStopsOf(stopLevels);
+    const barDates = candleBars.map((b) => b.date);
+    const markerBarDates = placed.map((p) => p.markerBar.date);
+    const frame = replayFrame(barDates, markerBarDates, step);
+
     series.setData(
-      candleBars.map((b) => ({
-        time: b.date,
-        open: b.open,
-        high: b.high,
-        low: b.low,
-        close: b.close,
-      })),
+      candleBars.map((b, i) =>
+        i < frame.visibleBarCount
+          ? { time: b.date, open: b.open, high: b.high, low: b.low, close: b.close }
+          : { time: b.date },
+      ),
     );
+    chart.timeScale().fitContent();
 
-    // A trailing tier has no fixed level to draw; it stays in the text below
-    // the chart instead of being drawn at a guessed price.
-    const drawableStops = stopLevels.filter(
-      (s): s is StopLevel & { price: number } =>
-        s.kind === 'FIXED' && s.price !== null,
-    );
-
-    // The line itself (still full-width, so it reads at a glance against
-    // every candle) carries no built-in text: in this library a price
-    // line's `title` and its axis chip are the same visibility switch — you
-    // cannot show one without the other — and the title always renders
-    // right-aligned in the pane, right next to the price scale. With a
-    // recently-closed or still-open trade the window is truncated at
-    // "today", so the exit sits right there too: title + chip + exit
-    // marker text all fight for the same few pixels. A single custom
-    // marker per stop (below, with `fills`) replaces both.
-    for (const s of drawableStops) {
-      series.createPriceLine({
-        price: s.price,
-        color: MUTED,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: false,
-        title: '',
-      });
-    }
-
-    // Fills: the owner's own actions. Colour now matches the candle
+    // Fill markers: the owner's own actions. Colour matches the candle
     // convention he asked for (red sells, green buys), so shape (arrow
-    // direction) and size carry the "this is mine" distinction instead.
-    // Text is the price alone — short, so it's never the thing forced to
-    // truncate at the window's crowded right edge — since the crosshair
-    // (Normal mode, above) can now read off any price on demand anyway.
+    // direction) and size carry the "this is mine" distinction. Text is the
+    // price alone — short, so it never has to truncate — since the
+    // crosshair (Normal mode, above) can read off any price on demand
+    // anyway.
     //
-    // Anchored to the bar, not the price: 'atPriceMiddle' put a marker right
-    // on top of that day's candle, hiding the price action it annotates.
-    // 'belowBar' (buys) / 'aboveBar' (sells) — the conventional placement
-    // for trade markers — draws it just outside the candle instead, so no
-    // `price` field here (it only means something for the atPrice* family).
-    // A seeded entry's recorded price sits nowhere near its recorded day's
-    // range (e.g. a fill at 13.29 on a day that traded near 17.32) — the
-    // owner's explicit call was to relocate that marker to a bar that
-    // actually traded at that level (`markerBar`, from `placeFills`) rather
-    // than draw a cost line, so it reads as "this is where you actually
-    // bought" instead of a floating rendering bug. Every genuine fill's
-    // `markerBar` is just its own true bar — only an out-of-range fill ever
-    // differs. The honesty note below discloses the relocation explicitly.
-    const fillMarkers = placed.map(
-      ({ fill, markerBar }): SeriesMarker<Time> => ({
-        time: markerBar.date,
+    // Anchored to the bar, not the price: 'atPriceMiddle' put a marker
+    // right on top of that day's candle, hiding the price action it
+    // annotates. 'belowBar' (buys) / 'aboveBar' (sells) — the conventional
+    // placement for trade markers — draws it just outside the candle
+    // instead. A seeded entry's recorded price sits nowhere near its
+    // recorded day's range — the owner's explicit call was to relocate
+    // that marker to a bar that actually traded at that level (`markerBar`,
+    // from `placeFills`) rather than draw a cost line, so it reads as
+    // "this is where you actually bought" instead of a floating rendering
+    // bug. Only shown once its own bar is reached (`visibleFillIndices`),
+    // so watching a fill arrive — and only then seeing what followed — is
+    // preserved during replay.
+    const visible = new Set(frame.visibleFillIndices);
+    const fillMarkers: SeriesMarker<Time>[] = placed
+      .filter((_, i) => visible.has(i))
+      .map(({ fill, markerBar }) => ({
+        time: markerBar.date as Time,
         position: fill.side === 'BUY' ? 'belowBar' : 'aboveBar',
         shape: fill.side === 'BUY' ? 'arrowUp' : 'arrowDown',
         color: fill.side === 'BUY' ? UP : DOWN,
         size: 2.5,
         text: fill.price.toFixed(2),
-      }),
-    );
-
-    // Two stop tiers can sit close enough in *price* to collide in *pixels*
-    // — how close depends on the window's price range, not on the dollar
-    // gap alone (39 cents is a collision on BITX's ~$10-tall chart, but
-    // would not be on a much wider one), so this is decided from the
-    // chart's real, already-computed price scale (`priceToCoordinate`)
-    // rather than a fixed price-difference guess. Sorted top-to-bottom on
-    // screen, each label is pushed down just far enough to clear a
-    // roughly-one-line gap from the one above it; the underlying dashed
-    // line stays exactly at the true stop price — only the label's
-    // position is nudged, never the price it reports.
-    const MIN_STOP_LABEL_GAP_PX = 16;
-    const stopsByScreenY = drawableStops
-      .map((s) => ({ stop: s, y: series.priceToCoordinate(s.price) }))
-      .filter(
-        (
-          x,
-        ): x is { stop: (typeof drawableStops)[number]; y: Coordinate } =>
-          x.y !== null,
-      )
-      .sort((a, b) => a.y - b.y);
-    const labelPriceByStop = new Map<(typeof drawableStops)[number], number>();
-    let previousLabelY = -Infinity;
-    for (const { stop, y } of stopsByScreenY) {
-      const labelY = Math.max(y, previousLabelY + MIN_STOP_LABEL_GAP_PX);
-      labelPriceByStop.set(stop, series.coordinateToPrice(labelY) ?? stop.price);
-      previousLabelY = labelY;
-    }
-
-    // One label per stop, combining identity and price in its text, and
-    // anchored well clear of the right edge — where a recent or open
-    // trade's exit (and this window's truncation) both live — so it never
-    // competes with a fill marker for the same pixels. Multiple stops are
-    // also staggered onto their own bar horizontally, so two close prices
-    // don't collide with each other on that axis either — on top of the
-    // vertical declutter above, for whichever axis the collision is on.
-    const stopMarkers = drawableStops.map((s, i): SeriesMarker<Time> => {
-      const lane = 0.15 + i * 0.1;
-      const anchorIndex = Math.min(
-        candleBars.length - 1,
-        Math.max(0, Math.round((candleBars.length - 1) * lane)),
-      );
-      return {
-        time: candleBars[anchorIndex].date,
-        position: 'atPriceMiddle',
-        price: labelPriceByStop.get(s) ?? s.price,
-        shape: 'square',
-        color: MUTED,
-        size: 1,
-        text: `Stop ${s.price.toFixed(2)}`,
-      };
-    });
+      }));
 
     // The library stacks same-bar/same-position markers outward rather than
-    // overdrawing them — confirmed in its source (SeriesMarkersPaneView's
-    // per-bar aboveBar/belowBar offset accumulators) — but that stacking
-    // only triggers between markers that are *adjacent* in this array (the
-    // accumulator resets whenever `time` changes between consecutive
-    // entries). Sorting by time guarantees two fills that snap to the same
-    // bar (BITX's two Sunday sells both land on the following Monday) are
-    // adjacent regardless of the order `fills` came back in, rather than
-    // relying on the API already returning them chronologically.
-    const markers = [...fillMarkers, ...stopMarkers].sort((a, b) =>
-      String(a.time).localeCompare(String(b.time)),
-    );
-    createSeriesMarkers(series, markers);
+    // overdrawing them, but that stacking only triggers between markers
+    // that are *adjacent* in this array. Sorting by time guarantees two
+    // fills that land on the same bar are adjacent regardless of the order
+    // `fills` came back in.
+    fillMarkers.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+    markersApi.setMarkers(fillMarkers);
 
-    chart.timeScale().fitContent();
-
-    return () => chart.remove();
-  }, [bars, fills, stopLevels]);
+    // Stop lines. Label placement: rejected two approaches before this one.
+    // (1) An absolutely-positioned DOM overlay using `priceToCoordinate()`,
+    // pinned to a chart-container margin — still has to dodge fill-marker
+    // labels that can land anywhere near that margin, and has to be kept in
+    // sync with every resize/redraw by hand. (2) Searching the visible
+    // window for a horizontal band where no candle's high–low span crosses
+    // the stop price — not guaranteed to exist (BITX's two stops sit 39
+    // cents apart on a ~$10 range, where candles routinely span the whole
+    // window), so it still needs one of the other approaches as a fallback,
+    // which means building both anyway.
+    //
+    // What's here instead: the dashed lines stay (full width, unlabelled —
+    // `axisLabelVisible: false` avoids the library's built-in title/chip,
+    // which are the same visibility switch and would still collide with
+    // the price scale and a recent trade's exit marker at the right edge),
+    // and identity + price move entirely off the plot into the text summary
+    // below the chart, ordered top to bottom. A label that isn't drawn on
+    // the plot cannot collide with anything on the plot — candle, other
+    // stop, or fill label — which is the actual requirement, and it holds
+    // regardless of how tight the stops or how busy the candles are.
+    //
+    // Visible from the moment the entry fill is (`stopLinesVisible`), not
+    // from the start: the stop was set at entry, so drawing the line before
+    // the entry marker has appeared would flag "something happens near this
+    // price" before the owner himself knew it — a spoiler exactly like
+    // showing the exit early would be.
+    for (const line of priceLinesRef.current) {
+      series.removePriceLine(line);
+    }
+    priceLinesRef.current = frame.stopLinesVisible
+      ? drawableStops.map((s) =>
+          series.createPriceLine({
+            price: s.price,
+            color: MUTED,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: false,
+            title: '',
+          }),
+        )
+      : [];
+  }, [step, bars, fills, stopLevels]);
 
   if (candleBars.length === 0) {
     return (
@@ -322,12 +408,47 @@ export function TradeChart({
     );
   }
 
+  const replayFinished = step >= totalBars;
+
   return (
     <div className="space-y-2">
       <div
         ref={containerRef}
         className="h-[260px] w-full overflow-hidden rounded-xl"
       />
+
+      {totalBars > 1 && (
+        <div className="flex items-center gap-3">
+          {replayFinished ? (
+            <button
+              type="button"
+              onClick={handlePlay}
+              className="text-xs font-medium text-accent"
+            >
+              ▶ Replay
+            </button>
+          ) : (
+            <>
+              <span className="text-xs text-muted">Replaying…</span>
+              <button
+                type="button"
+                onClick={handleSkipToEnd}
+                className="text-xs font-medium text-accent"
+              >
+                Skip to end
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {stopSummaryPrices.length > 0 && (
+        <p className="text-[11px] text-muted">
+          {stopSummaryPrices.length === 1
+            ? `Stop: ${stopSummaryPrices[0]}`
+            : `Stops, top to bottom: ${stopSummaryPrices.join(', ')}`}
+        </p>
+      )}
 
       {/* Honest numbers over pretty ones: say so, rather than silently
           moving or dropping a fill that doesn't line up with its own day. */}
