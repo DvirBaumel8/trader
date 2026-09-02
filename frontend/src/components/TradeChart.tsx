@@ -19,6 +19,8 @@ import {
   type Bar,
 } from '../lib/candleScale';
 import { replayFrame } from '../lib/tradeReplay';
+import { formatFillsSummary } from '../lib/fillsSummary';
+import { resolvedStopLines } from '../lib/stopSummary';
 
 export interface Fill {
   executedAt: string;
@@ -33,6 +35,16 @@ export interface StopLevel {
   price: number | null;
   trailPercent: number | null;
   quantity: number;
+  /**
+   * Today's actual level for this stop, or `null` when the backend can't
+   * compute one yet (a trailing tier missing high-water data — never a
+   * guess). For a fixed stop this is just `price`; for a trailing stop it's
+   * the high-water mark since entry times the trail, which is why it's the
+   * only field this component trusts to decide whether — and where — to
+   * draw a line. May be absent on an API response that predates this field;
+   * treated the same as `null` everywhere it's read.
+   */
+  resolvedPrice?: number | null;
 }
 
 /**
@@ -52,15 +64,17 @@ const DOWN = '#f43f5e';
 const ACCENT = '#2dd4bf';
 
 /** How long each newly-revealed bar stays on screen before the next one
- * appears. Tuned for the real window sizes this chart draws (~25–45 daily
- * bars): fast enough that a 40-bar trade finishes in well under five
- * seconds — "a few seconds, not thirty" — slow enough that a fill marker
- * arriving is still something the eye catches rather than a blur. A fixed
- * per-bar tick (not a fixed total duration) was chosen over normalising
- * every trade to the same length: it keeps a consistent, readable rhythm
- * across the whole range instead of needing per-trade retiming for little
- * benefit at these window sizes. */
-const REPLAY_TICK_MS = 120;
+ * appears. 120ms turned out too fast for a fill to actually register — by
+ * the time the eye caught the marker, three more bars had already gone by.
+ * 280ms sits in the owner's requested 250–300ms range: over the real window
+ * sizes this chart draws (~25–45 daily bars) that's roughly 7–13 seconds
+ * end to end — slow enough to watch a fill arrive, not so slow it becomes
+ * tedious to sit through. A fixed per-bar tick (not a fixed total duration)
+ * was chosen over normalising every trade to the same length: it keeps a
+ * consistent, readable rhythm across the whole range instead of needing
+ * per-trade retiming for little benefit at these window sizes. Skip-to-end
+ * stays the escape hatch for anyone who doesn't want to sit through it. */
+const REPLAY_TICK_MS = 280;
 
 /**
  * A bar with a confirmed OHLC range — the only kind lightweight-charts'
@@ -126,16 +140,6 @@ function placeFills(bars: Bar[], fills: Fill[]) {
   return { candleBars, placed };
 }
 
-/** A trailing tier has no fixed level to draw; it stays in the text below
- * the chart instead of being drawn at a guessed price. */
-function drawableStopsOf(
-  stopLevels: StopLevel[],
-): (StopLevel & { price: number })[] {
-  return stopLevels.filter(
-    (s): s is StopLevel & { price: number } =>
-      s.kind === 'FIXED' && s.price !== null,
-  );
-}
 
 export function TradeChart({
   bars,
@@ -162,13 +166,20 @@ export function TradeChart({
   const anyRelocated = placedFills.some((p) => p.relocated);
   const totalBars = candleBars.length;
 
+  // Fills, as a text line beneath the chart instead of price text drawn on
+  // the markers themselves — see the label-clipping note on the drawing
+  // effect below for why the numbers moved off the plot entirely.
+  const fillsSummary = formatFillsSummary(fills);
+
   // Stop levels, for the "top to bottom" text summary — see the label
   // placement note on the drawing effect below for why they're not drawn
-  // as in-chart labels at all.
-  const stopSummaryPrices = drawableStopsOf(stopLevels)
-    .map((s) => s.price)
-    .sort((a, b) => b - a)
-    .map((p) => p.toFixed(2));
+  // as in-chart labels at all. Includes any stop (fixed or trailing) that
+  // has resolved to a real price today; a trailing tier still missing
+  // high-water data is surfaced separately, below.
+  const resolvedLines = resolvedStopLines(stopLevels);
+  const stopSummaryEntries = resolvedLines.map((l) =>
+    l.kind === 'TRAILING' ? `Trailing ${l.label}` : l.label,
+  );
 
   // Replay state. Static by default — the owner opens this chart often
   // just to check where his stop sits, and being made to sit through an
@@ -256,10 +267,9 @@ export function TradeChart({
     // above" true instead of the axis creeping in as each bar reveals a new
     // extreme, and it is also why the replay's last frame renders pixel-
     // identical to the plain static chart: both use this same range.
-    const drawableStops = drawableStopsOf(stopLevels);
+    const stopPrices = resolvedStopLines(stopLevels).map((s) => s.price);
     const highs = candleBars.map((b) => b.high);
     const lows = candleBars.map((b) => b.low);
-    const stopPrices = drawableStops.map((s) => s.price);
     const minValue = Math.min(...lows, ...stopPrices);
     const maxValue = Math.max(...highs, ...stopPrices);
 
@@ -304,7 +314,7 @@ export function TradeChart({
     if (!chart || !series || !markersApi) return;
 
     const { candleBars, placed } = placeFills(bars, fills);
-    const drawableStops = drawableStopsOf(stopLevels);
+    const drawableStops = resolvedStopLines(stopLevels);
     const barDates = candleBars.map((b) => b.date);
     const markerBarDates = placed.map((p) => p.markerBar.date);
     const frame = replayFrame(barDates, markerBarDates, step);
@@ -320,10 +330,24 @@ export function TradeChart({
 
     // Fill markers: the owner's own actions. Colour matches the candle
     // convention he asked for (red sells, green buys), so shape (arrow
-    // direction) and size carry the "this is mine" distinction. Text is the
-    // price alone — short, so it never has to truncate — since the
-    // crosshair (Normal mode, above) can read off any price on demand
-    // anyway.
+    // direction) and size carry the "this is mine" distinction. No text on
+    // the marker itself: `lightweight-charts` positions marker labels
+    // itself and never reflows or clips them into view, so a fill near
+    // either edge of the window — the first bar, the last bar — or near the
+    // top/bottom of the price range had its price label cut off (a real
+    // screenshot: "112.79" rendered as "2.79", a plausible-looking *wrong*
+    // number, worse than an obviously broken one). Two alternatives were
+    // considered and rejected: widening the visible time range beyond the
+    // first/last bar only fixes the horizontal case, not a marker clipped
+    // top/bottom against the price axis; a hand-positioned DOM overlay
+    // (`priceToCoordinate`) is exactly the approach already rejected below
+    // for stop labels, for the same reasons — plus it would have to move on
+    // every replay tick, not just on resize. Instead the price moves into
+    // the `fillsSummary` text line beneath the chart (`formatFillsSummary`
+    // in `lib/fillsSummary.ts`), which can never clip because it isn't
+    // positioned against the plot at all — the same move already made for
+    // stop levels below. The crosshair (Normal mode, above) still reads off
+    // any price on the chart on demand.
     //
     // Anchored to the bar, not the price: 'atPriceMiddle' put a marker
     // right on top of that day's candle, hiding the price action it
@@ -346,7 +370,6 @@ export function TradeChart({
         shape: fill.side === 'BUY' ? 'arrowUp' : 'arrowDown',
         color: fill.side === 'BUY' ? UP : DOWN,
         size: 2.5,
-        text: fill.price.toFixed(2),
       }));
 
     // The library stacks same-bar/same-position markers outward rather than
@@ -368,7 +391,7 @@ export function TradeChart({
     // window), so it still needs one of the other approaches as a fallback,
     // which means building both anyway.
     //
-    // What's here instead: the dashed lines stay (full width, unlabelled —
+    // What's here instead: dashed lines stay (full width, unlabelled —
     // `axisLabelVisible: false` avoids the library's built-in title/chip,
     // which are the same visibility switch and would still collide with
     // the price scale and a recent trade's exit marker at the right edge),
@@ -377,6 +400,20 @@ export function TradeChart({
     // the plot cannot collide with anything on the plot — candle, other
     // stop, or fill label — which is the actual requirement, and it holds
     // regardless of how tight the stops or how busy the candles are.
+    //
+    // Fixed and trailing stops are both drawn now that the backend resolves
+    // a trailing tier to its current high-water level (`resolvedPrice`),
+    // but a trailing line is not the same *kind* of fact as a fixed one — a
+    // fixed stop is a level the owner set and it stays put; a trailing
+    // stop's line is only where it sits *today* and will keep moving as the
+    // high-water mark advances. Drawing them identically would claim a
+    // permanence the trailing one doesn't have, so it gets its own line
+    // style (`Dotted` vs `Dashed`) plus the word "Trailing" in the text
+    // summary below — enough to tell them apart without adding an
+    // on-plot label to dodge. A trailing tier the backend can't resolve yet
+    // (`resolvedPrice: null` — missing high-water data, never guessed) is
+    // filtered out by `resolvedStopLines` before this point and keeps the
+    // pre-existing text-only treatment.
     //
     // Visible from the moment the entry fill is (`stopLinesVisible`), not
     // from the start: the stop was set at entry, so drawing the line before
@@ -392,7 +429,7 @@ export function TradeChart({
             price: s.price,
             color: MUTED,
             lineWidth: 1,
-            lineStyle: LineStyle.Dashed,
+            lineStyle: s.kind === 'TRAILING' ? LineStyle.Dotted : LineStyle.Dashed,
             axisLabelVisible: false,
             title: '',
           }),
@@ -442,11 +479,17 @@ export function TradeChart({
         </div>
       )}
 
-      {stopSummaryPrices.length > 0 && (
+      {/* Fill prices, off the plot for the same reason stop prices are —
+          see the label-clipping note on the drawing effect above. */}
+      {fillsSummary && <p className="text-[11px] text-muted">{fillsSummary}</p>}
+
+      {stopSummaryEntries.length > 0 && (
         <p className="text-[11px] text-muted">
-          {stopSummaryPrices.length === 1
-            ? `Stop: ${stopSummaryPrices[0]}`
-            : `Stops, top to bottom: ${stopSummaryPrices.join(', ')}`}
+          {stopSummaryEntries.length === 1
+            ? resolvedLines[0].kind === 'TRAILING'
+              ? `Trailing stop: ${resolvedLines[0].label}`
+              : `Stop: ${stopSummaryEntries[0]}`
+            : `Stops, top to bottom: ${stopSummaryEntries.join(', ')}`}
         </p>
       )}
 

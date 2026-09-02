@@ -8,6 +8,7 @@ import {
   type Fill,
   type StopLevel,
 } from '../components/TradeChart';
+import { unresolvedTrailingStops } from '../lib/stopSummary';
 import type { Bar } from '../lib/candleScale';
 import type { Trade } from '../components/TradeCard';
 
@@ -98,7 +99,12 @@ export function TradeDetail() {
   if (!data) return <p className="text-sm text-down">Couldn’t load this trade.</p>;
 
   const { trade, fills, stopLevels, bars, lastBarDate } = data;
-  const trailing = stopLevels.filter((s) => s.kind === 'TRAILING');
+  // Only a trailing tier the backend still can't resolve to a level (no
+  // high-water data yet) keeps this text-only treatment — one that has
+  // resolved is now drawn on the chart itself (see TradeChart.tsx) and
+  // named in its stop-summary line instead, so listing it again here would
+  // be redundant and wrongly imply it isn't drawn.
+  const unresolvedTrailing = unresolvedTrailingStops(stopLevels);
 
   // The backfill is manual, so the window can end before the trade does.
   // Never present a truncated chart as the whole story. For an open trade,
@@ -190,11 +196,14 @@ export function TradeDetail() {
 
       <TradeChart bars={bars} fills={fills} stopLevels={stopLevels} />
 
-      {trailing.length > 0 && (
+      {unresolvedTrailing.length > 0 && (
         <p className="text-xs text-muted">
-          {trailing.length === 1 ? 'A trailing stop' : 'Trailing stops'} of{' '}
-          {trailing.map((s) => `${s.trailPercent}%`).join(', ')} — not drawn,
-          because the level moved with price.
+          {unresolvedTrailing.length === 1
+            ? 'A trailing stop'
+            : 'Trailing stops'}{' '}
+          of {unresolvedTrailing.map((s) => `${s.trailPercent}%`).join(', ')}{' '}
+          — not drawn yet, because there isn't enough price history since
+          entry to know where the level sits.
         </p>
       )}
 
