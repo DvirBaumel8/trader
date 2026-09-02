@@ -1,77 +1,155 @@
 # Trader Profile
 
-<!--
-This file is read by the backend at request time (backend/src/llm/*) and
-included verbatim in the system prompt for the "AI summary" feature. It is
-the "who he is" half of that prompt — the portfolio numbers are the other
-half, and those are always computed by the app, never written here.
+Who the owner is, how he trades, and — importantly — which of his rules the
+app can actually check against his data.
 
-This is a SKELETON. It is being filled in from an interview with the owner
-and must not contain invented facts about him. Each section below is a
-placeholder with guidance on what belongs there — replace the guidance text,
-don't build on top of it. Leave a section's placeholder in place, unedited,
-if that topic hasn't been covered in the interview yet: the prompt-builder
-already renders an honest "no profile recorded" note when this whole file is
-absent, but a half-true file is worse than a missing one, so don't leave a
-guess in a section you're unsure about.
+Written from an interview on 2026-09-02. His words are quoted where the
+wording matters; everything else is a summary he can correct.
 
-Keep it factual and behavioral — this is grounding for an assistant that
-narrates his own numbers back to him, not a personality description.
--->
+**This file is loaded into the system prompt of every AI summary.** Its job is
+to make the assistant's output specific to this trader rather than generic.
+Keep it precise and keep it short — vagueness here produces vague output, and
+length costs tokens on every single call.
 
-## Edge
+## Who
 
-<!--
-What does he believe makes him money over time? The specific thing he does
-(or avoids) that he thinks separates his results from random noise. Not
-"discipline" in the abstract — the actual mechanism, in his words.
--->
+A **senior backend software developer**. That is the source of his edge, not a
+biographical detail: he invests mainly in technology because he understands it
+professionally, and is "open to other sectors sometimes".
 
-## Setups he takes
+## The edge, in his own words
 
-<!--
-The recurring patterns or conditions he actually enters trades on — e.g.
-what he's looking for on a chart, in the news, or in market structure before
-he acts. List them; don't invent examples.
--->
+Two sides, deliberately combined:
 
-## Risk rules
+> "The technical analysis which I respect but not a big believer... But I also
+> have the fundamental side, and the numbers, with my vision of the tech world."
 
-<!--
-Position sizing approach, max risk per trade or per day, max positions,
-correlation limits, how leverage is used — whatever rules he actually
-follows (or says he should follow and doesn't always).
--->
+**The fundamental side picks the name.** Sector foresight from domain
+knowledge, with a track record he cites: he identified the quantum sector
+roughly two years before the interview and made significant money in IONQ, and
+bought Palantir at $21. He looks at **P/E**. He wants positions where "the
+upside is big", and is direct about the goal: "I want to make money to be
+honest."
 
-## Exit rules
+**The technical side times the entry.** See below.
 
-<!--
-How he decides to get out — stop placement approach, target-setting, trailing
-stops, time-based exits, scaling out. Distinguish rules he follows
-mechanically from ones that are more judgment calls.
--->
+Recognising the shape helps: this is a **growth-breakout method** in the
+CANSLIM / Minervini tradition — fundamentals choose the stock, a technical
+breakout chooses the moment, volume confirms it, and a long moving average
+keeps him on the right side of trend.
 
-## Session timing
+## What he trades
 
-<!--
-When he trades during the day (open, mid-day, close, after-hours), how
-often, and whether timing itself is part of his edge or just his schedule.
--->
+US stocks and ETFs, long and short, **on margin**. Deliberately no options and
+no crypto. Around 19 positions at roughly 2x leverage at the time of writing.
 
-## Known weaknesses
+## Method — technical
 
-<!--
-Patterns he recognizes in his own behavior that hurt his results —
-revenge trading, oversizing, chasing, ignoring his own stops, FOMO entries,
-whatever he names. This is the section most worth getting in his own words
-rather than guessing at.
--->
+- **Daily chart, 100% of the time.** No intraday, no weekly. Every technical
+  rule below is a daily-bar event.
+- **150-day SMA** as his trend indicator (not the more common 50 or 200).
+- **Cup-and-handle** pattern.
+- **Breakout entries** — buying the breakout is, in his words, "super
+  important". This is the core entry trigger.
+- **Volume** as a confirming indicator.
 
-## What a good month looks like
+## Method — exits
 
-<!--
-How he'd describe a month he's satisfied with, beyond the P&L number alone —
-e.g. process adherence, drawdown control, a win rate or trade count he
-targets, or purely "the number was positive." Helps the model calibrate tone
-rather than defaulting to generic praise or alarm.
--->
+- **Stop at entry**: "sometimes fixed %, sometimes by a point in the graph"
+  (a chart level). No single rule.
+- **When a trade works**: he trails the stop up — "increase the stop closer to
+  the current price."
+- He **scales out** in tiers rather than exiting all at once.
+
+## Method — position sizing
+
+There is no system, and he says so plainly:
+
+> "Actually I don't have a specific approach, when I think the trade has a big
+> chance to success I put more."
+
+Size is set by conviction. **There is no stated ceiling on a single position.**
+At the time of writing his largest holding was 29% of the account and his top
+two were 55% between them.
+
+## Known weaknesses, self-identified
+
+> "Shorts are going bad and sometimes put a lot of money when I'm sure I'll win
+> and lose a lot, like LMND now."
+
+Two distinct failure modes:
+
+1. **Shorts go badly.** His weak side by his own assessment.
+2. **Conviction over-sizing.** On the trades he is most certain about, he sizes
+   up — and when those are wrong, the loss is large.
+
+Taken together with his sizing answer, there is a coherent mechanism worth
+watching for:
+
+> **High conviction → larger size → no ceiling → and on the positions he is
+> most sure about, a stop can feel unnecessary.**
+
+At the time of writing, LMND was the live instance: 29% of the account, down
+19.8%, and one of only three positions carrying no stop at all.
+
+## What the app can check, and what it cannot
+
+This distinction is the point of the file. State a rule precisely and the app
+verifies adherence; state a disposition and it cannot.
+
+**Checkable today:**
+
+- Whether an entry was above or below the 150-day SMA.
+- Whether an entry happened near a breakout level or on a pullback.
+- Stop coverage: which positions have a stop at all.
+- Concentration, leverage, and dollars at risk.
+- Win rate, average risk, expectancy — once enough trades have closed.
+
+**Not checkable yet, for concrete reasons:**
+
+- **Volume confirmation.** He named volume as important; `daily_closes` does
+  not store volume. It is available in the same Yahoo response the backfill
+  already reads.
+- **P/E.** Not stored anywhere. Available from Yahoo's quote summary.
+- **Risk at entry, and therefore R-multiple.** Stop revisions are not
+  persisted, so the stop recorded against a trade is the *final trailed* stop,
+  not the original. Every closed trade currently has a null R as a direct
+  result. Fixing this restores his own headline metric.
+- **Conviction.** Size is recorded; certainty is not. Until conviction is
+  captured at entry, "do my high-conviction trades actually outperform?"
+  cannot be answered.
+- **Shorts.** He reports these as his weak side, but there are no short
+  positions in the recorded history at all — so the claim is a flag, not a
+  finding. The next short he opens is worth attention precisely because he has
+  named it as his weakness.
+
+## Open questions his own history will answer
+
+None of these are answerable today. All become answerable with a few months of
+recorded trades, and each tests something he believes about himself:
+
+1. Do his **largest positions** outperform his smallest — i.e. is conviction
+   informative, or is it just adding variance?
+2. Do **unstopped** positions do worse than stopped ones?
+3. Which of his two edges pays — **sector vision** or **breakout timing**?
+4. How does he **trail**? Too tight and he is shaken out of moves that
+   continue; too slow and he gives back gains.
+5. A daily-chart breakout method normally implies holds of days to weeks. His
+   first closed trades were held 1–2 days. Does that persist?
+
+## How to talk to him
+
+**Blunt, specific, and quiet when nothing is wrong.**
+
+- Lead with whatever sits outside his own stated rules. Numbers, not
+  adjectives: "LMND is 29% of the account, down 19.8%, and has no stop" beats
+  "your risk management could be tighter."
+- **Say nothing when the book is behaving.** This follows the app's own
+  established principle, documented on `ConnectionBanner`: silent when
+  healthy, loud when broken, because a permanent "everything is fine" badge is
+  noise the user learns to ignore. An assistant that always finds something
+  concerning gets closed.
+- Never give him a number that was not computed and handed over. Quote the
+  facts provided; never estimate, recalculate, or invent one.
+- He is technical and experienced. Do not explain what a stop is, and do not
+  hedge to be polite.
