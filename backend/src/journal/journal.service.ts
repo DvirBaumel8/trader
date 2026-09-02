@@ -582,6 +582,23 @@ export class JournalService {
     }
   }
 
+  /**
+   * Appends a stop revision directly against an existing transaction,
+   * outside the normal create/update-entry flow — used when reducing a
+   * position prompts the owner to revise its stop plan without reopening
+   * (and re-editing) the entry that originally opened it. Reuses
+   * `writeStopRevision` so this stays the ONE write path for `stop_levels`:
+   * a revision, once written, is never edited or deleted, only appended.
+   */
+  async reviseStopLevels(
+    transactionId: string,
+    levels: StopLevelSpec[],
+  ): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      await this.writeStopRevision(manager, transactionId, levels);
+    });
+  }
+
   /** Find-or-create each tag, then replace the entry's joins with exactly these. */
   private async applyTags(
     manager: EntityManager,

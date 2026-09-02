@@ -3,9 +3,12 @@ import {
   summariseTrades,
   selectEntryStops,
   selectCurrentStops,
+  computeEffectiveStops,
   type TradeTxn,
   type StopRevisionInput,
+  type ReducingFill,
 } from './derive-trades.js';
+import type { StopLevelInput } from './risk.js';
 
 const KNOWN_CREATED_AT = new Date(2026, 0, 1).toISOString();
 
@@ -209,7 +212,11 @@ describe('deriveTrades', () => {
 
   describe('stop revisions', () => {
     // A trade with an original stop plus two later trail-ups: risk/R must
-    // come from the FIRST revision, current stop from the LAST.
+    // come from the FIRST revision, current stop from the LAST. No closing
+    // fill here on purpose — nothing has sold, so `computeEffectiveStops`
+    // has nothing to reconcile against and currentStops is revision 2
+    // untouched. See the `computeEffectiveStops` describe block below for
+    // what happens once a fill DOES reduce the position.
     it('computes risk from the original stop and currentStops from the latest', () => {
       const [t] = deriveTrades([
         {
@@ -249,12 +256,11 @@ describe('deriveTrades', () => {
             },
           ],
         },
-        txn('NVDA', 'SELL', 10, 130, 5),
       ]);
 
-      // Risk/R from revision 0 (the original stop): (100-90)*10 = 100.
+      expect(t.isOpen).toBe(true);
+      // Risk from revision 0 (the original stop): (100-90)*10 = 100.
       expect(t.riskAmount).toBe(100);
-      expect(t.rMultiple).toBe(3); // +300 on 100 risked
 
       // currentStops is revision 2, the live stop — well above entry, as a
       // trailed profit-lock legitimately is.
@@ -264,10 +270,7 @@ describe('deriveTrades', () => {
     });
 
     it('treats a single stop as both the entry and current stop', () => {
-      const [t] = deriveTrades([
-        txn('NVDA', 'BUY', 10, 100, 1, { stop: 90 }),
-        txn('NVDA', 'SELL', 10, 130, 5),
-      ]);
+      const [t] = deriveTrades([txn('NVDA', 'BUY', 10, 100, 1, { stop: 90 })]);
       expect(t.riskAmount).toBe(100);
       expect(t.currentStops).toEqual([
         { kind: 'FIXED', price: 90, trailPercent: null, quantity: 10 },
@@ -308,7 +311,6 @@ describe('deriveTrades', () => {
             },
           ],
         },
-        txn('BITX', 'SELL', 100, 17.07, 5),
       ]);
 
       expect(t.riskAmount).toBeNull();
@@ -355,7 +357,6 @@ describe('deriveTrades', () => {
             },
           ],
         },
-        txn('BITX', 'SELL', 100, 18.0, 5),
       ]);
 
       expect(t.riskAmount).toBeNull();
@@ -364,6 +365,33 @@ describe('deriveTrades', () => {
         { kind: 'FIXED', price: 18.0, trailPercent: null, quantity: 100 },
       ]);
     });
+  });
+
+  it('reports remaining quantity as 0 once a trade closes flat', () => {
+    const [t] = deriveTrades([
+      txn('NVDA', 'BUY', 10, 100, 1),
+      txn('NVDA', 'SELL', 10, 130, 5),
+    ]);
+    expect(t.remainingQuantity).toBe(0);
+  });
+
+  it('reports remaining quantity as the live signed size for an open trade', () => {
+    const [t] = deriveTrades([txn('NVDA', 'BUY', 10, 100, 1)]);
+    expect(t.remainingQuantity).toBe(10);
+  });
+
+  it('reports a negative remaining quantity once a single sell flips the position short', () => {
+    // MRNA's shape: 400 bought long, then one SELL of 600 flips it to -200
+    // without ever passing through an intermediate flat trade — this stays
+    // ONE open trade (direction fixed at 'LONG' from the opening fill), but
+    // remainingQuantity must reflect the live short size.
+    const [t] = deriveTrades([
+      txn('MRNA', 'BUY', 400, 60, 1, { stop: 55 }),
+      txn('MRNA', 'SELL', 600, 65, 5),
+    ]);
+    expect(t.isOpen).toBe(true);
+    expect(t.direction).toBe('LONG'); // fixed at the opening fill, on purpose
+    expect(t.remainingQuantity).toBe(-200);
   });
 
   it('orders by execution time regardless of input order', () => {
@@ -586,5 +614,158 @@ describe('summariseTrades', () => {
     // Break-even is not a win; counting it as one flatters the win rate.
     const s = summariseTrades([closed(0), closed(100)]);
     expect(s.winRate).toBe(0.5);
+  });
+});
+
+describe('computeEffectiveStops', () => {
+  // The owner's instruction, verbatim: "system should recognize sell activity
+  // as a one that removes stop". There is deliberately no manual remove
+  // control — a sell IS the removal. These fixtures pin the inference down,
+  // because getting it wrong silently changes the dashboard's At-risk figure.
+  const OPENED = new Date(2026, 0, 1);
+  const RECORDED = new Date(2026, 0, 10);
+
+  function fixed(price: number, quantity: number): StopLevelInput {
+    return { kind: 'FIXED', price, trailPercent: null, quantity };
+  }
+
+  function trailing(trailPercent: number, quantity: number): StopLevelInput {
+    return { kind: 'TRAILING', price: null, trailPercent, quantity };
+  }
+
+  function sell(quantity: number, price: number, day: number): ReducingFill {
+    return { executedAt: new Date(2026, 0, day), price, quantity };
+  }
+
+  it('retires the tier a sale matches exactly, and leaves the other alone', () => {
+    // The owner's own worked example. He held 1150 SMCI across two tiers,
+    // sold 600 at the price of the 600-share tier, and the app went on
+    // showing both tiers — claiming protection on 1150 shares when he held
+    // 550. Price AND quantity match here, so this is the unambiguous case.
+    const effective = computeEffectiveStops(
+      [fixed(36.92, 600), fixed(30.39, 550)],
+      RECORDED,
+      OPENED,
+      [sell(600, 36.92, 15)],
+    );
+    expect(effective).toEqual([fixed(30.39, 550)]);
+  });
+
+  it('reduces a tier in place when the sale is smaller than it', () => {
+    // Partial scale-out: the tier is not retired, it just covers fewer
+    // shares. Retiring it whole would under-report risk.
+    const effective = computeEffectiveStops([fixed(36.92, 600)], RECORDED, OPENED, [
+      sell(250, 36.9, 15),
+    ]);
+    expect(effective).toEqual([fixed(36.92, 350)]);
+  });
+
+  it('spans more than one tier when the sale is larger than the closest', () => {
+    // 800 sold against a 600 tier at the fill price and a 550 tier further
+    // away: the closest goes first and in full, the remainder comes out of
+    // the next-closest.
+    const effective = computeEffectiveStops(
+      [fixed(36.92, 600), fixed(30.39, 550)],
+      RECORDED,
+      OPENED,
+      [sell(800, 36.92, 15)],
+    );
+    expect(effective).toEqual([fixed(30.39, 350)]);
+  });
+
+  it('still reduces coverage when the sale matches no tier closely', () => {
+    // A discretionary exit, not a planned scale-out. Which tier he "meant"
+    // is genuinely unknowable, but coverage must still come down — claiming
+    // stops on shares he no longer holds is the bug being fixed. Closest
+    // price wins as the least-bad guess, and because nothing is deleted he
+    // can correct it by recording a fresh revision.
+    const effective = computeEffectiveStops(
+      [fixed(36.92, 600), fixed(30.39, 550)],
+      RECORDED,
+      OPENED,
+      [sell(200, 33.0, 15)],
+    );
+    // 33.00 sits nearer 30.39 than 36.92, so the lower tier absorbs it.
+    expect(effective).toEqual([fixed(36.92, 600), fixed(30.39, 350)]);
+  });
+
+  it('leaves nothing behind once the position is fully closed', () => {
+    // BITX, BMNR and MSTR all showed live stops on closed positions.
+    const effective = computeEffectiveStops(
+      [fixed(36.92, 600), fixed(30.39, 550)],
+      RECORDED,
+      OPENED,
+      [sell(1150, 35.0, 15)],
+    );
+    expect(effective).toEqual([]);
+  });
+
+  it('consumes nothing when the position has not been reduced', () => {
+    // The common case: no sells, so the effective plan IS the recorded one.
+    // A derivation that quietly altered an untouched plan would be worse
+    // than the bug it replaces.
+    const recorded = [fixed(36.92, 600), fixed(30.39, 550)];
+    expect(computeEffectiveStops(recorded, RECORDED, OPENED, [])).toEqual(recorded);
+  });
+
+  it('ignores fills that predate the recorded revision', () => {
+    // A sale before he set this revision was already accounted for when he
+    // set it — consuming it again would double count and under-report risk.
+    const effective = computeEffectiveStops([fixed(36.92, 600)], RECORDED, OPENED, [
+      sell(300, 36.92, 5),
+    ]);
+    expect(effective).toEqual([fixed(36.92, 600)]);
+  });
+
+  it('falls back to the position open date when no revision time is known', () => {
+    // Legacy stops predate revision tracking and carry no timestamp. Every
+    // fill since the position opened is then fair game — a tier cannot have
+    // been consumed by a sale older than the position it protects.
+    const effective = computeEffectiveStops([fixed(36.92, 600)], null, OPENED, [
+      sell(300, 36.92, 5),
+    ]);
+    expect(effective).toEqual([fixed(36.92, 300)]);
+  });
+
+  it('consumes a trailing tier only after every priced tier is exhausted', () => {
+    // A trailing tier has no fixed price to compare a fill against (it moves
+    // with the market), so it cannot be matched on proximity and must not
+    // win the "closest" contest by default.
+    const effective = computeEffectiveStops(
+      [trailing(8.5, 400), fixed(36.92, 600)],
+      RECORDED,
+      OPENED,
+      [sell(600, 36.92, 15)],
+    );
+    expect(effective).toEqual([trailing(8.5, 400)]);
+  });
+
+  it('stops at zero when more is sold than every tier covers', () => {
+    // Over-selling past the plan leaves nothing to consume rather than
+    // producing negative coverage.
+    const effective = computeEffectiveStops([fixed(36.92, 600)], RECORDED, OPENED, [
+      sell(900, 36.92, 15),
+    ]);
+    expect(effective).toEqual([]);
+  });
+
+  it('applies successive fills oldest first', () => {
+    // Order matters: each fill consumes from what the previous one left.
+    const effective = computeEffectiveStops(
+      [fixed(36.92, 600), fixed(30.39, 550)],
+      RECORDED,
+      OPENED,
+      [sell(600, 36.92, 15), sell(300, 30.39, 20)],
+    );
+    expect(effective).toEqual([fixed(30.39, 250)]);
+  });
+
+  it('does not mutate the recorded tiers it was given', () => {
+    // The whole design rests on the recorded plan surviving untouched —
+    // this is derivation, not deletion. If this ever fails, a wrong
+    // inference becomes permanent and the owner's audit trail is gone.
+    const recorded = [fixed(36.92, 600), fixed(30.39, 550)];
+    computeEffectiveStops(recorded, RECORDED, OPENED, [sell(600, 36.92, 15)]);
+    expect(recorded).toEqual([fixed(36.92, 600), fixed(30.39, 550)]);
   });
 });

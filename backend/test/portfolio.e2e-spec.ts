@@ -22,7 +22,7 @@ describe('Portfolio (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE stop_levels, transactions, cash_flows, dividends, journal_entries, entry_tags, tags RESTART IDENTITY CASCADE',
+      'TRUNCATE stop_levels, transactions, cash_flows, dividends, journal_entries, entry_tags, tags, daily_closes RESTART IDENTITY CASCADE',
     );
   });
 
@@ -155,6 +155,189 @@ describe('Portfolio (e2e)', () => {
       res.body.stopTiers.filter((r: { symbol: string }) => r.symbol === 'NVDA'),
     ).toEqual([]);
     expect(res.body.atRisk.positionsWithoutStop.symbols).toContain('NVDA');
+  });
+
+  it('excludes stops on a fully closed position from at-risk and the Stops page', async () => {
+    // Buy, stop it, then sell it all — the position closes to 0 but the
+    // stop tiers stay on the opening transaction, exactly the bug the
+    // owner found live: BITX/BMNR/MSTR carry stops after being fully
+    // closed.
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'opening',
+        occurredAt: '2026-01-03T14:30:00.000Z',
+        trade: {
+          symbol: 'BITX',
+          quantity: 100,
+          price: 13.29,
+          fee: 0,
+          stopLevels: [{ kind: 'FIXED', price: 11, quantity: 100 }],
+        },
+      })
+      .expect(201);
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'closing',
+        occurredAt: '2026-01-04T14:30:00.000Z',
+        trade: { symbol: 'BITX', quantity: -100, price: 17.46, fee: 0 },
+      })
+      .expect(201);
+
+    const res = await http(app, token).get('/portfolio').expect(200);
+    // The position is gone, so it must not appear at all, and it must not
+    // contribute any dollars to the at-risk total.
+    expect(res.body.positions).toEqual([]);
+    expect(res.body.atRisk.amount).toBe(0);
+    expect(
+      res.body.stopTiers.filter((r: { symbol: string }) => r.symbol === 'BITX'),
+    ).toEqual([]);
+  });
+
+  it('caps the at-risk dollar figure when tiers overshoot the held quantity', async () => {
+    // SMCI's shape: 1150 opened with two tiers (600 @ 36.92, 550 @ 30.39),
+    // then a SELL of 600 executes the upper tier — 550 remain, but both
+    // tiers are still on record, so the app must not price 1150 shares of
+    // protection against a 550-share position.
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'opening',
+        occurredAt: '2026-01-03T14:30:00.000Z',
+        trade: {
+          symbol: 'SMCI',
+          quantity: 1150,
+          price: 32,
+          fee: 0,
+          stopLevels: [
+            { kind: 'FIXED', price: 36.92, quantity: 600 },
+            { kind: 'FIXED', price: 30.39, quantity: 550 },
+          ],
+        },
+      })
+      .expect(201);
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'upper tier executed',
+        occurredAt: '2026-01-04T14:30:00.000Z',
+        trade: { symbol: 'SMCI', quantity: -600, price: 36.92, fee: 0 },
+      })
+      .expect(201);
+
+    const res = await http(app, token).get('/portfolio').expect(200);
+    const p = res.body.positions.find(
+      (x: { symbol: string }) => x.symbol === 'SMCI',
+    );
+    expect(p.quantity).toBe(550);
+
+    const needsUpdate = res.body.atRisk.stopPlanNeedsUpdate.positions.find(
+      (n: { symbol: string }) => n.symbol === 'SMCI',
+    );
+    expect(needsUpdate).toMatchObject({
+      issue: 'OVER_COVERED',
+      recordedQuantity: 1150,
+      heldQuantity: 550,
+    });
+  });
+
+  it('flags a short whose stops were recorded while long, and excludes it from at-risk', async () => {
+    // MRNA's shape: 400 bought long with a stop set below entry, then one
+    // SELL of 600 flips the position to -200 in a single fill.
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'opening long',
+        occurredAt: '2026-01-03T14:30:00.000Z',
+        trade: {
+          symbol: 'MRNA',
+          quantity: 400,
+          price: 60,
+          fee: 0,
+          stopLevels: [{ kind: 'FIXED', price: 55, quantity: 400 }],
+        },
+      })
+      .expect(201);
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'flips short',
+        occurredAt: '2026-01-04T14:30:00.000Z',
+        trade: { symbol: 'MRNA', quantity: -600, price: 65, fee: 0 },
+      })
+      .expect(201);
+
+    const res = await http(app, token).get('/portfolio').expect(200);
+    const p = res.body.positions.find(
+      (x: { symbol: string }) => x.symbol === 'MRNA',
+    );
+    expect(p.quantity).toBe(-200);
+
+    const needsUpdate = res.body.atRisk.stopPlanNeedsUpdate.positions.find(
+      (n: { symbol: string }) => n.symbol === 'MRNA',
+    );
+    expect(needsUpdate).toMatchObject({ issue: 'DIRECTION_MISMATCH' });
+    // Not priced as protected, and not listed as bare-unstopped either — a
+    // stop plan exists, it just no longer matches the direction held.
+    expect(res.body.atRisk.positionsWithoutStop.symbols).not.toContain('MRNA');
+    expect(
+      res.body.stopTiers.filter((r: { symbol: string }) => r.symbol === 'MRNA'),
+    ).toEqual([]);
+  });
+
+  it('resolves a trailing stop from the high-water price since entry, not the entry price', async () => {
+    // ONDS-shaped: entry 7.36, TRAILING 8.5%, still open. The bug this
+    // guards was resolving the trail from the entry price forever — a
+    // fixed stop wearing a trailing label. Bars carry an artificially huge
+    // high (1000) so the assertion is deterministic regardless of ONDS's
+    // real, live-fetched quote: a real stock price will never exceed it,
+    // so the high-water mark is guaranteed to be dominated by this bar.
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'breakout entry',
+        occurredAt: '2026-01-03T14:30:00.000Z',
+        trade: {
+          symbol: 'ONDS',
+          quantity: 1000,
+          price: 7.36,
+          fee: 0,
+          stopLevels: [{ kind: 'TRAILING', trailPercent: 8.5, quantity: 1000 }],
+        },
+      })
+      .expect(201);
+
+    const [{ id: instrumentId }] = (await dataSource.query(
+      `SELECT id FROM instruments WHERE symbol = 'ONDS'`,
+    )) as Array<{ id: string }>;
+    await dataSource.query(
+      `INSERT INTO daily_closes (id, "instrumentId", date, close, "adjClose", open, high, low, volume)
+       VALUES (public.uuid_generate_v4(), $1, '2026-01-03', 7.40, 7.40, 7.36, 7.50, 7.20, 1000000),
+              (public.uuid_generate_v4(), $1, '2026-01-06', 950, 950, 960, 1000, 900, 2000000)`,
+      [instrumentId],
+    );
+
+    const res = await http(app, token).get('/portfolio').expect(200);
+    const row = res.body.stopTiers.find(
+      (r: { symbol: string }) => r.symbol === 'ONDS',
+    );
+    expect(row).toBeDefined();
+    // 1000 * (1 - 0.085) = 915 — from the high-water mark, never
+    // 7.36 * (1 - 0.085) = 6.7344, the old entry-anchored (wrong) answer.
+    expect(row.stopPrice).toBeCloseTo(915, 6);
+
+    const needsUpdate = res.body.atRisk.stopPlanNeedsUpdate.positions.find(
+      (n: { symbol: string }) => n.symbol === 'ONDS',
+    );
+    expect(needsUpdate).toBeUndefined(); // resolved fine, nothing to flag
   });
 
   it('rejects seeding an unknown ticker', async () => {

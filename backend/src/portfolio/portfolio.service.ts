@@ -30,9 +30,17 @@ import {
   type DerivedTrade,
 } from './derive-trades.js';
 import { parseTradeId, tradeId, windowBounds } from './trade-window.js';
-import { computeRiskFromCurrentPrice, type StopLevelInput } from './risk.js';
+import {
+  computeFavorablePrice,
+  computeRiskFromCurrentPrice,
+  evaluateStopPlan,
+  resolveStopPrice,
+  type StopLevelInput,
+  type StopPlanIssue,
+} from './risk.js';
 import { computeRelativeVolumeAtEntry } from './relative-volume.js';
 import { computeStopDistances } from './stop-distance.js';
+import type { StopLevelSpec } from '../journal/journal.service.js';
 
 export interface SeedHolding {
   symbol: string;
@@ -81,6 +89,9 @@ export class PortfolioService {
 
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
     const nameBySymbol = new Map(instrumentRows.map((i) => [i.symbol, i.name]));
+    const instrumentIdBySymbol = new Map(
+      instrumentRows.map((i) => [i.symbol, i.id]),
+    );
 
     const derivedTxns: DerivedTxn[] = txnRows.map((t) => ({
       symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
@@ -114,6 +125,44 @@ export class PortfolioService {
     const openTradeBySymbol = new Map(
       openTrades.map((t) => [t.symbol, tradeId(t.symbol, t.enteredAt)]),
     );
+    // A TRAILING current stop needs the high-water price since entry to
+    // resolve to a concrete level (see resolveStopPrice/computeFavorablePrice
+    // in risk.ts) — fetched only for symbols that actually have one, since it
+    // is the one part of this endpoint that touches daily_closes.
+    const trailingSymbols = openTrades.filter((t) =>
+      t.currentStops.some(
+        (l) => l.kind === 'TRAILING' && l.trailPercent !== null && l.trailPercent > 0,
+      ),
+    );
+    const highWaterPriceBySymbol = new Map<string, number | null>();
+    await Promise.all(
+      trailingSymbols.map(async (t) => {
+        const instrumentId = instrumentIdBySymbol.get(t.symbol);
+        if (!instrumentId) {
+          highWaterPriceBySymbol.set(t.symbol, null);
+          return;
+        }
+        const bars = await this.closes.find({
+          where: {
+            instrumentId,
+            date: MoreThanOrEqual(t.enteredAt.toISOString().slice(0, 10)),
+          },
+        });
+        const currentPrice = quotes.get(t.symbol)?.price ?? null;
+        highWaterPriceBySymbol.set(
+          t.symbol,
+          computeFavorablePrice(
+            // high/low are null on bars written before that migration —
+            // close is never null, and a fallback to it is still a real
+            // traded price, just a less extreme one than the true high/low.
+            bars.map((b) => ({ high: b.high ?? b.close, low: b.low ?? b.close })),
+            t.direction,
+            currentPrice,
+          ),
+        );
+      }),
+    );
+
     // "How much could I lose from here" wants the stop that is LIVE now, not
     // the one set at entry — see DerivedTrade.currentStops. Keyed the same
     // way the trade lookup above already is, so this reuses that pass rather
@@ -121,7 +170,12 @@ export class PortfolioService {
     const openTradeCurrentStopsBySymbol = new Map(
       openTrades.map((t) => [
         t.symbol,
-        { direction: t.direction, avgEntry: t.avgEntry, levels: t.currentStops },
+        {
+          direction: t.direction,
+          avgEntry: t.avgEntry,
+          levels: t.currentStops,
+          highWaterPrice: highWaterPriceBySymbol.get(t.symbol) ?? null,
+        },
       ]),
     );
 
@@ -166,13 +220,29 @@ export class PortfolioService {
 
     const atRisk = this.computeAtRisk(positions, openTradeCurrentStopsBySymbol);
 
+    // A position whose stop plan makes no sense for its CURRENT direction
+    // (see evaluateStopPlan) cannot be priced into a per-tier distance
+    // either — the "stop" price was never meant for this side of the
+    // market. Left out of the Stops page's tier list the same way it is
+    // left out of the At-risk dollar sum; still surfaced via
+    // atRisk.stopPlanNeedsUpdate so it is never silently dropped.
+    const noSensibleDistance = new Set(
+      atRisk.stopPlanNeedsUpdate.positions
+        .filter((p) => p.issue === 'DIRECTION_MISMATCH' || p.issue === 'CLOSED_WITH_STOPS')
+        .map((p) => p.symbol),
+    );
+
     // One row per stop TIER, priced against each position's live quote —
     // what the Stops page reads. Reuses the exact positions/quotes already
     // computed above, so this page can never disagree with the dashboard or
     // the At-risk box about a stop's distance. See stop-distance.ts.
     const stopTiers = computeStopDistances(
       positions
-        .filter((p) => openTradeCurrentStopsBySymbol.has(p.symbol))
+        .filter(
+          (p) =>
+            openTradeCurrentStopsBySymbol.has(p.symbol) &&
+            !noSensibleDistance.has(p.symbol),
+        )
         .map((p) => {
           const plan = openTradeCurrentStopsBySymbol.get(p.symbol)!;
           return {
@@ -184,6 +254,7 @@ export class PortfolioService {
             extended: p.extended,
             stale: p.stale,
             levels: plan.levels,
+            highWaterPrice: plan.highWaterPrice,
           };
         }),
     );
@@ -223,6 +294,16 @@ export class PortfolioService {
    * dangerous position along with it. Each position's contribution to the sum
    * is floored at zero; the unfloored, possibly-negative number is still the
    * one attached to the position, it just is not summed as if it were risk.
+   *
+   * Coverage is also never allowed to exceed what is actually held (see
+   * `evaluateStopPlan`). A position whose tiers merely overshoot the held
+   * quantity still contributes — `computeRiskFromCurrentPrice` caps the
+   * dollar figure proportionally — but a position whose tiers make no sense
+   * for its CURRENT direction (a stop recorded while long, now held short)
+   * contributes nothing at all: pricing it would produce a number, just not
+   * a truthful one. Either kind of drift is reported separately in
+   * `stopPlanNeedsUpdate`, distinct from "no stop at all" — the owner has a
+   * plan on record, it just no longer matches the position.
    */
   private computeAtRisk(
     positions: Array<{
@@ -236,11 +317,18 @@ export class PortfolioService {
         direction: 'LONG' | 'SHORT';
         avgEntry: number;
         levels: StopLevelInput[];
+        highWaterPrice: number | null;
       }
     >,
   ) {
     let amount = 0;
     const symbolsWithoutStop: string[] = [];
+    const needsUpdate: Array<{
+      symbol: string;
+      issue: StopPlanIssue;
+      recordedQuantity: number;
+      heldQuantity: number;
+    }> = [];
 
     for (const p of positions) {
       const plan = currentStopsBySymbol.get(p.symbol);
@@ -254,15 +342,52 @@ export class PortfolioService {
       // "without a stop" count rather than guessed at.
       if (p.price === null) continue;
 
+      const hasUnresolvedTrailing = plan.levels.some(
+        (l) =>
+          l.kind === 'TRAILING' &&
+          l.trailPercent !== null &&
+          l.trailPercent > 0 &&
+          plan.highWaterPrice === null,
+      );
+      const status = evaluateStopPlan({
+        heldQuantity: p.quantity,
+        recordedDirection: plan.direction,
+        levels: plan.levels,
+        hasUnresolvedTrailing,
+      });
+
+      if (
+        status.issue === 'DIRECTION_MISMATCH' ||
+        status.issue === 'CLOSED_WITH_STOPS'
+      ) {
+        needsUpdate.push({
+          symbol: p.symbol,
+          issue: status.issue,
+          recordedQuantity: status.recordedQuantity,
+          heldQuantity: status.heldQuantity,
+        });
+        continue;
+      }
+
       const risk = computeRiskFromCurrentPrice({
         avgEntry: plan.avgEntry,
         currentPrice: p.price,
         quantity: Math.abs(p.quantity),
         levels: plan.levels,
         direction: plan.direction,
+        highWaterPrice: plan.highWaterPrice,
       });
       if (risk.amount !== null) {
         amount += Math.max(0, risk.amount);
+      }
+
+      if (status.issue === 'OVER_COVERED' || status.issue === 'UNRESOLVED_TRAILING') {
+        needsUpdate.push({
+          symbol: p.symbol,
+          issue: status.issue,
+          recordedQuantity: status.recordedQuantity,
+          heldQuantity: status.heldQuantity,
+        });
       }
     }
 
@@ -271,6 +396,10 @@ export class PortfolioService {
       positionsWithoutStop: {
         count: symbolsWithoutStop.length,
         symbols: symbolsWithoutStop,
+      },
+      stopPlanNeedsUpdate: {
+        count: needsUpdate.length,
+        positions: needsUpdate,
       },
     };
   }
@@ -427,13 +556,60 @@ export class PortfolioService {
       bars.map((b) => ({ date: b.date, volume: b.volume })),
       trade.enteredAt.toISOString().slice(0, 10),
     );
+
+    // A TRAILING level's concrete price needs the high-water mark since
+    // entry (see resolveStopPrice/computeFavorablePrice) — bounded to the
+    // trade's own life, not the padded chart window either side of it, and
+    // including today's live price for a still-open trade (the backfill is
+    // manual, so today's bar may not exist yet).
+    const entryDate = trade.enteredAt.toISOString().slice(0, 10);
+    const exitDate = trade.exitedAt ? trade.exitedAt.toISOString().slice(0, 10) : null;
+    const barsSinceEntry = bars.filter(
+      (b) => b.date >= entryDate && (exitDate === null || b.date <= exitDate),
+    );
+    const currentPriceForTrail = trade.isOpen
+      ? ((await this.marketData.getQuotes([trade.symbol], false)).get(trade.symbol)
+          ?.price ?? null)
+      : null;
+    const highWaterPrice = computeFavorablePrice(
+      barsSinceEntry.map((b) => ({ high: b.high ?? b.close, low: b.low ?? b.close })),
+      trade.direction,
+      currentPriceForTrail,
+    );
+    const hasUnresolvedTrailing = currentStops.some(
+      (l) =>
+        l.kind === 'TRAILING' && l.trailPercent !== null && l.trailPercent > 0,
+    ) && highWaterPrice === null;
+
     return {
       trade: { ...summary, entryRelativeVolume },
       fills,
       // The chart draws the stop that is live now, not the one at entry —
       // see DerivedTrade.currentStops. The JSON key stays `stopLevels`,
-      // which is what the frontend chart already expects.
-      stopLevels: currentStops,
+      // which is what the frontend chart already expects. Deliberately NOT
+      // capped or cleared here even for a closed trade: this is the chart's
+      // historical record of what was recorded during the trade's life, not
+      // a live risk figure — see `stopPlanStatus` below for that.
+      //
+      // Each level also carries `resolvedPrice` — the concrete price it
+      // currently sits at, for both FIXED and TRAILING (null for a
+      // TRAILING level with no resolvable high-water price) — so the chart
+      // can draw a trailing stop's live line without re-deriving risk.ts's
+      // math itself.
+      stopLevels: currentStops.map((l) => ({
+        ...l,
+        resolvedPrice: resolveStopPrice(l, trade.avgEntry, trade.direction, highWaterPrice),
+      })),
+      // Whether the recorded plan still matches the position RIGHT NOW —
+      // same check the Stops page and At-risk box use (evaluateStopPlan).
+      // Additive, so a closed trade's history above is never altered by it;
+      // this only tells the caller whether that history is still current.
+      stopPlanStatus: evaluateStopPlan({
+        heldQuantity: trade.remainingQuantity,
+        recordedDirection: trade.direction,
+        levels: currentStops,
+        hasUnresolvedTrailing,
+      }),
       // Volume is surfaced but there is no volume pane in the chart yet —
       // deliberately out of scope, see the volume/P/E work's plan.
       bars: bars.map((b) => ({
@@ -449,6 +625,39 @@ export class PortfolioService {
       // does.
       lastBarDate: bars.at(-1)?.date ?? null,
     };
+  }
+
+  /**
+   * Appends a new stop revision against the OPENING transaction of the trade
+   * `tradeId` identifies — used when reducing a position prompts the owner
+   * to revise its stop plan without re-editing the journal entry that opened
+   * it (see journal.service.ts's `reviseStopLevels`, the only thing this
+   * calls: it is still the single write path for `stop_levels`, and a
+   * revision, once written, is never edited or deleted).
+   */
+  async reviseTradeStops(tradeId: string, levels: StopLevelSpec[]) {
+    const parsed = parseTradeId(tradeId);
+    if (!parsed) throw new NotFoundException('Unknown trade');
+
+    const user = await this.users.ensureDefaultUser();
+    const instrument = await this.instruments.findOne({
+      where: { symbol: parsed.symbol },
+    });
+    if (!instrument) throw new NotFoundException('Unknown trade');
+
+    // Same matching approach as getTrade(): a trade has no db id of its own,
+    // so its opening transaction is found by exact executedAt match against
+    // the timestamp baked into the trade id.
+    const candidates = await this.txns.find({
+      where: { userId: user.id, instrumentId: instrument.id },
+    });
+    const openingTxn = candidates.find(
+      (t) => t.executedAt.toISOString() === parsed.enteredAt,
+    );
+    if (!openingTxn) throw new NotFoundException('Unknown trade');
+
+    await this.journal.reviseStopLevels(openingTxn.id, levels);
+    return this.getTrade(tradeId);
   }
 
   async isSeeded(): Promise<boolean> {

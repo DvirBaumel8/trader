@@ -25,7 +25,7 @@ describe('Trades (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE stop_levels, transactions, cash_flows, dividends, journal_entries, entry_tags, tags RESTART IDENTITY CASCADE',
+      'TRUNCATE stop_levels, transactions, cash_flows, dividends, journal_entries, entry_tags, tags, daily_closes RESTART IDENTITY CASCADE',
     );
   });
 
@@ -120,5 +120,157 @@ describe('Trades (e2e)', () => {
       detail.body.lastBarDate === null ||
         typeof detail.body.lastBarDate === 'string',
     ).toBe(true);
+  });
+
+  it('resolves a TRAILING stop level to a concrete resolvedPrice from the high-water mark', async () => {
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'breakout entry',
+        occurredAt: '2026-01-03T14:30:00.000Z',
+        trade: {
+          symbol: 'ONDS',
+          quantity: 1000,
+          price: 7.36,
+          fee: 0,
+          stopLevels: [{ kind: 'TRAILING', trailPercent: 8.5, quantity: 1000 }],
+        },
+      })
+      .expect(201);
+
+    const [{ id: instrumentId }] = (await dataSource.query(
+      `SELECT id FROM instruments WHERE symbol = 'ONDS'`,
+    )) as Array<{ id: string }>;
+    // Huge artificial high so the assertion is deterministic regardless of
+    // ONDS's real, live-fetched quote — see portfolio.e2e-spec.ts's sibling
+    // test for the same trick.
+    await dataSource.query(
+      `INSERT INTO daily_closes (id, "instrumentId", date, close, "adjClose", open, high, low, volume)
+       VALUES (public.uuid_generate_v4(), $1, '2026-01-06', 950, 950, 960, 1000, 900, 2000000)`,
+      [instrumentId],
+    );
+
+    const id = `ONDS:2026-01-03T14:30:00.000Z`;
+    const detail = await http(app, token)
+      .get(`/portfolio/trades/${encodeURIComponent(id)}`)
+      .expect(200);
+    expect(detail.body.stopLevels).toHaveLength(1);
+    // 1000 * (1 - 0.085) = 915, not the entry-anchored 7.36 * 0.915.
+    expect(detail.body.stopLevels[0].resolvedPrice).toBeCloseTo(915, 6);
+    expect(detail.body.stopPlanStatus.issue).not.toBe('UNRESOLVED_TRAILING');
+  });
+
+  it('leaves resolvedPrice null for a closed trade with no bar history at all', async () => {
+    // Closed, so getTrade() never reaches for a live quote either — with no
+    // daily_closes rows for ONDS in this range, there is truly nothing to
+    // compute a high-water mark from.
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'breakout entry',
+        occurredAt: '2026-01-03T14:30:00.000Z',
+        trade: {
+          symbol: 'ONDS',
+          quantity: 1000,
+          price: 7.36,
+          fee: 0,
+          stopLevels: [{ kind: 'TRAILING', trailPercent: 8.5, quantity: 1000 }],
+        },
+      })
+      .expect(201);
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'closing',
+        occurredAt: '2026-01-04T14:30:00.000Z',
+        trade: { symbol: 'ONDS', quantity: -1000, price: 8, fee: 0 },
+      })
+      .expect(201);
+
+    const id = `ONDS:2026-01-03T14:30:00.000Z`;
+    const detail = await http(app, token)
+      .get(`/portfolio/trades/${encodeURIComponent(id)}`)
+      .expect(200);
+    // A wrong stop level (the old entry-anchored 6.7344) is worse than an
+    // absent one — null, never a guessed fallback.
+    expect(detail.body.stopLevels[0].resolvedPrice).toBeNull();
+  });
+
+  describe('PATCH /portfolio/trades/:id/stops', () => {
+    it('appends a new stop revision on the opening transaction without touching the prior one', async () => {
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'opening',
+          occurredAt: '2026-01-03T14:30:00.000Z',
+          trade: {
+            symbol: 'SMCI',
+            quantity: 1150,
+            price: 32,
+            fee: 0,
+            stopLevels: [
+              { kind: 'FIXED', price: 36.92, quantity: 600 },
+              { kind: 'FIXED', price: 30.39, quantity: 550 },
+            ],
+          },
+        })
+        .expect(201);
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'upper tier executed',
+          occurredAt: '2026-01-04T14:30:00.000Z',
+          trade: { symbol: 'SMCI', quantity: -600, price: 36.92, fee: 0 },
+        })
+        .expect(201);
+
+      const id = `SMCI:2026-01-03T14:30:00.000Z`;
+      const revised = await http(app, token)
+        .patch(`/portfolio/trades/${encodeURIComponent(id)}/stops`)
+        .send({ levels: [{ kind: 'FIXED', price: 30.39, quantity: 550 }] })
+        .expect(200);
+      expect(revised.body.stopLevels).toEqual([
+        {
+          kind: 'FIXED',
+          price: 30.39,
+          trailPercent: null,
+          quantity: 550,
+          resolvedPrice: 30.39,
+        },
+      ]);
+      expect(revised.body.stopPlanStatus.needsUpdate).toBe(false);
+
+      // The entry stop — the FIRST revision, which defines R — must be
+      // untouched: the trade id (and its enteredAt) still resolves to the
+      // same opening fill, and this was purely an append.
+      expect(revised.body.trade.riskAmount).not.toBeNull();
+
+      const detail = await http(app, token)
+        .get(`/portfolio/trades/${encodeURIComponent(id)}`)
+        .expect(200);
+      expect(detail.body.stopLevels).toEqual([
+        {
+          kind: 'FIXED',
+          price: 30.39,
+          trailPercent: null,
+          quantity: 550,
+          resolvedPrice: 30.39,
+        },
+      ]);
+    });
+
+    it('404s an unknown trade id', async () => {
+      await http(app, token)
+        .patch(
+          `/portfolio/trades/${encodeURIComponent('ZZZZ:2026-08-28T13:30:00.000Z')}/stops`,
+        )
+        .send({ levels: [] })
+        .expect(404);
+    });
   });
 });

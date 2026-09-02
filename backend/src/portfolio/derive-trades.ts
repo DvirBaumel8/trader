@@ -62,6 +62,115 @@ export function selectCurrentStops(levels: StopRevisionInput[]): StopLevelInput[
   return levels.filter((l) => l.revisionSeq === maxSeq).map(stripRevisionMeta);
 }
 
+/** When the latest revision was recorded, or null if that revision predates revision tracking. */
+function latestRevisionCreatedAt(levels: StopRevisionInput[]): Date | null {
+  if (levels.length === 0) return null;
+  const maxSeq = Math.max(...levels.map((l) => l.revisionSeq));
+  const latest = levels.filter((l) => l.revisionSeq === maxSeq);
+  if (latest.some((l) => l.createdAt === null)) return null;
+  // Every row in one revision is written in the same batch (see
+  // writeStopRevision), so any one of their timestamps is representative.
+  return new Date(latest[0].createdAt as string);
+}
+
+/** A fill that reduces the position, relevant to `computeEffectiveStops`. */
+export interface ReducingFill {
+  executedAt: Date;
+  price: number;
+  /** Always positive. */
+  quantity: number;
+}
+
+const EFFECTIVE_EPSILON = 1e-9;
+
+/**
+ * How far a fill's execution price sits from a tier's price — the signal
+ * `computeEffectiveStops` uses to decide which tier a sale most plausibly
+ * executed. A TRAILING tier has no single price to compare against (it
+ * moves with the market — see risk.ts), so it has no distance and is only
+ * matched once every priced (FIXED) tier is exhausted.
+ */
+function distanceFromFill(level: StopLevelInput, fillPrice: number): number | null {
+  if (level.kind === 'FIXED' && level.price !== null) {
+    return Math.abs(level.price - fillPrice);
+  }
+  return null;
+}
+
+/**
+ * The stop plan that actually still applies, right now — the latest
+ * recorded revision, minus whatever a reducing fill (a SELL against a long,
+ * a covering BUY against a short) has already consumed since that revision
+ * was set. This is derivation, not mutation: `recordedTiers` is never
+ * changed or thrown away, only read, the same way positions themselves are
+ * derived from the immutable transaction log rather than stored — so a
+ * wrong inference here is visible and correctable (recording a fresh
+ * revision through the normal journal flow) rather than a silently
+ * destroyed level.
+ *
+ * Matching rule: process reducing fills oldest first, and for each one,
+ * consume from the tier whose price is CLOSEST to the fill's execution
+ * price — scale traders exit at planned levels, so a fill at 36.92 against
+ * a tier recorded at exactly 36.92 is not a coincidence. A fill can span
+ * more than one tier (consume the closest fully, then the next-closest for
+ * the remainder) and a tier can be partially consumed (reduced in place,
+ * not retired) rather than retired outright. A fill that matches no tier
+ * closely (a discretionary exit) still reduces total coverage by its
+ * quantity, taken from the closest tier available — coverage can never
+ * exceed what is actually held (see risk.ts's `evaluateStopPlan`), it just
+ * cannot say which recorded level the owner "meant" to reduce. Once every
+ * tier is exhausted, further reducing quantity has nothing left to consume
+ * (there is nothing more this function can honestly report).
+ *
+ * Only fills at or after `recordedAt` (the latest revision's set-time) are
+ * considered — an earlier reducing fill was already reflected in whatever
+ * the owner set as that revision, so re-consuming it here would double
+ * count. When `recordedAt` is unknown (a legacy, pre-revision-tracking
+ * stop), `openedAt` is the fallback cutoff: everything since the position
+ * opened is fair game, since tiers cannot consume a sale that predates the
+ * position they protect.
+ */
+export function computeEffectiveStops(
+  recordedTiers: StopLevelInput[],
+  recordedAt: Date | null,
+  openedAt: Date,
+  reducingFills: ReducingFill[],
+): StopLevelInput[] {
+  const cutoff = recordedAt ?? openedAt;
+  const consumingFills = [...reducingFills]
+    .filter((f) => f.executedAt.getTime() >= cutoff.getTime())
+    .sort((a, b) => a.executedAt.getTime() - b.executedAt.getTime());
+
+  const remaining = recordedTiers.map((t) => ({ ...t }));
+
+  for (const fill of consumingFills) {
+    let toConsume = fill.quantity;
+    while (toConsume > EFFECTIVE_EPSILON) {
+      const candidates = remaining
+        .map((t, index) => ({ t, index }))
+        .filter(({ t }) => t.quantity > EFFECTIVE_EPSILON);
+      if (candidates.length === 0) break; // Oversold past every tier.
+
+      candidates.sort((a, b) => {
+        const da = distanceFromFill(a.t, fill.price);
+        const db = distanceFromFill(b.t, fill.price);
+        if (da === null && db === null) return a.index - b.index;
+        if (da === null) return 1;
+        if (db === null) return -1;
+        if (da !== db) return da - db;
+        return a.index - b.index;
+      });
+
+      const target = candidates[0].t;
+      const consumed = Math.min(target.quantity, toConsume);
+      target.quantity -= consumed;
+      toConsume -= consumed;
+    }
+  }
+
+  return remaining.filter((t) => t.quantity > EFFECTIVE_EPSILON);
+}
+
 /** One transaction inside a trade, as executed. */
 export interface TradeFill {
   executedAt: Date;
@@ -87,6 +196,14 @@ export interface DerivedTrade {
   isWin: boolean | null;
   isOpen: boolean;
   /**
+   * Shares actually held right now, signed (negative short, 0 once flat) —
+   * distinct from `quantity`, which is the total ever opened. This is what
+   * a live coverage check (`evaluateStopPlan` in risk.ts) must compare
+   * recorded stop tiers against, not the historical open size: a partial
+   * exit or a flip through zero changes this without changing `quantity`.
+   */
+  remainingQuantity: number;
+  /**
    * Dollars at risk from the stop tiers recorded AT ENTRY (the earliest
    * revision). Null when none were set, or when the earliest revision on
    * record is of unknown vintage — see `selectEntryStops`. This is the
@@ -108,11 +225,16 @@ export interface DerivedTrade {
   fills: TradeFill[];
 
   /**
-   * The stop tiers live RIGHT NOW — the latest revision recorded against the
-   * opening transaction — which is what the dashboard's At-risk box and the
-   * trade chart draw. This is NOT the plan as it stood at entry; see
-   * `riskAmount`'s doc comment for that one. Carried here for the same
-   * reason as `fills`: the walk already holds the revision history.
+   * The stop plan that actually still applies RIGHT NOW — the latest
+   * recorded revision, reconciled against reducing fills executed since
+   * (see `computeEffectiveStops`), which is what the dashboard's At-risk
+   * box, the Stops page and the trade chart all draw. NOT simply the latest
+   * revision's raw rows: a SELL that executed one of the tiers does not
+   * rewrite `stop_levels` (tiers attach to the opening fill and are never
+   * reconciled in the database — see stop-level.entity.ts), so this is a
+   * derived VIEW of what is still live, the same way positions are derived
+   * rather than stored. Also NOT the plan as it stood at entry; see
+   * `riskAmount`'s doc comment for that one.
    */
   currentStops: StopLevelInput[];
 }
@@ -245,7 +367,25 @@ function finish(
   // entry tiers at all, so risk stays null rather than being guessed from
   // whatever stop is live now.
   const entryStops = selectEntryStops(open.stopLevels);
-  const currentStops = selectCurrentStops(open.stopLevels);
+  const recordedCurrentStops = selectCurrentStops(open.stopLevels);
+
+  // A SELL against a long (a covering BUY against a short) is a reducing
+  // fill — it may have executed one of the recorded tiers, which the tier
+  // itself is never updated to reflect (see stop-level.entity.ts). The
+  // opening fill is automatically excluded here: its side always matches
+  // `open.direction`, the opposite of what counts as reducing, and so does
+  // any later ADD in the same direction (scaling in further).
+  const reducingSide: 'BUY' | 'SELL' = open.direction === 'LONG' ? 'SELL' : 'BUY';
+  const reducingFills: ReducingFill[] = open.fills
+    .filter((f) => f.side === reducingSide)
+    .map((f) => ({ executedAt: f.executedAt, price: f.price, quantity: f.quantity }));
+
+  const currentStops = computeEffectiveStops(
+    recordedCurrentStops,
+    latestRevisionCreatedAt(open.stopLevels),
+    open.enteredAt,
+    reducingFills,
+  );
 
   const risk = computeRisk({
     avgEntry,
@@ -262,6 +402,7 @@ function finish(
     avgExit,
     enteredAt: open.enteredAt,
     exitedAt,
+    remainingQuantity: round(open.position),
     holdingDays:
       exitedAt === null
         ? null

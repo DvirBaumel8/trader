@@ -13,6 +13,12 @@ export interface StopDistanceInput {
   extended: boolean;
   stale: boolean;
   levels: StopLevelInput[];
+  /**
+   * The high-water price since entry (see `computeFavorablePrice` in
+   * risk.ts), needed to resolve a TRAILING tier's current price. Null skips
+   * any TRAILING tier rather than pricing it from entry.
+   */
+  highWaterPrice: number | null;
 }
 
 /**
@@ -69,7 +75,12 @@ export function computeStopDistances(
 
     for (const level of p.levels) {
       if (!(level.quantity > EPSILON)) continue;
-      const stopPrice = resolveStopPrice(level, p.avgEntry, p.direction);
+      const stopPrice = resolveStopPrice(
+        level,
+        p.avgEntry,
+        p.direction,
+        p.highWaterPrice,
+      );
       if (stopPrice === null) continue;
 
       // Signed on purpose — positive is room, negative is already passed.

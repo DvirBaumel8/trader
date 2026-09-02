@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PortfolioService } from './portfolio.service.js';
+import { StopLevelDto } from '../journal/journal.dto.js';
 
 class SeedHoldingDto {
   @IsString()
@@ -45,6 +47,14 @@ class SeedDto {
   holdings: SeedHoldingDto[];
 }
 
+class ReviseStopsDto {
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => StopLevelDto)
+  levels: StopLevelDto[];
+}
+
 @Controller('portfolio')
 export class PortfolioController {
   constructor(private readonly portfolio: PortfolioService) {}
@@ -69,6 +79,17 @@ export class PortfolioController {
   @Get('trades/:id')
   getTrade(@Param('id') id: string) {
     return this.portfolio.getTrade(id);
+  }
+
+  /**
+   * Appends a new stop revision against this trade's opening transaction —
+   * used by the "reduces a stopped position" prompt in the entry sheet so
+   * revising the plan does not require reopening the entry that opened the
+   * trade. Never blocks a journal save: this is its own, independent write.
+   */
+  @Patch('trades/:id/stops')
+  reviseStops(@Param('id') id: string, @Body() body: ReviseStopsDto) {
+    return this.portfolio.reviseTradeStops(id, body.levels);
   }
 
   @Get('status')

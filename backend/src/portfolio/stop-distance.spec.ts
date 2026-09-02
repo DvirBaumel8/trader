@@ -20,6 +20,7 @@ const base: Omit<StopDistanceInput, 'levels' | 'direction' | 'avgEntry'> = {
   session: 'REGULAR',
   extended: false,
   stale: false,
+  highWaterPrice: null,
 };
 
 describe('computeStopDistances', () => {
@@ -78,6 +79,7 @@ describe('computeStopDistances', () => {
         session: 'REGULAR',
         extended: false,
         stale: false,
+        highWaterPrice: null,
         direction: 'LONG',
         avgEntry: 17,
         levels: [fixed(17.46, 50), fixed(17.07, 50)],
@@ -97,14 +99,34 @@ describe('computeStopDistances', () => {
     expect(rows).toEqual([]);
   });
 
-  it('resolves a trailing stop from the entry price, same as risk.ts', () => {
+  it('resolves a trailing stop from the high-water price, not the entry price', () => {
     const rows = computeStopDistances([
-      { ...base, direction: 'LONG', avgEntry: 90, levels: [trailing(8, 10)] },
+      {
+        ...base,
+        direction: 'LONG',
+        avgEntry: 90,
+        highWaterPrice: 110, // price ran up to 110 since entry
+        levels: [trailing(8, 10)],
+      },
     ]);
-    // implied stop = 90 * 0.92 = 82.8; distance = (100-82.8)/100
-    expect(rows[0].stopPrice).toBeCloseTo(82.8);
-    expect(rows[0].distance).toBeCloseTo((100 - 82.8) / 100);
-    expect(rows[0].passed).toBe(false);
+    // implied stop = 110 * 0.92 = 101.2, not 90 * 0.92 = 82.8.
+    expect(rows[0].stopPrice).toBeCloseTo(101.2);
+    expect(rows[0].distance).toBeCloseTo((100 - 101.2) / 100);
+    expect(rows[0].passed).toBe(true); // price (100) has fallen back through it
+  });
+
+  it('produces no row for a trailing tier with no high-water price to resolve against', () => {
+    // A wrong stop level is worse than an absent one — see resolveStopPrice.
+    const rows = computeStopDistances([
+      {
+        ...base,
+        direction: 'LONG',
+        avgEntry: 90,
+        highWaterPrice: null,
+        levels: [trailing(8, 10)],
+      },
+    ]);
+    expect(rows).toEqual([]);
   });
 
   it('skips a position with no live price rather than guessing', () => {
