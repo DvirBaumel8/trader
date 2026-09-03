@@ -164,6 +164,7 @@ Which file answers which question, and whether it loads on its own:
 | `docs/superpowers/plans/2026-08-31-trader-phase-3-benchmark.md` | Phase 3 task-by-task plan and its recorded deviations | On demand |
 | `docs/superpowers/specs/2026-09-01-trade-replay-design.md` | What Phase 4 (trade replay) is and the reasoning behind each decision, including the mid-implementation reversal from a hand-rolled chart to `lightweight-charts` | On demand |
 | `docs/superpowers/plans/2026-09-01-trader-phase-4-replay.md` | Phase 4 task-by-task plan and its recorded deviations | On demand |
+| `docs/superpowers/specs/2026-09-03-stop-executions-design.md` | Why stop executions are recorded rather than inferred, the entry-anchored signed at-risk change, and the one-off historical backfill | On demand |
 | `docs/DEPLOYMENT.md` | How to deploy, and the account setup behind it | On demand |
 
 The spec and plan documents above are deliberately **not** imported: they are
