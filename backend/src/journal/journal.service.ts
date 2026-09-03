@@ -13,6 +13,7 @@ import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
+import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { HistoryService } from '../market-data/history.service.js';
@@ -112,6 +113,10 @@ export interface CreateEntryInput {
     fee: number;
     plannedTarget?: number | null;
     stopLevels?: StopLevelSpec[];
+    /** The owner's confirmation of how a reducing fill came about. */
+    exitKind?: 'STOP' | 'DISCRETIONARY' | null;
+    /** The owner's confirmation of which stop tier(s) a reducing fill executed. */
+    stopExecutions?: { stopLevelId: string; quantity: number }[];
   };
   cash?: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number };
   dividend?: { symbol: string; amount: number };
@@ -488,6 +493,31 @@ export class JournalService {
         );
       }
       await this.writeStopRevision(manager, txn.id, input.trade.stopLevels);
+
+      // The owner's own confirmation of how this fill came about, and which
+      // tier(s) it executed — see stop-execution.entity.ts. An execution is
+      // a claim about THIS fill, so on update() it is rewritten from the new
+      // payload exactly like tags: `clearOwnedRows` deletes the previous
+      // Transaction row, which cascades away its `stop_executions` rows, and
+      // this recreates them against the fresh transaction id. That means an
+      // edit to any field of a TRADE entry must resend `exitKind` /
+      // `stopExecutions` to keep a previously confirmed attribution — the
+      // same way it must already resend `stopLevels` to keep the stop plan
+      // (stopLevels alone survives because it is re-parented, not deleted).
+      if (input.trade.exitKind) {
+        await manager.update(Transaction, txn.id, {
+          exitKind: input.trade.exitKind,
+        });
+      }
+      for (const exec of input.trade.stopExecutions ?? []) {
+        await manager.save(
+          manager.create(StopExecution, {
+            stopLevelId: exec.stopLevelId,
+            transactionId: txn.id,
+            quantity: Math.abs(exec.quantity),
+          }),
+        );
+      }
     }
 
     if (input.kind === 'CASH' && input.cash) {

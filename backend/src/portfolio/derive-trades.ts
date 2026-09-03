@@ -33,6 +33,16 @@ export interface StopRevisionInput extends StopLevelInput {
 export type TradeTxn = DerivedTxn & {
   stopLevels?: StopRevisionInput[];
   plannedTarget?: number | null;
+  /**
+   * The owner's confirmed attribution of this fill to the stop tier(s) it
+   * executed, from `stop_executions` — carried through to the matching
+   * `ReducingFill` so `computeEffectiveStops` can consume it directly. Only
+   * meaningful on a reducing fill; an opening or adding fill's value here is
+   * never read.
+   */
+  executions?: Array<{ stopLevelId: string; quantity: number }>;
+  /** From `transactions.exitKind` — see `ReducingFill.exitKind`. */
+  exitKind?: 'STOP' | 'DISCRETIONARY' | null;
 };
 
 function stripRevisionMeta(l: StopRevisionInput): StopLevelInput {
@@ -297,6 +307,10 @@ export interface TradeFill {
   price: number;
   quantity: number;
   fee: number;
+  /** Carried from `TradeTxn.executions` — see `ReducingFill.executions`. */
+  executions?: Array<{ stopLevelId: string; quantity: number }>;
+  /** Carried from `TradeTxn.exitKind` — see `ReducingFill.exitKind`. */
+  exitKind?: 'STOP' | 'DISCRETIONARY' | null;
 }
 
 export interface DerivedTrade {
@@ -425,6 +439,8 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
           price: t.price,
           quantity: t.quantity,
           fee: t.fee,
+          executions: t.executions,
+          exitKind: t.exitKind,
         });
         continue;
       }
@@ -435,6 +451,8 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
         price: t.price,
         quantity: t.quantity,
         fee: t.fee,
+        executions: t.executions,
+        exitKind: t.exitKind,
       });
       open.fees += t.fee;
       const adding = Math.sign(signed) === Math.sign(open.position);
@@ -496,7 +514,13 @@ function finish(
   const reducingSide: 'BUY' | 'SELL' = open.direction === 'LONG' ? 'SELL' : 'BUY';
   const reducingFills: ReducingFill[] = open.fills
     .filter((f) => f.side === reducingSide)
-    .map((f) => ({ executedAt: f.executedAt, price: f.price, quantity: f.quantity }));
+    .map((f) => ({
+      executedAt: f.executedAt,
+      price: f.price,
+      quantity: f.quantity,
+      executions: f.executions,
+      exitKind: f.exitKind,
+    }));
 
   // computeEffectiveStops needs each tier's id to match a recorded
   // StopExecution against the right one (see selectCurrentStopsWithIds), but

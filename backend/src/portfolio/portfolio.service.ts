@@ -9,6 +9,7 @@ import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
+import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
@@ -65,6 +66,8 @@ export class PortfolioService {
     private readonly dividendRows: Repository<Dividend>,
     @InjectRepository(StopLevel)
     private readonly stopLevels: Repository<StopLevel>,
+    @InjectRepository(StopExecution)
+    private readonly stopExecutions: Repository<StopExecution>,
     @InjectRepository(JournalEntry)
     private readonly entries: Repository<JournalEntry>,
     @InjectRepository(Instrument)
@@ -411,10 +414,11 @@ export class PortfolioService {
    */
   private async deriveAllTrades(): Promise<DerivedTrade[]> {
     const user = await this.users.ensureDefaultUser();
-    const [txnRows, instrumentRows, levelRows] = await Promise.all([
+    const [txnRows, instrumentRows, levelRows, executionRows] = await Promise.all([
       this.txns.find({ where: { userId: user.id } }),
       this.instruments.find(),
       this.stopLevels.find(),
+      this.stopExecutions.find(),
     ]);
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
 
@@ -423,6 +427,22 @@ export class PortfolioService {
       levelsByTxn.set(l.transactionId, [
         ...(levelsByTxn.get(l.transactionId) ?? []),
         l,
+      ]);
+    }
+
+    // The owner's confirmed attribution of a reducing fill to the tier(s) it
+    // executed — see stop-execution.entity.ts. Keyed by transactionId so
+    // computeEffectiveStops (via deriveTrades) can consume them directly
+    // instead of guessing by price, exactly as it already does for a
+    // recorded exitKind.
+    const executionsByTxn = new Map<
+      string,
+      Array<{ stopLevelId: string; quantity: number }>
+    >();
+    for (const ex of executionRows) {
+      executionsByTxn.set(ex.transactionId, [
+        ...(executionsByTxn.get(ex.transactionId) ?? []),
+        { stopLevelId: ex.stopLevelId, quantity: ex.quantity },
       ]);
     }
 
@@ -451,6 +471,8 @@ export class PortfolioService {
             createdAt: l.createdAt ? l.createdAt.toISOString() : null,
           })),
         plannedTarget: t.plannedTarget,
+        executions: executionsByTxn.get(t.id),
+        exitKind: t.exitKind,
       })),
     );
   }

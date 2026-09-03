@@ -6,11 +6,22 @@ import {
   IsISO8601,
   IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
+  IsUUID,
   Length,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+
+export class StopExecutionDto {
+  @IsUUID()
+  stopLevelId: string;
+
+  @IsNumber()
+  @IsPositive()
+  quantity: number;
+}
 
 export class StopLevelDto {
   @IsIn(['FIXED', 'TRAILING'])
@@ -57,6 +68,18 @@ export class TradeDto {
   @ValidateNested({ each: true })
   @Type(() => StopLevelDto)
   stopLevels?: StopLevelDto[];
+
+  /** The owner's confirmation of which stop tier a reducing fill executed. */
+  @IsOptional()
+  @IsIn(['STOP', 'DISCRETIONARY'])
+  exitKind?: 'STOP' | 'DISCRETIONARY';
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => StopExecutionDto)
+  stopExecutions?: StopExecutionDto[];
 }
 
 export class CashDto {

@@ -26,6 +26,8 @@ function toInput(body: CreateEntryDto): CreateEntryInput {
           fee: body.trade.fee ?? 0,
           plannedTarget: body.trade.plannedTarget ?? null,
           stopLevels: body.trade.stopLevels,
+          exitKind: body.trade.exitKind ?? null,
+          stopExecutions: body.trade.stopExecutions,
         }
       : undefined,
     cash: body.cash,
