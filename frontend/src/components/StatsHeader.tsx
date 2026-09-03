@@ -13,11 +13,6 @@ interface Stats {
   expectancyDollars: number | null;
   expectancyR: number | null;
   rTradeCount: number;
-  exitStats: {
-    stopped: number;
-    discretionary: number;
-    unclassified: number;
-  };
 }
 
 function Stat({
@@ -85,27 +80,6 @@ export function StatsHeader() {
         <p className="text-center text-[10px] text-muted">
           <Money value={data.expectancyDollars} signed /> average per closed
           trade
-        </p>
-      )}
-      {/*
-        Only classified exits form the percentage, and the unclassified count
-        is shown beside it rather than folded in: "I chose to sell" and
-        "nobody has said yet" are different facts, and merging them would
-        overstate discipline on all the history recorded before exits could be
-        classified at all. Nothing renders until at least one exit is
-        classified - a percentage of zero exits is not a number.
-      */}
-      {data.exitStats.stopped + data.exitStats.discretionary > 0 && (
-        <p className="text-center text-[10px] text-muted">
-          Stopped out on{' '}
-          {Math.round(
-            (data.exitStats.stopped /
-              (data.exitStats.stopped + data.exitStats.discretionary)) *
-              100,
-          )}
-          % of exits
-          {data.exitStats.unclassified > 0 &&
-            ` · ${data.exitStats.unclassified} unclassified`}
         </p>
       )}
     </div>

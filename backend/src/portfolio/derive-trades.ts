@@ -625,43 +625,45 @@ function round(n: number): number {
   return Math.round(n * 1e8) / 1e8;
 }
 
+
 /**
- * How the owner's exits came about, across every derived trade.
+ * How close a fill must sit to a tier's price before the app will record, on
+ * its own, that the tier fired. 0.25% of the tier price.
  *
- * `unclassified` is reported rather than folded into `discretionary`, because
- * "I chose to sell" and "nobody has said yet" are different facts: merging
- * them would silently overstate discipline on exactly the history that
- * predates this feature, where nothing is classified at all.
- *
- * Takes trades rather than pre-filtered fills so the rule for what counts as
- * an exit — a fill on the side opposite the position's direction, a SELL
- * against a long or a covering BUY against a short — stays in this file
- * beside `computeEffectiveStops`, which derives it the same way. A caller
- * re-deriving it would be a second copy free to drift.
+ * Calibrated against the owner's real history: his stop fills land between
+ * exact and 18 cents off a $207 level (0.09%), which is ordinary slippage.
+ * A wider window would start claiming that any sale in the neighbourhood of a
+ * stop WAS that stop, which is the guess this whole feature exists to stop
+ * making.
  */
-export function computeExitStats(
-  trades: Array<{
-    direction: 'LONG' | 'SHORT';
-    fills: Array<{
-      side: 'BUY' | 'SELL';
-      exitKind?: 'STOP' | 'DISCRETIONARY' | null;
-    }>;
-  }>,
-): { stopped: number; discretionary: number; unclassified: number } {
-  let stopped = 0;
-  let discretionary = 0;
-  let unclassified = 0;
+const AUTO_ATTRIBUTE_TOLERANCE = 0.0025;
 
-  for (const trade of trades) {
-    const reducingSide: 'BUY' | 'SELL' =
-      trade.direction === 'LONG' ? 'SELL' : 'BUY';
-    for (const fill of trade.fills) {
-      if (fill.side !== reducingSide) continue;
-      if (fill.exitKind === 'STOP') stopped += 1;
-      else if (fill.exitKind === 'DISCRETIONARY') discretionary += 1;
-      else unclassified += 1;
-    }
+/**
+ * The tier a fill demonstrably executed, or null.
+ *
+ * Unlike `suggestTierForFill`, which always returns its best candidate for a
+ * human to accept or reject, this refuses to answer unless the prices
+ * genuinely match — it is written to be believed without review, so it must
+ * only claim what it can see.
+ *
+ * TRAILING tiers are never matched here. Their live level depends on the
+ * high-water mark since entry, which exists in the portfolio derivation and
+ * not in the journal write path, so a trailing tier cannot be priced at the
+ * moment a fill is recorded. An exit against one is simply left unrecorded
+ * rather than guessed at.
+ */
+export function autoAttributeTier(
+  tiers: Array<StopLevelInput & { id: string }>,
+  fillPrice: number,
+): string | null {
+  if (!(fillPrice > 0)) return null;
+  let best: { id: string; gap: number } | null = null;
+  for (const tier of tiers) {
+    if (tier.kind !== 'FIXED') continue;
+    if (tier.price === null || !(tier.price > 0)) continue;
+    const gap = Math.abs(tier.price - fillPrice);
+    if (gap > tier.price * AUTO_ATTRIBUTE_TOLERANCE) continue;
+    if (best === null || gap < best.gap) best = { id: tier.id, gap };
   }
-
-  return { stopped, discretionary, unclassified };
+  return best?.id ?? null;
 }

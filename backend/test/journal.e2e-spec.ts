@@ -370,6 +370,54 @@ describe('Journal (e2e)', () => {
     expect(Number(rows[0].count)).toBe(1);
   });
 
+  it('recognises a stop on its own, with nothing sent by the client', async () => {
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE', body: 'entry', occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+      },
+    }).expect(201);
+
+    // No exitKind, no stopExecutions - the prices alone say what happened.
+    // Filled 12 cents under the stop, ordinary slippage.
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE', body: 'stopped out', occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: { symbol: 'NVDA', quantity: -100, price: 179.88, fee: 0 },
+    }).expect(201);
+
+    const rows = (await dataSource.query(
+      `SELECT se.quantity, t."exitKind" FROM stop_executions se
+       JOIN transactions t ON t.id = se."transactionId"`,
+    )) as Array<{ quantity: string; exitKind: string }>;
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0].quantity)).toBe(100);
+    expect(rows[0].exitKind).toBe('STOP');
+  });
+
+  it('claims nothing when the exit is nowhere near the stop', async () => {
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE', body: 'entry', occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+      },
+    }).expect(201);
+
+    // Sold at 210 - a decision, not a stop. Unrecorded is the honest answer.
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE', body: 'took profit', occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: { symbol: 'NVDA', quantity: -100, price: 210, fee: 0 },
+    }).expect(201);
+
+    const rows = (await dataSource.query(`SELECT id FROM stop_executions`)) as unknown[];
+    expect(rows).toHaveLength(0);
+    const kinds = (await dataSource.query(
+      `SELECT "exitKind" FROM transactions WHERE side = 'SELL'`,
+    )) as Array<{ exitKind: string | null }>;
+    expect(kinds[0].exitKind).toBeNull();
+  });
+
   it('records which stop tier a sell executed', async () => {
     const open = await http(app, token).post('/journal').send({
       kind: 'TRADE',
@@ -629,7 +677,7 @@ describe('Journal (e2e)', () => {
     expect(kinds[0].exitKind).toBe('STOP');
   });
 
-  it('loses a confirmed stop execution when an edit omits it — the real hazard behind the reconstruction above', async () => {
+  it('regenerates a stop attribution when an edit omits it, rather than losing it', async () => {
     await http(app, token).post('/journal').send({
       kind: 'TRADE',
       body: 'entry',
@@ -674,12 +722,16 @@ describe('Journal (e2e)', () => {
     const rows = (await dataSource.query(
       `SELECT quantity FROM stop_executions WHERE "stopLevelId" = $1`, [stopLevelId],
     )) as Array<{ quantity: string }>;
-    expect(rows).toHaveLength(0);
+    // Auto-recognition recomputes the attribution on every save, so the
+    // ON DELETE CASCADE no longer destroys it: the row is rebuilt from the
+    // prices. This test previously pinned the loss as a known hazard.
+    expect(rows).toHaveLength(1);
 
     const kinds = (await dataSource.query(
       `SELECT "exitKind" FROM transactions WHERE side = 'SELL'`,
     )) as Array<{ exitKind: string | null }>;
-    expect(kinds[0].exitKind).toBeNull();
+    // Regenerated alongside the execution row, from the prices.
+    expect(kinds[0].exitKind).toBe('STOP');
   });
 
   it('deletes an entry and removes its effect on the portfolio', async () => {

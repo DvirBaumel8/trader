@@ -14,6 +14,7 @@ import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { StopExecution } from '../transactions/stop-execution.entity.js';
+import { autoAttributeTier } from '../portfolio/derive-trades.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { HistoryService } from '../market-data/history.service.js';
@@ -668,6 +669,25 @@ export class JournalService {
           }),
         );
       }
+
+      // Nothing was claimed explicitly, so work it out. A reducing fill whose
+      // price matches a recorded FIXED tier within ordinary slippage IS that
+      // stop firing — there is nothing for the owner to adjudicate, and asking
+      // him to confirm what the prices already prove is friction he was right
+      // to refuse.
+      //
+      // Recomputed on every save, which is what makes it safe: `update()`
+      // deletes and recreates the transaction row and the ON DELETE CASCADE
+      // takes the execution with it, so an attribution that had to survive an
+      // edit would need the client to resend it. Deriving it here means it is
+      // simply regenerated, and an edit cannot destroy it.
+      //
+      // A trailing tier is never matched (see autoAttributeTier): pricing one
+      // needs the high-water mark, which lives in the portfolio derivation and
+      // not here. Such an exit is left unrecorded rather than guessed at.
+      if (!input.trade.exitKind && (input.trade.stopExecutions ?? []).length === 0) {
+        await this.autoRecordStopExecution(manager, txn, resolved.instrumentId);
+      }
     }
 
     if (input.kind === 'CASH' && input.cash) {
@@ -777,6 +797,78 @@ export class JournalService {
     await this.dataSource.transaction(async (manager) => {
       await this.writeStopRevision(manager, transactionId, levels);
     });
+  }
+
+  /**
+   * Record, unprompted, that a stop fired — when the prices say so plainly.
+   *
+   * Only a fill that REDUCES the position can execute a stop, and only a
+   * FIXED tier can be priced from here, so this claims a stop exactly when a
+   * reducing fill lands within slippage of a recorded level. Everything else
+   * is left `null`: unrecorded is an honest answer, a wrong attribution is
+   * not.
+   *
+   * Reads the latest revision's tiers and subtracts what earlier executions
+   * already consumed, so a tier that has already fired is not credited twice
+   * on a later partial exit.
+   */
+  private async autoRecordStopExecution(
+    manager: EntityManager,
+    txn: Transaction,
+    instrumentId: string,
+  ): Promise<void> {
+    const all = await manager.find(Transaction, { where: { instrumentId } });
+    const netBefore = all
+      .filter((t) => t.id !== txn.id)
+      .reduce((sum, t) => sum + (t.side === 'BUY' ? t.quantity : -t.quantity), 0);
+    const isReducing =
+      (txn.side === 'SELL' && netBefore > REVISION_EPSILON) ||
+      (txn.side === 'BUY' && netBefore < -REVISION_EPSILON);
+    if (!isReducing) return;
+
+    const levels = await manager.find(StopLevel, {
+      where: all.map((t) => ({ transactionId: t.id })),
+    });
+    if (levels.length === 0) return;
+
+    const byTxn = new Map<string, StopLevel[]>();
+    for (const l of levels) {
+      byTxn.set(l.transactionId, [...(byTxn.get(l.transactionId) ?? []), l]);
+    }
+    const live: StopLevel[] = [];
+    for (const group of byTxn.values()) {
+      const maxSeq = Math.max(...group.map((l) => l.revisionSeq));
+      live.push(...group.filter((l) => l.revisionSeq === maxSeq));
+    }
+
+    const matchedId = autoAttributeTier(
+      live.map((l) => ({
+        id: l.id,
+        kind: l.kind,
+        price: l.price,
+        trailPercent: l.trailPercent,
+        quantity: l.quantity,
+      })),
+      txn.price,
+    );
+    if (matchedId === null) return;
+
+    const tier = live.find((l) => l.id === matchedId)!;
+    const already = await manager.find(StopExecution, {
+      where: { stopLevelId: matchedId },
+    });
+    const consumed = already.reduce((sum, e) => sum + e.quantity, 0);
+    const room = tier.quantity - consumed;
+    if (room <= REVISION_EPSILON) return;
+
+    await manager.save(
+      manager.create(StopExecution, {
+        stopLevelId: matchedId,
+        transactionId: txn.id,
+        quantity: Math.min(Math.abs(txn.quantity), room),
+      }),
+    );
+    await manager.update(Transaction, txn.id, { exitKind: 'STOP' });
   }
 
   /** Find-or-create each tag, then replace the entry's joins with exactly these. */

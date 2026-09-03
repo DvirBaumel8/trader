@@ -20,17 +20,6 @@ export interface EntryDraft {
   dividendAmount: string;
   setups: string[];
   mistakes: string[];
-  /**
-   * How an exit came about, as one field with three states rather than two
-   * that could contradict each other: a stop tier's id when the owner says
-   * that tier fired, the literal 'DISCRETIONARY' when he says it was his own
-   * decision, or null when the question does not apply or is unanswered.
-   *
-   * Persisted with the rest of the draft because iOS Safari discards
-   * backgrounded tabs, and switching to a broker app to check a fill is
-   * exactly when this gets lost.
-   */
-  exitAttribution: string | null;
 }
 
 /** The local calendar date, for a `<input type="date">`. */
@@ -69,7 +58,6 @@ export function emptyDraft(defaultFee: number): EntryDraft {
     dividendAmount: '',
     setups: [],
     mistakes: [],
-    exitAttribution: null,
   };
 }
 

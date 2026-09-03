@@ -5,7 +5,7 @@ import {
   selectCurrentStops,
   computeEffectiveStops,
   suggestTierForFill,
-  computeExitStats,
+  autoAttributeTier,
   type TradeTxn,
   type StopRevisionInput,
   type ReducingFill,
@@ -922,66 +922,6 @@ describe('suggestTierForFill', () => {
   });
 });
 
-describe('computeExitStats', () => {
-  const trade = (
-    direction: 'LONG' | 'SHORT',
-    fills: Array<{ side: 'BUY' | 'SELL'; exitKind?: 'STOP' | 'DISCRETIONARY' | null }>,
-  ) => ({
-    direction,
-    fills: fills.map((f) => ({
-      executedAt: new Date('2026-01-05'),
-      side: f.side,
-      price: 10,
-      quantity: 1,
-      fee: 0,
-      exitKind: f.exitKind ?? null,
-    })),
-  });
-
-  it('counts classified exits and reports the unclassified separately', () => {
-    expect(
-      computeExitStats([
-        trade('LONG', [
-          { side: 'BUY' },
-          { side: 'SELL', exitKind: 'STOP' },
-          { side: 'SELL', exitKind: 'STOP' },
-        ]),
-        trade('LONG', [
-          { side: 'BUY' },
-          { side: 'SELL', exitKind: 'DISCRETIONARY' },
-          { side: 'SELL', exitKind: null },
-        ]),
-      ]),
-    ).toEqual({ stopped: 2, discretionary: 1, unclassified: 1 });
-  });
-
-  it('ignores fills that open or add to a position', () => {
-    // Two BUYs on a long: the opening fill and a scale-in. Neither is an exit,
-    // and counting them as unclassified would understate the stopped-out rate.
-    expect(
-      computeExitStats([
-        trade('LONG', [{ side: 'BUY' }, { side: 'BUY' }, { side: 'SELL', exitKind: 'STOP' }]),
-      ]),
-    ).toEqual({ stopped: 1, discretionary: 0, unclassified: 0 });
-  });
-
-  it('treats a covering BUY as the exit on a short', () => {
-    expect(
-      computeExitStats([
-        trade('SHORT', [{ side: 'SELL' }, { side: 'BUY', exitKind: 'STOP' }]),
-      ]),
-    ).toEqual({ stopped: 1, discretionary: 0, unclassified: 0 });
-  });
-
-  it('is all zeroes when nothing has been exited', () => {
-    expect(computeExitStats([])).toEqual({
-      stopped: 0,
-      discretionary: 0,
-      unclassified: 0,
-    });
-  });
-});
-
 describe('fills sharing an executedAt', () => {
   // Journal entries record a DATE, not a time, so every fill logged for the
   // same day lands on the identical timestamp. Ordering them by executedAt
@@ -1048,5 +988,51 @@ describe('fills sharing an executedAt', () => {
     expect(trades[0].isOpen).toBe(false);
     expect(trades[0].avgEntry).toBeCloseTo(370, 6);
     expect(trades[0].avgExit).toBeCloseTo(380, 6);
+  });
+});
+
+describe('autoAttributeTier', () => {
+  const fixed = (id: string, price: number) => ({
+    id,
+    kind: 'FIXED' as const,
+    price,
+    trailPercent: null,
+    quantity: 100,
+  });
+
+  it('matches an exact fill', () => {
+    expect(autoAttributeTier([fixed('a', 36.92)], 36.92)).toBe('a');
+  });
+
+  it('tolerates ordinary slippage', () => {
+    // The owner's real worst case: BE, filled at 206.90 against a 207.08 stop.
+    expect(autoAttributeTier([fixed('a', 207.08)], 206.9)).toBe('a');
+    // AVGO, 2 cents off a 349.93 stop.
+    expect(autoAttributeTier([fixed('a', 349.93)], 349.91)).toBe('a');
+  });
+
+  it('refuses a fill that is merely in the neighbourhood', () => {
+    // 1% away is not slippage, it is a different decision.
+    expect(autoAttributeTier([fixed('a', 100)], 99)).toBeNull();
+  });
+
+  it('picks the nearer of two tiers, never the further', () => {
+    expect(autoAttributeTier([fixed('a', 36.92), fixed('b', 36.95)], 36.94)).toBe('b');
+  });
+
+  it('never matches a trailing tier', () => {
+    // Its live level needs the high-water mark, which the journal write path
+    // does not have. MSTR is the real case: recorded 11.9%, exited at 123.07.
+    expect(
+      autoAttributeTier(
+        [{ id: 't', kind: 'TRAILING', price: null, trailPercent: 11.9, quantity: 100 }],
+        123.07,
+      ),
+    ).toBeNull();
+  });
+
+  it('answers null for no tiers or no price', () => {
+    expect(autoAttributeTier([], 10)).toBeNull();
+    expect(autoAttributeTier([fixed('a', 10)], 0)).toBeNull();
   });
 });

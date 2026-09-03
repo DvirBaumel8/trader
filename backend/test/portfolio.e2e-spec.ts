@@ -199,9 +199,12 @@ describe('Portfolio (e2e)', () => {
 
   it('caps the at-risk dollar figure when tiers overshoot the held quantity', async () => {
     // SMCI's shape: 1150 opened with two tiers (600 @ 36.92, 550 @ 30.39),
-    // then a SELL of 600 executes the upper tier — 550 remain, but both
-    // tiers are still on record, so the app must not price 1150 shares of
-    // protection against a 550-share position.
+    // then 600 sold WELL AWAY from either level — a decision, not a stop, so
+    // nothing is auto-attributed and both tiers stay on record against a
+    // 550-share position. The app must not price 1150 shares of protection.
+    // (A sale AT 36.92 is now recognised as that tier firing and leaves the
+    // plan correctly matching what is held — see the auto-recognition tests
+    // in journal.e2e-spec.ts.)
     await http(app, token)
       .post('/journal')
       .send({
@@ -224,9 +227,9 @@ describe('Portfolio (e2e)', () => {
       .post('/journal')
       .send({
         kind: 'TRADE',
-        body: 'upper tier executed',
+        body: 'sold on a view, nowhere near either stop',
         occurredAt: '2026-01-04T14:30:00.000Z',
-        trade: { symbol: 'SMCI', quantity: -600, price: 36.92, fee: 0 },
+        trade: { symbol: 'SMCI', quantity: -600, price: 41.5, fee: 0 },
       })
       .expect(201);
 

@@ -29,7 +29,6 @@ import {
 import {
   deriveTrades,
   summariseTrades,
-  computeExitStats,
   type DerivedTrade,
 } from './derive-trades.js';
 import { parseTradeId, tradeId, windowBounds } from './trade-window.js';
@@ -555,9 +554,6 @@ export class PortfolioService {
     const trades = await this.deriveAllTrades();
     return {
       ...summariseTrades(trades),
-      // Computed from the full trades, before fills are stripped below - the
-      // stat counts reducing fills, which the list payload does not carry.
-      exitStats: computeExitStats(trades),
       // Fills are for the detail screen; sending them for every trade would
       // bloat a response the list view re-fetches often.
       trades: trades.map(({ fills, currentStops, ...rest }) => rest),
