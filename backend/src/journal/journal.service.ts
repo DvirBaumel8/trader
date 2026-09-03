@@ -96,6 +96,15 @@ export interface EntryView {
     stopLevels: StopLevelSpec[];
     /** Dollars at risk from the tiers, computed for display. */
     riskAmount: number | null;
+    /** The owner's confirmation of how this fill came about, if a reducing fill. */
+    exitKind: 'STOP' | 'DISCRETIONARY' | null;
+    /**
+     * The owner's confirmation of which stop tier(s) this fill executed.
+     * Exposed so an edit form can round-trip it: `update()` is a full
+     * replace, so keeping a confirmed execution across an unrelated edit
+     * requires resending it, which requires being able to read it back.
+     */
+    stopExecutions: { stopLevelId: string; quantity: number }[];
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   dividend: { symbol: string; amount: number } | null;
@@ -144,6 +153,8 @@ export class JournalService {
     private readonly dividends: Repository<Dividend>,
     @InjectRepository(StopLevel)
     private readonly stopLevels: Repository<StopLevel>,
+    @InjectRepository(StopExecution)
+    private readonly stopExecutions: Repository<StopExecution>,
     @InjectRepository(Tag) private readonly tags: Repository<Tag>,
     @InjectRepository(EntryTag)
     private readonly entryTags: Repository<EntryTag>,
@@ -157,7 +168,7 @@ export class JournalService {
 
   async list(filters: ListFilters = {}): Promise<EntryView[]> {
     const user = await this.users.ensureDefaultUser();
-    const [entries, txns, flows, divs, instruments, allTags, joins, levels] =
+    const [entries, txns, flows, divs, instruments, allTags, joins, levels, executions] =
       await Promise.all([
         this.entries.find({
           where: { userId: user.id },
@@ -170,6 +181,7 @@ export class JournalService {
         this.tags.find({ where: { userId: user.id } }),
         this.entryTags.find(),
         this.stopLevels.find(),
+        this.stopExecutions.find(),
       ]);
 
     const symbolById = new Map(instruments.map((i) => [i.id, i.symbol]));
@@ -196,6 +208,14 @@ export class JournalService {
         .filter((l) => l.revisionSeq === maxSeq)
         .sort((a, b) => a.ordinal - b.ordinal);
     };
+
+    const executionsByTxn = new Map<string, StopExecution[]>();
+    for (const ex of executions) {
+      executionsByTxn.set(ex.transactionId, [
+        ...(executionsByTxn.get(ex.transactionId) ?? []),
+        ex,
+      ]);
+    }
 
     const tagIdsByEntry = new Map<string, string[]>();
     for (const j of joins) {
@@ -238,6 +258,11 @@ export class JournalService {
             quantity: l.quantity,
           })),
           riskAmount: risk.amount,
+          exitKind: t.exitKind,
+          stopExecutions: (executionsByTxn.get(t.id) ?? []).map((ex) => ({
+            stopLevelId: ex.stopLevelId,
+            quantity: ex.quantity,
+          })),
         };
       }
 
@@ -291,7 +316,7 @@ export class JournalService {
    */
   async create(input: CreateEntryInput): Promise<EntryView> {
     const user = await this.users.ensureDefaultUser();
-    const resolved = await this.resolveTrade(input);
+    const resolved = await this.resolveTrade(input, null);
 
     const entryId = await this.dataSource.transaction(async (manager) => {
       const entry = await manager.save(
@@ -334,7 +359,7 @@ export class JournalService {
     });
     if (!existing) throw new NotFoundException('Entry not found');
 
-    const resolved = await this.resolveTrade(input);
+    const resolved = await this.resolveTrade(input, id);
 
     await this.dataSource.transaction(async (manager) => {
       const previousTxn = await manager.findOne(Transaction, {
@@ -411,7 +436,16 @@ export class JournalService {
    * never boot the Nest container, so neither caught it). JournalModule's
    * dependency on MarketDataModule is one-directional, so no such cycle here.
    */
-  private async resolveTrade(input: CreateEntryInput) {
+  private async resolveTrade(
+    input: CreateEntryInput,
+    /**
+     * The entry being edited, if this is an `update()`. Excluded from the
+     * net-position check in `validateExitAttribution` so a re-saved fill is
+     * not counted twice against its own prior version — `create()` passes
+     * `null`, since there is no prior transaction to exclude.
+     */
+    excludeEntryId: string | null,
+  ) {
     if (input.kind === 'TRADE') {
       if (!input.trade) {
         throw new BadRequestException('A trade entry needs trade details');
@@ -421,6 +455,17 @@ export class JournalService {
         input.trade.symbol,
       );
       await this.ensurePricedSafely(instrument);
+      const hasAttribution =
+        !!input.trade.exitKind || (input.trade.stopExecutions ?? []).length > 0;
+      if (hasAttribution) {
+        await this.validateExitAttribution(
+          input.trade,
+          instrument.id,
+          side,
+          quantity,
+          excludeEntryId,
+        );
+      }
       return { side, quantity, instrumentId: instrument.id };
     }
     if (input.kind === 'CASH' && !input.cash) {
@@ -437,6 +482,96 @@ export class JournalService {
       return { side: 'BUY' as const, quantity: 0, instrumentId: instrument.id };
     }
     return null;
+  }
+
+  /**
+   * The instrument's net signed position (positive long, negative short)
+   * from every OTHER transaction on record — `excludeEntryId` leaves out
+   * this entry's own prior fill on an `update()`, so re-saving a fill
+   * unchanged does not count it against itself.
+   */
+  private async currentNetQuantity(
+    instrumentId: string,
+    excludeEntryId: string | null,
+  ): Promise<number> {
+    const txns = await this.txns.find({ where: { instrumentId } });
+    return txns
+      .filter((t) => t.entryId !== excludeEntryId)
+      .reduce((sum, t) => sum + (t.side === 'BUY' ? t.quantity : -t.quantity), 0);
+  }
+
+  /**
+   * Guards the owner's confirmed stop attribution (`exitKind` /
+   * `stopExecutions`) against three ways it can go wrong before it ever
+   * reaches the database:
+   *
+   * 1. It only means anything on a fill that actually REDUCES an existing
+   *    position — derivation (`computeEffectiveStops`) only ever reads it on
+   *    a reducing fill; an opening or adding fill has no tier to have
+   *    executed. Checked against the instrument's current net position
+   *    rather than blindly by side, because on margin a BUY can be a
+   *    reducing fill too (covering a short) — see product-brief.md.
+   * 2. Each `stopLevelId` must resolve to a stop level that ACTUALLY
+   *    protects this instrument. Without this, a cross-instrument id is
+   *    written silently, which is worse than a no-op: it makes
+   *    `fill.executions` non-empty, so `computeEffectiveStops` takes the
+   *    "confirmed" branch, finds no matching tier among this trade's own,
+   *    and skips price matching entirely — the real tier is never consumed
+   *    and the position reports stop coverage it does not have. A
+   *    well-formed but nonexistent id is rejected here too, rather than
+   *    left to surface as a 500 from the foreign key.
+   * 3. The executions named for one fill cannot claim more shares than the
+   *    fill itself sold — over-claiming does not corrupt derivation
+   *    (`computeEffectiveStops` clamps at zero) but it silently
+   *    UNDER-reports stop coverage, an "honest numbers" violation reachable
+   *    from one mistyped digit.
+   */
+  private async validateExitAttribution(
+    trade: NonNullable<CreateEntryInput['trade']>,
+    instrumentId: string,
+    side: 'BUY' | 'SELL',
+    quantity: number,
+    excludeEntryId: string | null,
+  ): Promise<void> {
+    const netQty = await this.currentNetQuantity(instrumentId, excludeEntryId);
+    const isReducing =
+      (side === 'SELL' && netQty > REVISION_EPSILON) ||
+      (side === 'BUY' && netQty < -REVISION_EPSILON);
+    if (!isReducing) {
+      throw new BadRequestException(
+        'exitKind and stopExecutions only apply to a fill that reduces an existing position',
+      );
+    }
+
+    const stopExecutions = trade.stopExecutions ?? [];
+    const requestedTotal = stopExecutions.reduce(
+      (sum, exec) => sum + exec.quantity,
+      0,
+    );
+    if (requestedTotal - quantity > REVISION_EPSILON) {
+      throw new BadRequestException(
+        'stopExecutions cannot claim more shares than the fill itself',
+      );
+    }
+
+    for (const exec of stopExecutions) {
+      const level = await this.stopLevels.findOne({
+        where: { id: exec.stopLevelId },
+      });
+      if (!level) {
+        throw new BadRequestException(
+          `Unknown stop level ${exec.stopLevelId}`,
+        );
+      }
+      const owningTxn = await this.txns.findOne({
+        where: { id: level.transactionId },
+      });
+      if (!owningTxn || owningTxn.instrumentId !== instrumentId) {
+        throw new BadRequestException(
+          `Stop level ${exec.stopLevelId} does not belong to this instrument`,
+        );
+      }
+    }
   }
 
   /**
