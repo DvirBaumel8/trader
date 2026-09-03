@@ -21,7 +21,7 @@
 - **Schema changes go through migrations** in `backend/src/database/migrations/`, named `<epoch-ms>-<Name>.ts`, and must be registered by hand in `backend/src/database/data-source.ts` — that file lists every migration class explicitly and a new one will silently never run if you skip it.
 - **Do not run `nest build` while `npm run dev` is running.** Typecheck with `npx tsc --noEmit -p tsconfig.json` from `backend/`.
 - **e2e runs against `trader_test`.** Never run anything against `trader`, which holds the owner's real portfolio.
-- **No test may call a real model or a real Yahoo endpoint.** `test/global-setup.ts` blanks `LLM_API_KEY`; stub `YahooClient` in tests rather than reaching the network.
+- **No test may reach the network at all** — not Yahoo, not an LLM, not anything external. Stub the client with `overrideProvider`. The suite must pass with the machine offline.
 - **Mobile is the primary device.** The iOS decimal keypad has no minus key; any numeric input uses a toggle, never a typed `-`.
 - **Frontend typecheck is `npx tsc -b`, not `tsc --noEmit -p`** — the build enforces `noUnusedLocals` across test files and `--noEmit -p` does not. Verify with `npm run build` from the repo root before claiming a frontend task is done.
 
@@ -107,7 +107,10 @@ describe('computeIndicators', () => {
   });
 
   it('takes the 52-week high and low from intraday extremes, not closes', () => {
-    const bars = flat(300, 100);
+    // 200 bars, deliberately fewer than the 252-bar window, so the extremes
+    // set below are inside it. With 300 the window would drop the first 48
+    // and this test would silently assert nothing.
+    const bars = flat(200, 100);
     bars[10] = { ...bars[10], high: 150 };
     bars[20] = { ...bars[20], low: 50 };
     const r = computeIndicators(bars, 100);
@@ -1132,6 +1135,86 @@ git commit -m "feat: the Ideas tab"
 ```
 
 ---
+
+---
+
+## Slice 5 — Make the existing suite hermetic
+
+### Task 9: No test reaches the network
+
+**Files:**
+- Create: `backend/test/yahoo-stub.ts`
+- Modify: every e2e spec that boots `AppModule` — `portfolio`, `journal`, `trades`, `instruments`, `history`, `ai-summaries`, `health`, `auth`
+
+**Why:** the specs written before this rule call Yahoo for real. They validate
+`NVDA` against the live API and expect a genuine 404 for `ZZZZNOTREAL`, and
+`portfolio.e2e-spec.ts:303` works around "ONDS's real, live-fetched quote".
+That makes the suite fail offline, fail in CI without network, and quietly
+assert something different each day as prices move.
+
+- [x] **Step 1: Write the shared stub**
+
+`backend/test/yahoo-stub.ts` exports `yahooStub()` returning an object with
+`quote`, `quoteMany` and `dailyBars`. It answers for a fixed set of symbols
+the specs already use and returns `null` from `quote` for anything else, so
+`ZZZZNOTREAL` still 404s — for a deterministic reason rather than a network
+one. Prices are fixed constants. `dailyBars` returns a generated flat series
+with strictly increasing dates.
+
+- [x] **Step 2: Apply it to one spec and prove it works offline**
+
+Wire it into `instruments.e2e-spec.ts` first — the smallest surface. Then run
+that spec with the network disabled (`sudo ifconfig en0 down`, or simply
+disconnect Wi-Fi) and confirm it passes. Re-enable afterwards.
+
+- [x] **Step 3: Apply it to the remaining specs**
+
+One spec at a time, running each after wiring it. Where an assertion depends
+on a live price, change the assertion to the stub's fixed value rather than
+loosening it — a test that stops asserting a number is worse than one that
+needed the network.
+
+- [x] **Step 4: Verify the whole suite offline**
+
+Disconnect the network entirely and run `cd backend && npm run test:e2e`.
+Expected: every test passes. Reconnect. Note the runtime before and after in
+the commit message — most of the current ~23s is network.
+
+- [x] **Step 5: Commit**
+
+```bash
+git add backend/test
+git commit -m "test: no e2e test reaches the network"
+```
+
+**Deviations:**
+
+- **Offline was simulated in-process, not by pulling the Wi-Fi.** Step 2 and
+  Step 4 called for disconnecting the network. Instead the suite ran with a
+  preloaded guard that throws on any `net`/`tls`/`dns` call to a non-localhost
+  host, leaving Postgres reachable. It is stricter than unplugging — it names
+  the offending host and API — and it does not interrupt whatever else is using
+  the connection. It was proved live with a deliberately network-touching spec
+  that failed under it, so a pass means the guard was actually loaded in the
+  vitest workers rather than silently absent.
+- **`quote` resolves every symbol except `ZZZZ*`, rather than enumerating the
+  specs' symbols.** Step 1 said unknown symbols return `null`. Enumerating would
+  mean any future test introducing a symbol fails with a confusing 404 instead
+  of doing what it says. The one behaviour the specs depend on is that
+  `ZZZZNOTREAL` is not real, so that is what the stub encodes; unnamed symbols
+  get a default price, since a test that cares about a price names it.
+- **`dailyBars` is empty unless asked.** Several specs insert precise
+  `daily_closes` rows to build a scenario — a high-water mark, a trade with no
+  history at all — and a stub volunteering bars for every symbol would give "no
+  history" a history. Only `history.e2e-spec.ts`, which exercises the backfill,
+  passes `{ withBars: true }`.
+- **The trailing-stop test got realistic prices.** `portfolio.e2e-spec.ts` used
+  a bar high of 1000 solely to dominate ONDS's live quote. With the quote
+  stubbed the bars are ordinary numbers (high 10.00, stop 9.15) — the point of
+  the stub is that tests no longer need absurd values to defend against live
+  data.
+- **Runtime: ~23s to ~6s** for `test:e2e` (89 tests, 10 files), confirming most
+  of the old duration was network.
 
 ## Done when
 

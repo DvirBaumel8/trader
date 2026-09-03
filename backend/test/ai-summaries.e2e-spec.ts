@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
+import { YahooClient } from '../src/market-data/yahoo.client.js';
+import { yahooStub } from './yahoo-stub.js';
 
 describe('AI summaries (e2e)', () => {
   let app: INestApplication;
@@ -14,7 +16,11 @@ describe('AI summaries (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      // No test reaches the network. See test/yahoo-stub.ts.
+      .overrideProvider(YahooClient)
+      .useValue(yahooStub())
+      .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
