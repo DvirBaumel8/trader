@@ -55,8 +55,28 @@ describe('draftRisk', () => {
     expect(r.amount).toBeNull();
   });
 
-  it('ignores a stop on the wrong side of the entry', () => {
-    expect(draftRisk('217', '100', [fixed('230', '100')], 'BUY').amount).toBeNull();
+  it('counts a stop beyond entry as covered, at zero risk', () => {
+    // A stop above entry on a long locks in a gain, so it protects its
+    // shares. Treating it as no coverage told the owner a winning position
+    // was unprotected.
+    const r = draftRisk('217', '100', [fixed('230', '100')], 'BUY');
+    expect(r.amount).toBe(0);
+    expect(r.covered).toBe(100);
+    expect(r.fullyCovered).toBe(true);
+  });
+
+  it('shows a winner half-stopped at a gain as fully covered', () => {
+    // The real META plan: 46 sh in at 593.49, 20 stopped at 572.68 and 26 at
+    // 602.93. The editor used to say "covers 20 of 46 sh" in red.
+    const r = draftRisk(
+      '593.49',
+      '46',
+      [fixed('572.68', '20'), fixed('602.93', '26')],
+      'BUY',
+    );
+    expect(r.covered).toBe(46);
+    expect(r.fullyCovered).toBe(true);
+    expect(r.amount).toBe(416.2);
   });
 
   it('is null when the entry price is not yet filled in', () => {
