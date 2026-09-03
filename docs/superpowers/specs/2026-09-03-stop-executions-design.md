@@ -47,8 +47,8 @@ closest tier when a journal entry reduces a stopped position. One tap
 accepts. The stored record is always an explicit human decision — the
 matcher only ever supplies the default.
 
-**At risk is measured from entry and may be negative.** See below; this is a
-change in meaning, not a bug fix.
+**At risk keeps its current formula** — `(current − stop) × shares` — and
+gains a per-tier column on the Stops table. See below.
 
 **No review screen for history.** Ten rows do not justify a screen. The
 historical attributions were settled by hand and are applied by SQL, once.
@@ -88,26 +88,30 @@ position's open date when it is missing. Set it to the owning transaction's
 `stop_levels` itself stays append-only. Nothing marks a tier executed in
 place; the execution is a separate fact pointing at it.
 
-## At risk, redefined
+## At risk, shown per tier
 
-Today: `(currentPrice − stop) × shares`, floored so it can never be
-negative. It answers "how much of my equity right now would I give back".
+The formula is unchanged: `(currentPrice − stop) × shares`. It answers "how
+much of my equity right now would I give back if this stop fired", and it is
+the number the Stops headline and the Dashboard's At-risk box already show.
+An earlier draft of this spec proposed re-anchoring it to entry so a stop
+raised above entry would read as a negative, locked-in gain; that was
+considered and rejected — give-back-from-here is the number that matters
+when deciding what to do today.
 
-New: `(stop − avgEntry) × shares`, sign-flipped for shorts, and allowed to
-be negative. It answers **"if every stop fired, where do I end up against my
-entries"**. A stop raised above entry contributes a negative number — a
-locked-in gain — and nets against real risk elsewhere. Eight of the owner's
-ten historical stops sat on the favourable side of entry (the exceptions
-being AVGO, and MRNA where the short's stop above entry is a loss), so
-this is the common case, not an edge case.
+What is new is that **each row of the Stops table gains a dollar column**
+carrying its own contribution. Today the page shows only distance as a
+percentage ("17.20% room"), so the tier costing the most money is not
+visible — a 17% cushion on a small position and a 3% cushion on a large one
+say nothing about which one matters. The column is the missing half of that
+picture, and the headline is its sum.
 
-The per-tier **distance-to-trigger** figures on the Stops page are unchanged
-and stay measured from the current price. Proximity to triggering is a
-different question from what triggering would cost, and the current price is
-the right input for it.
-
-Both the Stops page headline and the Dashboard's At-risk box read this
-number, and both labels change to say "versus entry".
+**A passed stop stays floored at zero in the headline.** When the current
+price has already crossed a stop, the formula goes negative, and letting
+that net against real risk elsewhere would report a *lower* total precisely
+when a stop should have fired and did not. The per-row column shows the true
+signed figure — the row is already labelled as passed — while the headline
+keeps the existing `Math.max(0, ...)` per position. If this proves wrong in
+use it is a one-line change.
 
 ## Stop CRUD
 
@@ -193,18 +197,18 @@ today. Worth its own investigation.
 **Pure, fixture-driven:**
 - the tier matcher that supplies the entry sheet's default
 - `computeEffectiveStops` preferring records over inference, and mixing both
-- signed, entry-anchored at-risk, including a stop above entry netting
-  against real risk elsewhere
+- the per-tier dollar contribution, including a passed stop showing signed
+  in its row while contributing zero to the headline
 
 **e2e:** journal a sell, confirm the stop, and assert the `stop_executions`
-row is written, coverage drops, `exitKind` is set, and at-risk goes negative
-when the stop sits above entry.
+row is written, coverage drops, and `exitKind` is set.
 
 **On the phone**, at the end of each slice.
 
 ## Slices
 
-1. Migration, `createdAt` backfill, and signed at-risk — visible immediately
+1. Migration, `createdAt` backfill, and the per-tier dollar column on the
+   Stops table — visible immediately
 2. Stop CRUD editor
 3. Execution recording in the entry sheet
 4. Historical backfill by SQL
@@ -214,5 +218,5 @@ Slice 1 alone corrects the number the owner flagged.
 
 ## Out of scope
 
-Profit targets. A historical review screen. Any change to how R or
-expectancy are defined. Reconciling the app against the broker.
+Profit targets. A historical review screen. Any change to how R,
+expectancy, or at-risk are defined. Reconciling the app against the broker.
