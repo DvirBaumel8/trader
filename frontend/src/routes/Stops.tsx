@@ -21,6 +21,7 @@ interface StopTierRow {
   stale: boolean;
   distance: number;
   passed: boolean;
+  amountAtRisk: number;
 }
 
 interface Position {
@@ -125,6 +126,9 @@ function StopTierRowView({
             PASSED
             <div className="mt-0.5 text-[11px] font-normal opacity-80">
               {formatMagnitudePercent(row.distance)} through
+              <div className="mt-0.5 text-[11px] leading-tight text-muted">
+                <Money value={row.amountAtRisk} />
+              </div>
             </div>
           </div>
         ) : (
@@ -132,6 +136,9 @@ function StopTierRowView({
             {formatMagnitudePercent(row.distance)}
             <div className="mt-0.5 text-[11px] font-normal text-muted">
               room
+              <div className="mt-0.5 text-[11px] leading-tight text-muted">
+                <Money value={row.amountAtRisk} />
+              </div>
             </div>
           </div>
         )}
