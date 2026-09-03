@@ -981,3 +981,72 @@ describe('computeExitStats', () => {
     });
   });
 });
+
+describe('fills sharing an executedAt', () => {
+  // Journal entries record a DATE, not a time, so every fill logged for the
+  // same day lands on the identical timestamp. Ordering them by executedAt
+  // alone leaves the tie to chance, and the wrong guess merges a completed
+  // round trip into the position that replaced it — the closed trade then
+  // vanishes from the history that win rate, expectancy and R are computed
+  // from. `recordedAt` (the journal entry's createdAt) breaks the tie with
+  // the order the owner actually logged them in.
+  const sameDay = (
+    side: 'BUY' | 'SELL',
+    quantity: number,
+    price: number,
+    recordedMinute: number,
+  ): TradeTxn => ({
+    symbol: 'AVGO',
+    side,
+    quantity,
+    price,
+    fee: 0,
+    executedAt: new Date(2026, 8, 3, 12, 0, 0),
+    recordedAt: new Date(2026, 8, 3, 0, recordedMinute, 0),
+    stopLevels: [],
+  });
+
+  it('splits a close and a same-day re-entry into two trades', () => {
+    // The real AVGO case: bought in August, stopped out on 3 Sep, bought back
+    // the same day. Passed in re-entry-first order on purpose — that is the
+    // order that produced the bug.
+    const trades = deriveTrades([
+      {
+        symbol: 'AVGO',
+        side: 'BUY',
+        quantity: 40,
+        price: 373.38,
+        fee: 0,
+        executedAt: new Date(2026, 7, 28, 12, 0, 0),
+        recordedAt: new Date(2026, 7, 28, 17, 26, 0),
+        stopLevels: [],
+      },
+      sameDay('BUY', 40, 374.12, 28),
+      sameDay('SELL', 40, 349.91, 21),
+    ]);
+
+    expect(trades).toHaveLength(2);
+    const closed = trades.find((t) => !t.isOpen);
+    const open = trades.find((t) => t.isOpen);
+    expect(closed?.avgEntry).toBeCloseTo(373.38, 6);
+    expect(closed?.avgExit).toBeCloseTo(349.91, 6);
+    expect(open?.avgEntry).toBeCloseTo(374.12, 6);
+    expect(open?.remainingQuantity).toBe(40);
+  });
+
+  it('keeps a same-day open-and-close as one closed long, never a short', () => {
+    // The tie-break must not simply put reducing fills first: with nothing
+    // held, a sell processed before its buy reads as opening a short. The
+    // owner day-trades, so this is a real sequence, not a hypothetical.
+    const trades = deriveTrades([
+      sameDay('SELL', 40, 380, 30),
+      sameDay('BUY', 40, 370, 15),
+    ]);
+
+    expect(trades).toHaveLength(1);
+    expect(trades[0].direction).toBe('LONG');
+    expect(trades[0].isOpen).toBe(false);
+    expect(trades[0].avgEntry).toBeCloseTo(370, 6);
+    expect(trades[0].avgExit).toBeCloseTo(380, 6);
+  });
+});

@@ -8,6 +8,42 @@ export interface DerivedTxn {
   price: number;
   fee: number;
   executedAt: Date;
+  /**
+   * When the owner LOGGED this fill — the journal entry's `createdAt`. Used
+   * only to break a tie on `executedAt`; see `compareFills`. Optional because
+   * the pure derivation must stay usable from fixtures that do not care.
+   */
+  recordedAt?: Date | null;
+}
+
+/**
+ * Chronological order for one instrument's fills.
+ *
+ * A journal entry records a DATE, not a time, so every fill logged for the
+ * same day arrives with an identical `executedAt` and the tie falls to
+ * whatever order the database happened to return. That is not cosmetic: get
+ * it wrong on a close followed by a same-day re-entry and the position never
+ * crosses zero, so the completed round trip is swallowed by the new one and
+ * disappears from the history win rate, expectancy and R are computed from.
+ *
+ * `recordedAt` breaks the tie with the order the owner actually logged them
+ * in — the only evidence of sequence that exists once time-of-day is gone.
+ * When it is missing on either side the comparator returns 0 and leaves the
+ * original relative order standing, because `Array.prototype.sort` is stable
+ * and inventing an order would be worse than preserving the caller's.
+ *
+ * Deliberately NOT "process reducing fills first": with nothing held, a sell
+ * ordered before its own buy reads as opening a short, which breaks every
+ * intraday round trip.
+ */
+export function compareFills(
+  a: { executedAt: Date; recordedAt?: Date | null },
+  b: { executedAt: Date; recordedAt?: Date | null },
+): number {
+  const byExecuted = a.executedAt.getTime() - b.executedAt.getTime();
+  if (byExecuted !== 0) return byExecuted;
+  if (a.recordedAt == null || b.recordedAt == null) return 0;
+  return a.recordedAt.getTime() - b.recordedAt.getTime();
 }
 
 export interface DerivedFlow {
@@ -66,9 +102,7 @@ export function derivePositions(txns: DerivedTxn[]): DerivedPosition[] {
   const positions: DerivedPosition[] = [];
 
   for (const [symbol, list] of bySymbol) {
-    const ordered = [...list].sort(
-      (a, b) => a.executedAt.getTime() - b.executedAt.getTime(),
-    );
+    const ordered = [...list].sort(compareFills);
 
     const lots: Lot[] = [];
     let realizedGains = 0;

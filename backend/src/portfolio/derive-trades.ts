@@ -1,4 +1,4 @@
-import type { DerivedTxn } from './derive.js';
+import { compareFills, type DerivedTxn } from './derive.js';
 import { computeRisk, type StopLevelInput } from './risk.js';
 
 /**
@@ -410,9 +410,7 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
   const trades: DerivedTrade[] = [];
 
   for (const [symbol, list] of bySymbol) {
-    const ordered = [...list].sort(
-      (a, b) => a.executedAt.getTime() - b.executedAt.getTime(),
-    );
+    const ordered = [...list].sort(compareFills);
 
     let open: OpenTrade | null = null;
 

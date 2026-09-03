@@ -85,12 +85,22 @@ export class PortfolioService {
 
   async getPortfolio(opts: { refresh?: boolean } = {}) {
     const user = await this.users.ensureDefaultUser();
-    const [txnRows, flowRows, divRows, instrumentRows] = await Promise.all([
-      this.txns.find({ where: { userId: user.id } }),
-      this.flows.find({ where: { userId: user.id } }),
-      this.dividendRows.find({ where: { userId: user.id } }),
-      this.instruments.find(),
-    ]);
+    const [txnRows, flowRows, divRows, instrumentRows, entryRows] =
+      await Promise.all([
+        this.txns.find({ where: { userId: user.id } }),
+        this.flows.find({ where: { userId: user.id } }),
+        this.dividendRows.find({ where: { userId: user.id } }),
+        this.instruments.find(),
+        this.entries.find({ where: { userId: user.id } }),
+      ]);
+    // Journal entries record a date, not a time, so same-day fills collide on
+    // executedAt. The entry's createdAt is the order the owner logged them in
+    // - the tie-break compareFills uses. Taken from the ENTRY rather than the
+    // transaction because an edit recreates transaction rows (and their
+    // createdAt) while leaving the entry's own untouched.
+    const recordedAtByEntry = new Map(
+      entryRows.map((e) => [e.id, e.createdAt]),
+    );
 
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
     const nameBySymbol = new Map(instrumentRows.map((i) => [i.symbol, i.name]));
@@ -99,6 +109,7 @@ export class PortfolioService {
     );
 
     const derivedTxns: DerivedTxn[] = txnRows.map((t) => ({
+      recordedAt: recordedAtByEntry.get(t.entryId) ?? null,
       symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
       side: t.side,
       quantity: t.quantity,
@@ -416,12 +427,19 @@ export class PortfolioService {
    */
   private async deriveAllTrades(): Promise<DerivedTrade[]> {
     const user = await this.users.ensureDefaultUser();
-    const [txnRows, instrumentRows, levelRows, executionRows] = await Promise.all([
-      this.txns.find({ where: { userId: user.id } }),
-      this.instruments.find(),
-      this.stopLevels.find(),
-      this.stopExecutions.find(),
-    ]);
+    const [txnRows, instrumentRows, levelRows, executionRows, entryRows] =
+      await Promise.all([
+        this.txns.find({ where: { userId: user.id } }),
+        this.instruments.find(),
+        this.stopLevels.find(),
+        this.stopExecutions.find(),
+        this.entries.find({ where: { userId: user.id } }),
+      ]);
+    // See getPortfolio: same-day fills tie on executedAt and the entry's
+    // createdAt is the only surviving evidence of their real order.
+    const recordedAtByEntry = new Map(
+      entryRows.map((e) => [e.id, e.createdAt]),
+    );
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
 
     const levelsByTxn = new Map<string, StopLevel[]>();
@@ -450,6 +468,7 @@ export class PortfolioService {
 
     return deriveTrades(
       txnRows.map((t) => ({
+        recordedAt: recordedAtByEntry.get(t.entryId) ?? null,
         symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
         side: t.side,
         quantity: t.quantity,
