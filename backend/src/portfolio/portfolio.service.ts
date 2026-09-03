@@ -439,6 +439,10 @@ export class PortfolioService {
         stopLevels: (levelsByTxn.get(t.id) ?? [])
           .sort((a, b) => a.revisionSeq - b.revisionSeq || a.ordinal - b.ordinal)
           .map((l) => ({
+            // Carried through so computeEffectiveStops can match a recorded
+            // StopExecution to the exact tier it names, not just guess by
+            // price. See derive-trades.ts's selectCurrentStopsWithIds.
+            id: l.id,
             kind: l.kind,
             price: l.price,
             trailPercent: l.trailPercent,

@@ -626,12 +626,21 @@ describe('computeEffectiveStops', () => {
   const OPENED = new Date(2026, 0, 1);
   const RECORDED = new Date(2026, 0, 10);
 
-  function fixed(price: number, quantity: number): StopLevelInput {
-    return { kind: 'FIXED', price, trailPercent: null, quantity };
+  // A constant, not a per-tier id: these fixtures predate recorded
+  // executions and only ever exercise price matching, which does not care
+  // about id. computeEffectiveStops now requires one on its way in only
+  // because a *different* fill (see the describe block below) may need to
+  // name a tier by id — every assertion here compares two tiers built by
+  // this same helper, so the shared constant cancels out.
+  function fixed(price: number, quantity: number): StopLevelInput & { id: string } {
+    return { id: 'stub', kind: 'FIXED', price, trailPercent: null, quantity };
   }
 
-  function trailing(trailPercent: number, quantity: number): StopLevelInput {
-    return { kind: 'TRAILING', price: null, trailPercent, quantity };
+  function trailing(
+    trailPercent: number,
+    quantity: number,
+  ): StopLevelInput & { id: string } {
+    return { id: 'stub', kind: 'TRAILING', price: null, trailPercent, quantity };
   }
 
   function sell(quantity: number, price: number, day: number): ReducingFill {
@@ -768,6 +777,56 @@ describe('computeEffectiveStops', () => {
     const recorded = [fixed(36.92, 600), fixed(30.39, 550)];
     computeEffectiveStops(recorded, RECORDED, OPENED, [sell(600, 36.92, 15)]);
     expect(recorded).toEqual([fixed(36.92, 600), fixed(30.39, 550)]);
+  });
+});
+
+describe('computeEffectiveStops with recorded executions', () => {
+  it('consumes exactly the recorded tier, ignoring price proximity', () => {
+    // The fill price sits nearest tier A, but the OWNER said it was tier B.
+    // The record must win.
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+      { id: 'b', kind: 'FIXED' as const, price: 90, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(tiers, null, new Date('2026-01-01'), [
+      {
+        executedAt: new Date('2026-01-05'),
+        price: 99.9,
+        quantity: 50,
+        exitKind: 'STOP',
+        executions: [{ stopLevelId: 'b', quantity: 50 }],
+      },
+    ]);
+    expect(result.find((t) => t.id === 'a')?.quantity).toBe(50);
+    expect(result.find((t) => t.id === 'b')).toBeUndefined();
+  });
+
+  it('leaves every tier intact for a discretionary exit', () => {
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(tiers, null, new Date('2026-01-01'), [
+      {
+        executedAt: new Date('2026-01-05'),
+        price: 100,
+        quantity: 20,
+        exitKind: 'DISCRETIONARY',
+        executions: [],
+      },
+    ]);
+    // The shares are gone, so coverage cannot exceed what is held - but no
+    // tier is attributed, because the owner said this was his own decision.
+    expect(result.find((t) => t.id === 'a')?.quantity).toBe(50);
+  });
+
+  it('still price-matches a fill nobody has classified', () => {
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(tiers, null, new Date('2026-01-01'), [
+      { executedAt: new Date('2026-01-05'), price: 100, quantity: 50 },
+    ]);
+    expect(result.find((t) => t.id === 'a')).toBeUndefined();
   });
 });
 
