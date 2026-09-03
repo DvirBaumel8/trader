@@ -108,6 +108,15 @@ frontend/src/
   routes/        Dashboard, Journal, TradeDetail, Seed, TickerProbe (dev only, not in nav)
 ```
 
+## Reading the dev server's logs
+
+`npm run dev` tees both processes to `logs/api.log` and `logs/web.log`
+(git-ignored, overwritten each start). Read those rather than asking the
+owner to copy something out of his terminal — a backend error he reports is
+almost always already there, e.g. `grep -n "Gemini call attempt" logs/api.log`
+for LLM failures. The files only exist once `npm run dev` has been started
+since this was added.
+
 ## Do not run `nest build` while `npm run dev` is running
 
 Both write `backend/dist`, and the build wipes it out from under the watcher,
