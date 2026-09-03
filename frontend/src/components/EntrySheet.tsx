@@ -115,7 +115,23 @@ export function EntrySheet({
   }, [draft, editing]);
 
   const set = (patch: Partial<EntryDraft>) =>
-    setDraft((d) => ({ ...d, ...patch }));
+    setDraft((d) => ({
+      ...d,
+      ...patch,
+      // Changing what the fill IS invalidates an attribution made against the
+      // old one — but this clears on the OWNER's edit, never on derived async
+      // state. The queries that decide whether to ask resolve a tick after the
+      // sheet opens, so clearing on those would wipe an attribution that
+      // `draftFromEntry` had just read back for an edit, before it could be
+      // resent — and the ON DELETE CASCADE would then destroy it on save.
+      // Worse, a CLOSED position never reappears in /portfolio, so the sheet
+      // could never re-offer the question and the loss would be permanent.
+      ...(patch.symbol !== undefined ||
+      patch.side !== undefined ||
+      patch.quantity !== undefined
+        ? { exitAttribution: null }
+        : {}),
+    }));
 
   // The position this fill acts on, and its live stop tiers. Both reuse the
   // query keys the rest of the app already caches under, so opening the sheet
@@ -144,15 +160,17 @@ export function EntrySheet({
     tierCount: tiers.length,
   });
 
-  // A choice made and then invalidated — the side toggled back to a buy, the
-  // symbol retyped — must not survive to be submitted against a fill it no
-  // longer describes. The backend rejects that with a 400; clearing it here
-  // means the owner never meets that error.
+  // Pre-select the tier nearest the fill, so accepting it is one tap. Only on
+  // a NEW entry: opening an existing entry that nobody ever classified and
+  // saving it must not silently invent a STOP the owner never confirmed.
+  // Returns null when every tier is trailing — see defaultTierId.
   useEffect(() => {
-    if (!askAboutStop && draft.exitAttribution !== null) {
-      setDraft((d) => ({ ...d, exitAttribution: null }));
+    if (editing || !askAboutStop || draft.exitAttribution !== null) return;
+    const suggested = defaultTierId(tiers, Math.abs(parseFloat(draft.price || '0')));
+    if (suggested !== null) {
+      setDraft((d) => ({ ...d, exitAttribution: suggested }));
     }
-  }, [askAboutStop, draft.exitAttribution]);
+  }, [editing, askAboutStop, tiers, draft.exitAttribution, draft.price]);
 
   const invalidate = () =>
     Promise.all(
@@ -197,7 +215,7 @@ export function EntrySheet({
                           : undefined,
                       quantity: Math.abs(parseFloat(r.quantity)),
                     })),
-                  ...(askAboutStop && draft.exitAttribution
+                  ...(draft.exitAttribution
                     ? draft.exitAttribution === 'DISCRETIONARY'
                       ? { exitKind: 'DISCRETIONARY' as const }
                       : {
@@ -356,7 +374,9 @@ export function EntrySheet({
                         type="button"
                         aria-pressed={chosen}
                         onClick={() =>
-                          set({ exitAttribution: chosen ? null : tier.id })
+                          // Radio, not toggle: null means "not answered yet",
+                          // which is what lets the pre-selection above stand.
+                          set({ exitAttribution: tier.id })
                         }
                         className={`flex w-full items-baseline justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
                           chosen
@@ -382,12 +402,7 @@ export function EntrySheet({
                     type="button"
                     aria-pressed={draft.exitAttribution === 'DISCRETIONARY'}
                     onClick={() =>
-                      set({
-                        exitAttribution:
-                          draft.exitAttribution === 'DISCRETIONARY'
-                            ? null
-                            : 'DISCRETIONARY',
-                      })
+                      set({ exitAttribution: 'DISCRETIONARY' })
                     }
                     className={`w-full rounded-lg border px-3 py-2 text-left text-[13px] ${
                       draft.exitAttribution === 'DISCRETIONARY'

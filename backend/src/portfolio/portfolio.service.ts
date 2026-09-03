@@ -2,6 +2,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, MoreThanOrEqual, Repository } from 'typeorm';
@@ -685,6 +686,25 @@ export class PortfolioService {
       (t) => t.executedAt.toISOString() === parsed.enteredAt,
     );
     if (!openingTxn) throw new NotFoundException('Unknown trade');
+
+    // An empty plan cannot be recorded. `stop_levels` is append-only and a
+    // revision IS its rows, so "no stops" has no representation - writing
+    // zero rows leaves revisionSeq unadvanced and selectCurrentStops keeps
+    // returning the PREVIOUS revision. The save would appear to succeed while
+    // the tier stayed live and stayed priced into the at-risk figure the
+    // owner acts on. Rejecting loudly beats lying quietly; removing every
+    // stop goes through the journal entry, which CLAUDE.md already names as
+    // the one correction path.
+    if (levels.length === 0) {
+      const existing = await this.stopLevels.find({
+        where: { transactionId: openingTxn.id },
+      });
+      if (existing.length > 0) {
+        throw new BadRequestException(
+          'A stop plan cannot be emptied here. Edit the journal entry that opened this trade to remove its stops.',
+        );
+      }
+    }
 
     await this.journal.reviseStopLevels(openingTxn.id, levels);
     return this.getTrade(tradeId);

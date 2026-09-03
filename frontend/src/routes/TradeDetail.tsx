@@ -207,7 +207,12 @@ export function TradeDetail() {
           tradeId={id!}
           tiers={stopLevels}
           avgEntry={trade.avgEntry}
-          quantity={trade.quantity}
+          // What is still HELD, not the total ever opened. Prefilling the
+          // latter on a partly-exited position (1000 opened, 600 stopped,
+          // 400 held) produces a plan covering 1000 shares, which
+          // evaluateStopPlan flags as OVER_COVERED - dropping the position
+          // out of the Stops list and leaving its risk unpriced.
+          quantity={trade.remainingQuantity}
           direction={trade.direction}
         />
       )}

@@ -29,6 +29,8 @@ const staleEntry: Entry = {
     plannedTarget: null,
     stopLevels: [],
     riskAmount: null,
+    exitKind: null,
+    stopExecutions: [],
   },
   cash: null,
   dividend: null,

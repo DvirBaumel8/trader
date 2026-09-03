@@ -270,6 +270,41 @@ describe('Trades (e2e)', () => {
       ]);
     });
 
+    it('refuses to empty a stop plan, rather than silently keeping it', async () => {
+      // stop_levels is append-only and a revision IS its rows, so an empty
+      // list writes nothing, leaves revisionSeq unadvanced, and the PREVIOUS
+      // revision stays live. Before this guard the save appeared to succeed
+      // while the tier remained priced into the at-risk figure.
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'entry with a stop',
+          occurredAt: '2026-01-03T14:30:00.000Z',
+          trade: {
+            symbol: 'NVDA',
+            quantity: 100,
+            price: 200,
+            fee: 0,
+            stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+          },
+        })
+        .expect(201);
+
+      const tradeId = `NVDA:2026-01-03T14:30:00.000Z`;
+      await http(app, token)
+        .patch(`/portfolio/trades/${encodeURIComponent(tradeId)}/stops`)
+        .send({ levels: [] })
+        .expect(400);
+
+      // The tier is untouched, not half-removed.
+      const after = await http(app, token)
+        .get(`/portfolio/trades/${encodeURIComponent(tradeId)}`)
+        .expect(200);
+      expect(after.body.stopLevels).toHaveLength(1);
+      expect(after.body.stopLevels[0].price).toBe(180);
+    });
+
     it('404s an unknown trade id', async () => {
       await http(app, token)
         .patch(

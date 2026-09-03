@@ -103,7 +103,14 @@ export function StopPlanEditor({
       />
       {mutation.isError && (
         <p className="text-xs text-down">
-          Could not save — the plan is unchanged.
+          {/*
+            The server's own words: emptying a plan is refused with a specific
+            reason, and a generic failure line would leave the owner retyping
+            the same thing. The plan is unchanged either way.
+          */}
+          {mutation.error instanceof Error
+            ? mutation.error.message
+            : 'Could not save — the plan is unchanged.'}
         </p>
       )}
       <div className="flex gap-2">
