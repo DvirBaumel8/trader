@@ -27,6 +27,22 @@
 
 ---
 
+## Status (2026-09-03)
+
+**Slices 1, 2 and 5 are done and merged to `main`. Slices 3 and 4 are not
+started.** So the endpoint exists with nothing storing its answers and no
+screen in front of them: `POST /llm/trade-idea` returns an opinion, but
+nothing is persisted (Task 6's migration and entity were never written) and
+there is no Ideas tab (`frontend/src/routes/` has no Ideas route). The feature
+is not usable by the owner yet — it is reachable only by curl.
+
+Do not read the ticked boxes below as "the feature shipped": Slices 1-2 were
+implemented in an earlier session that never ticked them, and the boxes were
+brought up to date afterwards by checking which files and commits actually
+exist.
+
+---
+
 ## Slice 1 — What the numbers say, with no AI at all
 
 ### Task 1: The indicators module
@@ -58,7 +74,7 @@
   export function computeIndicators(bars: RawBar[], currentPrice: number): IndicatorSet;
   ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/src/market-data/indicators.spec.ts`:
 
@@ -152,12 +168,12 @@ describe('computeIndicators', () => {
 });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && npx vitest run src/market-data/indicators.spec.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `backend/src/market-data/indicators.ts`:
 
@@ -288,12 +304,12 @@ function computeRelativeVolume(bars: RawBar[]): number | null {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && npx vitest run src/market-data/indicators.spec.ts`
 Expected: PASS, all 7.
 
-- [ ] **Step 5: Typecheck and commit**
+- [x] **Step 5: Typecheck and commit**
 
 ```bash
 cd backend && npx tsc --noEmit -p tsconfig.json
@@ -326,7 +342,7 @@ git commit -m "feat: chart indicators for any ticker, computed not guessed"
   ```
   Throws `NotFoundException` for a symbol Yahoo does not recognise.
 
-- [ ] **Step 1: Write the failing e2e test**
+- [x] **Step 1: Write the failing e2e test**
 
 Create `backend/test/ticker-facts.e2e-spec.ts`. Stub `YahooClient` via `overrideProvider` so no network call happens:
 
@@ -414,12 +430,12 @@ describe('Ticker facts (e2e)', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd backend && npx vitest run --config ./vitest.config.e2e.ts test/ticker-facts.e2e-spec.ts`
 Expected: FAIL — 404 on the route itself.
 
-- [ ] **Step 3: Implement the service**
+- [x] **Step 3: Implement the service**
 
 Create `backend/src/market-data/ticker-facts.service.ts`:
 
@@ -507,18 +523,18 @@ export class TickerFactsService {
 }
 ```
 
-- [ ] **Step 4: Add the route**
+- [x] **Step 4: Add the route**
 
 Add a `GET ticker-facts/:symbol` route on the market-data controller returning `this.tickerFacts.get(symbol)`, and register `TickerFactsService` as a provider in `market-data.module.ts`. Follow the auth guard pattern the other controllers use — every route in this app requires a token except `/health/ping` and `/auth/login`.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 ```bash
 cd backend && npx tsc --noEmit -p tsconfig.json && npx vitest run && npm run test:e2e
 ```
 Expected: all PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/market-data backend/test/ticker-facts.e2e-spec.ts
@@ -551,7 +567,7 @@ stop: 41.20
 target: 58.00
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -600,12 +616,12 @@ describe('stripLevelsBlock', () => {
 });
 ```
 
-- [ ] **Step 2: Run and watch fail**
+- [x] **Step 2: Run and watch fail**
 
 Run: `cd backend && npx vitest run src/llm/trade-idea-parse.spec.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 /**
@@ -651,7 +667,7 @@ export function stripLevelsBlock(text: string): string {
 }
 ```
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```bash
 cd backend && npx vitest run src/llm/trade-idea-parse.spec.ts
@@ -687,7 +703,7 @@ git commit -m "feat: parse the model's proposed levels, or refuse them"
   ```
   Returns null when the levels are incoherent (stop on the same side as the target).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -736,12 +752,12 @@ describe('computeTradeRisk', () => {
 });
 ```
 
-- [ ] **Step 2: Run and watch fail**
+- [x] **Step 2: Run and watch fail**
 
 Run: `cd backend && npx vitest run src/portfolio/trade-risk.spec.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 /**
@@ -808,7 +824,7 @@ function round(n: number): number {
 }
 ```
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```bash
 cd backend && npx vitest run src/portfolio/trade-risk.spec.ts
@@ -843,7 +859,7 @@ git commit -m "feat: risk and reward from proposed levels, sized to his own risk
   }
   ```
 
-- [ ] **Step 1: Write the prompt builder**
+- [x] **Step 1: Write the prompt builder**
 
 Create `backend/src/llm/trade-idea-prompt.ts` with `buildTradeIdeaPrompt(facts: TickerFacts, usualRisk: number | null): string`. It renders the indicator block as plain lines (reuse the tone of `portfolio-context.ts`: whole dollars for amounts, two decimals for prices), then the instruction. The instruction must say, in the app's own voice:
 
@@ -859,7 +875,7 @@ stop: <price>
 target: <price>
 ```
 
-- [ ] **Step 2: Write the failing e2e test**
+- [x] **Step 2: Write the failing e2e test**
 
 Create `backend/test/trade-idea.e2e-spec.ts`, overriding BOTH `YahooClient` (as in Task 2) and `LlmClient` with a stub whose `complete()` returns a fixed answer ending in a LEVELS block, and `isConfigured()` returns true:
 
@@ -938,12 +954,12 @@ it('reports unconfigured without calling Yahoo when there is no key', async () =
 });
 ```
 
-- [ ] **Step 3: Run and watch fail**
+- [x] **Step 3: Run and watch fail**
 
 Run: `cd backend && npx vitest run --config ./vitest.config.e2e.ts test/trade-idea.e2e-spec.ts`
 Expected: FAIL — route missing.
 
-- [ ] **Step 4: Implement the service**
+- [x] **Step 4: Implement the service**
 
 `TradeIdeaService.analyse(symbol)`:
 1. If `!llm.isConfigured()`, return the unconfigured shape immediately — no Yahoo call, mirroring `LlmService.portfolioSummary`.
@@ -955,11 +971,11 @@ Expected: FAIL — route missing.
 7. `risk = levels ? computeTradeRisk({ entryPrice: facts.price, ...levels, usualRisk }) : null`.
 8. `levelsUnreadable = levels === null`.
 
-- [ ] **Step 5: Add the route and register the service**
+- [x] **Step 5: Add the route and register the service**
 
 `@Post('trade-idea')` on `LlmController` with a DTO carrying `@IsString() @Length(1, 10) symbol`. Register `TradeIdeaService` and `TickerFactsService` in `llm.module.ts` (importing the market-data module rather than re-declaring the provider).
 
-- [ ] **Step 6: Run everything and commit**
+- [x] **Step 6: Run everything and commit**
 
 ```bash
 cd backend && npx tsc --noEmit -p tsconfig.json && npx vitest run && npm run test:e2e
