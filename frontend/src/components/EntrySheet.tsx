@@ -166,7 +166,15 @@ export function EntrySheet({
   // Returns null when every tier is trailing — see defaultTierId.
   useEffect(() => {
     if (editing || !askAboutStop || draft.exitAttribution !== null) return;
-    const suggested = defaultTierId(tiers, Math.abs(parseFloat(draft.price || '0')));
+    const fillPrice = Math.abs(parseFloat(draft.price || '0'));
+    // Wait for a real price. `askAboutStop` does not depend on price, and on a
+    // phone the price is typed LAST — so without this the effect fires at
+    // price 0, picks the tier nearest zero (the lowest one), and its own
+    // "already answered" guard then blocks every correction. On a two-tier
+    // position a 36.92 exit would sit pre-selected at 30.39: visible, but a
+    // default is what gets accepted unread, and the wrong tier is the wrong R.
+    if (!(fillPrice > 0)) return;
+    const suggested = defaultTierId(tiers, fillPrice);
     if (suggested !== null) {
       setDraft((d) => ({ ...d, exitAttribution: suggested }));
     }
