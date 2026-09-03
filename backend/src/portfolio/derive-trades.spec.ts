@@ -4,6 +4,7 @@ import {
   selectEntryStops,
   selectCurrentStops,
   computeEffectiveStops,
+  suggestTierForFill,
   type TradeTxn,
   type StopRevisionInput,
   type ReducingFill,
@@ -767,5 +768,30 @@ describe('computeEffectiveStops', () => {
     const recorded = [fixed(36.92, 600), fixed(30.39, 550)];
     computeEffectiveStops(recorded, RECORDED, OPENED, [sell(600, 36.92, 15)]);
     expect(recorded).toEqual([fixed(36.92, 600), fixed(30.39, 550)]);
+  });
+});
+
+describe('suggestTierForFill', () => {
+  const tiers = [
+    { id: 'a', kind: 'FIXED' as const, price: 36.92, trailPercent: null, quantity: 600 },
+    { id: 'b', kind: 'FIXED' as const, price: 30.39, trailPercent: null, quantity: 550 },
+  ];
+
+  it('picks the tier nearest the fill price', () => {
+    expect(suggestTierForFill(tiers, 36.92)).toBe('a');
+    expect(suggestTierForFill(tiers, 30.5)).toBe('b');
+  });
+
+  it('returns null when no tier has a resolvable price', () => {
+    expect(
+      suggestTierForFill(
+        [{ id: 'c', kind: 'TRAILING', price: null, trailPercent: 11.9, quantity: 100 }],
+        123.07,
+      ),
+    ).toBeNull();
+  });
+
+  it('returns null for an empty plan', () => {
+    expect(suggestTierForFill([], 10)).toBeNull();
   });
 });

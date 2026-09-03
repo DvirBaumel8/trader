@@ -98,6 +98,29 @@ function distanceFromFill(level: StopLevelInput, fillPrice: number): number | nu
 }
 
 /**
+ * The tier a fill most plausibly executed, by price proximity — the same
+ * signal `computeEffectiveStops` uses, extracted so the entry sheet can
+ * offer it as a pre-selected default.
+ *
+ * This is a SUGGESTION and nothing more. It was wrong on a real trade
+ * (MSTR: the only tier was a trailing stop the exit never reached, and a
+ * matcher with one candidate will always pick it), which is exactly why the
+ * owner confirms it before anything is stored.
+ */
+export function suggestTierForFill(
+  tiers: Array<StopLevelInput & { id: string }>,
+  fillPrice: number,
+): string | null {
+  let best: { id: string; gap: number } | null = null;
+  for (const tier of tiers) {
+    if (tier.price === null || !(tier.price > 0)) continue;
+    const gap = Math.abs(tier.price - fillPrice);
+    if (best === null || gap < best.gap) best = { id: tier.id, gap };
+  }
+  return best?.id ?? null;
+}
+
+/**
  * The stop plan that actually still applies, right now — the latest
  * recorded revision, minus whatever a reducing fill (a SELL against a long,
  * a covering BUY against a short) has already consumed since that revision
