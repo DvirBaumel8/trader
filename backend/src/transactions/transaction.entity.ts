@@ -29,6 +29,14 @@ export class Transaction {
   @Column({ type: 'varchar' })
   side: Side;
 
+  /**
+   * How this exit came about, on a reducing fill only. NULL means it has not
+   * been classified yet — which the exit statistics report rather than
+   * quietly treating as discretionary. Opening fills are always NULL.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  exitKind: 'STOP' | 'DISCRETIONARY' | null;
+
   /** Always positive. Direction comes from `side`; shorts fall out of derivation. */
   @Column('numeric', {
     precision: 20,
