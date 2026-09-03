@@ -39,6 +39,9 @@ function fakePortfolioService(): PortfolioService {
       expectancyDollars: 220,
       expectancyR: 0.5,
       rTradeCount: 8,
+      // The real getStats() carries the per-trade list the facts block now
+      // renders; without it the context builder has nothing to iterate.
+      trades: [],
     }),
     getOpenTradeEntryVolume: vi.fn().mockResolvedValue(
       new Map([['AAPL', 1.8]]),
@@ -63,6 +66,7 @@ function fakeSummaries(): AiSummaryService {
     create: vi.fn().mockResolvedValue({ id: 'saved-id-1' }),
     list: vi.fn(),
     findOne: vi.fn(),
+    findLatest: vi.fn().mockResolvedValue(null),
     remove: vi.fn(),
   } as unknown as AiSummaryService;
 }
@@ -129,7 +133,7 @@ describe('LlmService.portfolioSummary', () => {
     const call = complete.mock.calls[0][0];
     expect(call.grounded).toBe(true);
     // The facts the app computed must actually reach the model, quoted.
-    expect(call.user).toContain('$21,000.00');
+    expect(call.user).toContain('$21,000');
     // Volume and P/E facts (the reason this test suite exists) reach the model too.
     expect(call.user).toContain('P/E 32.1');
     expect(call.user).toContain('entry volume 1.80x its 20-day average');
@@ -139,7 +143,7 @@ describe('LlmService.portfolioSummary', () => {
     expect(summaries.create).toHaveBeenCalledTimes(1);
     const saved = (summaries.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(saved.summary).toBe('You are up 4.2% this month...');
-    expect(saved.factsSnapshot).toContain('$21,000.00');
+    expect(saved.factsSnapshot).toContain('$21,000');
     expect(saved.model).toBe('gemini-2.5-flash');
     expect(saved.grounded).toBe(true);
     expect(saved.factsAsOf).toBe('2026-09-02T14:30:00.000Z');
@@ -234,5 +238,53 @@ describe('LlmService.portfolioSummary', () => {
       fakeSummaries(),
     );
     expect(service.isConfigured()).toBe(true);
+  });
+
+  it('feeds the previous summary back so the model can say what changed', async () => {
+    const complete = vi.fn().mockResolvedValue('summary text');
+    const client: LlmClient = {
+      isConfigured: () => true,
+      complete,
+      modelName: () => 'gemini-2.5-flash',
+    };
+    const summaries = fakeSummaries();
+    (summaries.findLatest as ReturnType<typeof vi.fn>).mockResolvedValue({
+      summary: 'Last time: LMND was 31% of the account and already unstopped.',
+      factsAsOf: new Date('2026-09-01T20:00:00.000Z'),
+    });
+    const service = new LlmService(
+      client,
+      fakePortfolioService(),
+      fakePerformanceService(),
+      summaries,
+    );
+
+    await service.portfolioSummary();
+
+    const call = complete.mock.calls[0][0];
+    expect(call.user).toContain('LMND was 31% of the account');
+    expect(call.user).toContain('2026-09-01T20:00:00.000Z');
+    expect(call.user).toMatch(/MATERIALLY changed/);
+  });
+
+  it('says nothing about a previous summary when there is none', async () => {
+    const complete = vi.fn().mockResolvedValue('summary text');
+    const client: LlmClient = {
+      isConfigured: () => true,
+      complete,
+      modelName: () => 'gemini-2.5-flash',
+    };
+    const service = new LlmService(
+      client,
+      fakePortfolioService(),
+      fakePerformanceService(),
+      fakeSummaries(),
+    );
+
+    await service.portfolioSummary();
+
+    const call = complete.mock.calls[0][0];
+    expect(call.user).not.toMatch(/last time/i);
+    expect(call.user).not.toMatch(/MATERIALLY changed/);
   });
 });

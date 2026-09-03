@@ -22,7 +22,7 @@ describe('Journal (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE stop_levels, transactions, cash_flows, dividends, journal_entries, entry_tags, tags RESTART IDENTITY CASCADE',
+      'TRUNCATE stop_levels, stop_executions, transactions, cash_flows, dividends, journal_entries, entry_tags, tags RESTART IDENTITY CASCADE',
     );
   });
 
@@ -368,6 +368,370 @@ describe('Journal (e2e)', () => {
 
     const rows = await dataSource.query('SELECT COUNT(*) FROM stop_levels');
     expect(Number(rows[0].count)).toBe(1);
+  });
+
+  it('recognises a stop on its own, with nothing sent by the client', async () => {
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE', body: 'entry', occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+      },
+    }).expect(201);
+
+    // No exitKind, no stopExecutions - the prices alone say what happened.
+    // Filled 12 cents under the stop, ordinary slippage.
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE', body: 'stopped out', occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: { symbol: 'NVDA', quantity: -100, price: 179.88, fee: 0 },
+    }).expect(201);
+
+    const rows = (await dataSource.query(
+      `SELECT se.quantity, t."exitKind" FROM stop_executions se
+       JOIN transactions t ON t.id = se."transactionId"`,
+    )) as Array<{ quantity: string; exitKind: string }>;
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0].quantity)).toBe(100);
+    expect(rows[0].exitKind).toBe('STOP');
+  });
+
+  it('claims nothing when the exit is nowhere near the stop', async () => {
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE', body: 'entry', occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+      },
+    }).expect(201);
+
+    // Sold at 210 - a decision, not a stop. Unrecorded is the honest answer.
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE', body: 'took profit', occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: { symbol: 'NVDA', quantity: -100, price: 210, fee: 0 },
+    }).expect(201);
+
+    const rows = (await dataSource.query(`SELECT id FROM stop_executions`)) as unknown[];
+    expect(rows).toHaveLength(0);
+    const kinds = (await dataSource.query(
+      `SELECT "exitKind" FROM transactions WHERE side = 'SELL'`,
+    )) as Array<{ exitKind: string | null }>;
+    expect(kinds[0].exitKind).toBeNull();
+  });
+
+  it('records which stop tier a sell executed', async () => {
+    const open = await http(app, token).post('/journal').send({
+      kind: 'TRADE',
+      body: 'entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+      },
+    }).expect(201);
+
+    const [{ id: stopLevelId }] = (await dataSource.query(
+      `SELECT s.id FROM stop_levels s
+       JOIN transactions t ON t.id = s."transactionId"
+       JOIN instruments i ON i.id = t."instrumentId"
+       WHERE i.symbol = 'NVDA'`,
+    )) as Array<{ id: string }>;
+
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE',
+      body: 'stopped out',
+      occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: -100, price: 180, fee: 0,
+        exitKind: 'STOP',
+        stopExecutions: [{ stopLevelId, quantity: 100 }],
+      },
+    }).expect(201);
+
+    const rows = (await dataSource.query(
+      `SELECT quantity FROM stop_executions WHERE "stopLevelId" = $1`, [stopLevelId],
+    )) as Array<{ quantity: string }>;
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0].quantity)).toBe(100);
+
+    const kinds = (await dataSource.query(
+      `SELECT "exitKind" FROM transactions WHERE side = 'SELL'`,
+    )) as Array<{ exitKind: string | null }>;
+    expect(kinds[0].exitKind).toBe('STOP');
+
+    // The tier is consumed, so the position no longer reports coverage.
+    const res = await http(app, token).get('/portfolio').expect(200);
+    expect(res.body.stopTiers.filter((r: { symbol: string }) => r.symbol === 'NVDA')).toEqual([]);
+  });
+
+  it('rejects exitKind/stopExecutions on an opening fill, with nothing written', async () => {
+    const stopLevelId = '00000000-0000-0000-0000-000000000000';
+    await post({
+      kind: 'TRADE',
+      body: 'entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        exitKind: 'STOP',
+        stopExecutions: [{ stopLevelId, quantity: 100 }],
+      },
+    }).expect(400);
+
+    const txns = await dataSource.query('SELECT * FROM transactions');
+    expect(txns).toHaveLength(0);
+  });
+
+  it('rejects exitKind alone (no stopExecutions) on an opening fill, with nothing written', async () => {
+    await post({
+      kind: 'TRADE',
+      body: 'entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        exitKind: 'STOP',
+      },
+    }).expect(400);
+
+    const txns = await dataSource.query('SELECT * FROM transactions');
+    expect(txns).toHaveLength(0);
+  });
+
+  it('rejects a well-formed but nonexistent stopLevelId with 400, not a 500', async () => {
+    await post({
+      kind: 'TRADE',
+      body: 'entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: { symbol: 'NVDA', quantity: 100, price: 200, fee: 0 },
+    }).expect(201);
+
+    const nonexistent = '00000000-0000-0000-0000-000000000000';
+    await post({
+      kind: 'TRADE',
+      body: 'stopped out',
+      occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: -100, price: 180, fee: 0,
+        exitKind: 'STOP',
+        stopExecutions: [{ stopLevelId: nonexistent, quantity: 100 }],
+      },
+    }).expect(400);
+
+    const executions = await dataSource.query('SELECT * FROM stop_executions');
+    expect(executions).toHaveLength(0);
+  });
+
+  it('rejects a stopLevelId that belongs to a different instrument', async () => {
+    await post({
+      kind: 'TRADE',
+      body: 'nvda entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+      },
+    }).expect(201);
+    await post({
+      kind: 'TRADE',
+      body: 'msft entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'MSFT', quantity: 50, price: 300, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 280, quantity: 50 }],
+      },
+    }).expect(201);
+
+    const [{ id: msftStopLevelId }] = (await dataSource.query(
+      `SELECT s.id FROM stop_levels s
+       JOIN transactions t ON t.id = s."transactionId"
+       JOIN instruments i ON i.id = t."instrumentId"
+       WHERE i.symbol = 'MSFT'`,
+    )) as Array<{ id: string }>;
+
+    // Sells the NVDA position but names the MSFT tier — a cross-instrument
+    // id, which must be rejected rather than silently written: an unmatched
+    // execution makes computeEffectiveStops skip price matching entirely,
+    // so the real NVDA tier would never be consumed.
+    await post({
+      kind: 'TRADE',
+      body: 'stopped out',
+      occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: -100, price: 180, fee: 0,
+        exitKind: 'STOP',
+        stopExecutions: [{ stopLevelId: msftStopLevelId, quantity: 100 }],
+      },
+    }).expect(400);
+
+    const executions = await dataSource.query('SELECT * FROM stop_executions');
+    expect(executions).toHaveLength(0);
+  });
+
+  it('rejects stopExecutions that claim more shares than the fill itself sold', async () => {
+    await post({
+      kind: 'TRADE',
+      body: 'entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+      },
+    }).expect(201);
+
+    const [{ id: stopLevelId }] = (await dataSource.query(
+      `SELECT s.id FROM stop_levels s
+       JOIN transactions t ON t.id = s."transactionId"
+       JOIN instruments i ON i.id = t."instrumentId"
+       WHERE i.symbol = 'NVDA'`,
+    )) as Array<{ id: string }>;
+
+    // A 50-share sell claiming a 60-share execution would silently
+    // under-report the coverage still remaining on the tier.
+    await post({
+      kind: 'TRADE',
+      body: 'partial stop out',
+      occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: -50, price: 180, fee: 0,
+        exitKind: 'STOP',
+        stopExecutions: [{ stopLevelId, quantity: 60 }],
+      },
+    }).expect(400);
+
+    const executions = await dataSource.query('SELECT * FROM stop_executions');
+    expect(executions).toHaveLength(0);
+  });
+
+  it('reconstructs (does not preserve) a confirmed stop execution when the entry is resaved with it resent', async () => {
+    // update() replaces the TRADE entry's transaction row wholesale (delete
+    // + recreate — see journal.service.ts), and stop_executions has an
+    // ON DELETE CASCADE foreign key to transactions. So a confirmed
+    // attribution never survives an edit by identity — the old row is
+    // genuinely gone. What "survives" is only a NEW row rebuilt from the
+    // resent payload, with a new id and a reset confirmedAt. Editing an
+    // entry for ANY reason — even a typo in its body — would silently
+    // destroy the attribution unless the caller resends it, the same way it
+    // already must resend stopLevels to keep the stop plan.
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE',
+      body: 'entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+      },
+    }).expect(201);
+
+    const [{ id: stopLevelId }] = (await dataSource.query(
+      `SELECT s.id FROM stop_levels s
+       JOIN transactions t ON t.id = s."transactionId"
+       JOIN instruments i ON i.id = t."instrumentId"
+       WHERE i.symbol = 'NVDA'`,
+    )) as Array<{ id: string }>;
+
+    const stopOut = await http(app, token).post('/journal').send({
+      kind: 'TRADE',
+      body: 'stopped out',
+      occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: -100, price: 180, fee: 0,
+        exitKind: 'STOP',
+        stopExecutions: [{ stopLevelId, quantity: 100 }],
+      },
+    }).expect(201);
+
+    const before = (await dataSource.query(
+      `SELECT id, "confirmedAt" FROM stop_executions WHERE "stopLevelId" = $1`,
+      [stopLevelId],
+    )) as Array<{ id: string; confirmedAt: string }>;
+    expect(before).toHaveLength(1);
+
+    // Edit the SELL entry, changing only its body. The update path is a
+    // full replace, not a patch, so this resends the trade fields verbatim
+    // — including exitKind and stopExecutions — the same way it must
+    // already resend stopLevels to keep the stop plan.
+    await http(app, token)
+      .patch(`/journal/${stopOut.body.id}`)
+      .send({
+        kind: 'TRADE',
+        body: 'stopped out at 180 — typo fixed',
+        occurredAt: '2026-01-08T14:30:00.000Z',
+        trade: {
+          symbol: 'NVDA', quantity: -100, price: 180, fee: 0,
+          exitKind: 'STOP',
+          stopExecutions: [{ stopLevelId, quantity: 100 }],
+        },
+      })
+      .expect(200);
+
+    const after = (await dataSource.query(
+      `SELECT id, quantity, "confirmedAt" FROM stop_executions WHERE "stopLevelId" = $1`,
+      [stopLevelId],
+    )) as Array<{ id: string; quantity: string; confirmedAt: string }>;
+    expect(after).toHaveLength(1);
+    expect(Number(after[0].quantity)).toBe(100);
+    // Reconstructed, not preserved: a genuinely different row.
+    expect(after[0].id).not.toBe(before[0].id);
+
+    const kinds = (await dataSource.query(
+      `SELECT "exitKind" FROM transactions WHERE side = 'SELL'`,
+    )) as Array<{ exitKind: string | null }>;
+    expect(kinds[0].exitKind).toBe('STOP');
+  });
+
+  it('regenerates a stop attribution when an edit omits it, rather than losing it', async () => {
+    await http(app, token).post('/journal').send({
+      kind: 'TRADE',
+      body: 'entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+      },
+    }).expect(201);
+
+    const [{ id: stopLevelId }] = (await dataSource.query(
+      `SELECT s.id FROM stop_levels s
+       JOIN transactions t ON t.id = s."transactionId"
+       JOIN instruments i ON i.id = t."instrumentId"
+       WHERE i.symbol = 'NVDA'`,
+    )) as Array<{ id: string }>;
+
+    const stopOut = await http(app, token).post('/journal').send({
+      kind: 'TRADE',
+      body: 'stopped out',
+      occurredAt: '2026-01-08T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: -100, price: 180, fee: 0,
+        exitKind: 'STOP',
+        stopExecutions: [{ stopLevelId, quantity: 100 }],
+      },
+    }).expect(201);
+
+    // Edit the SELL entry changing only its body, WITHOUT resending
+    // exitKind/stopExecutions — the mistake an edit form makes if it does
+    // not round-trip them.
+    await http(app, token)
+      .patch(`/journal/${stopOut.body.id}`)
+      .send({
+        kind: 'TRADE',
+        body: 'typo fixed',
+        occurredAt: '2026-01-08T14:30:00.000Z',
+        trade: { symbol: 'NVDA', quantity: -100, price: 180, fee: 0 },
+      })
+      .expect(200);
+
+    const rows = (await dataSource.query(
+      `SELECT quantity FROM stop_executions WHERE "stopLevelId" = $1`, [stopLevelId],
+    )) as Array<{ quantity: string }>;
+    // Auto-recognition recomputes the attribution on every save, so the
+    // ON DELETE CASCADE no longer destroys it: the row is rebuilt from the
+    // prices. This test previously pinned the loss as a known hazard.
+    expect(rows).toHaveLength(1);
+
+    const kinds = (await dataSource.query(
+      `SELECT "exitKind" FROM transactions WHERE side = 'SELL'`,
+    )) as Array<{ exitKind: string | null }>;
+    // Regenerated alongside the execution row, from the prices.
+    expect(kinds[0].exitKind).toBe('STOP');
   });
 
   it('deletes an entry and removes its effect on the portfolio', async () => {

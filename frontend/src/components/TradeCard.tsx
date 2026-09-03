@@ -7,6 +7,8 @@ export interface Trade {
   symbol: string;
   direction: 'LONG' | 'SHORT';
   quantity: number;
+  /** Still held right now. Less than `quantity` once part has been exited. */
+  remainingQuantity: number;
   avgEntry: number;
   avgExit: number | null;
   enteredAt: string;

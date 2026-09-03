@@ -21,6 +21,7 @@ interface StopTierRow {
   stale: boolean;
   distance: number;
   passed: boolean;
+  amountAtRisk: number;
 }
 
 interface Position {
@@ -54,7 +55,7 @@ const SORT_KEY = 'trader.stopsSort.v1';
 const DEFAULT_DIR: StopSortDir = 'asc';
 
 /**
- * Only two directions exist here, but the control stays a native <select> —
+ * A native <select> —
  * the same affordance Dashboard's holdings sort uses — rather than a custom
  * toggle, so the app has one sort idiom instead of two.
  */
@@ -75,6 +76,7 @@ function SortPicker({
       >
         <option value="asc">Nearest to trigger first</option>
         <option value="desc">Furthest first</option>
+        <option value="risk">Largest risk first</option>
       </select>
       <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-muted">
         ▼
@@ -126,12 +128,18 @@ function StopTierRowView({
             <div className="mt-0.5 text-[11px] font-normal opacity-80">
               {formatMagnitudePercent(row.distance)} through
             </div>
+            <div className="mt-0.5 text-[11px] leading-tight text-muted">
+              <Money value={row.amountAtRisk} />
+            </div>
           </div>
         ) : (
           <div className="text-[15px] font-medium leading-tight">
             {formatMagnitudePercent(row.distance)}
             <div className="mt-0.5 text-[11px] font-normal text-muted">
               room
+              <div className="mt-0.5 text-[11px] leading-tight text-muted">
+                <Money value={row.amountAtRisk} />
+              </div>
             </div>
           </div>
         )}

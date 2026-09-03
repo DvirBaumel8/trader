@@ -4,6 +4,8 @@ import {
   selectEntryStops,
   selectCurrentStops,
   computeEffectiveStops,
+  suggestTierForFill,
+  autoAttributeTier,
   type TradeTxn,
   type StopRevisionInput,
   type ReducingFill,
@@ -35,6 +37,7 @@ function txn(
         ? []
         : [
             {
+              id: 'stop-0',
               kind: 'FIXED',
               price: extra.stop,
               trailPercent: null,
@@ -169,6 +172,7 @@ describe('deriveTrades', () => {
         executedAt: new Date(2026, 0, 1),
         stopLevels: [
           {
+            id: 'a',
             kind: 'FIXED',
             price: 205,
             trailPercent: null,
@@ -177,6 +181,7 @@ describe('deriveTrades', () => {
             createdAt: KNOWN_CREATED_AT,
           },
           {
+            id: 'b',
             kind: 'TRAILING',
             price: null,
             trailPercent: 8,
@@ -229,6 +234,7 @@ describe('deriveTrades', () => {
           stopLevels: [
             // revision 0: the original stop, set at entry.
             {
+              id: 'rev-0',
               kind: 'FIXED',
               price: 90,
               trailPercent: null,
@@ -238,6 +244,7 @@ describe('deriveTrades', () => {
             },
             // revision 1: trailed up as the trade worked.
             {
+              id: 'rev-1',
               kind: 'FIXED',
               price: 105,
               trailPercent: null,
@@ -247,6 +254,7 @@ describe('deriveTrades', () => {
             },
             // revision 2: trailed again, this is the current stop.
             {
+              id: 'rev-2',
               kind: 'FIXED',
               price: 112,
               trailPercent: null,
@@ -265,7 +273,7 @@ describe('deriveTrades', () => {
       // currentStops is revision 2, the live stop — well above entry, as a
       // trailed profit-lock legitimately is.
       expect(t.currentStops).toEqual([
-        { kind: 'FIXED', price: 112, trailPercent: null, quantity: 10 },
+        { id: 'rev-2', kind: 'FIXED', price: 112, trailPercent: null, quantity: 10 },
       ]);
     });
 
@@ -273,7 +281,7 @@ describe('deriveTrades', () => {
       const [t] = deriveTrades([txn('NVDA', 'BUY', 10, 100, 1, { stop: 90 })]);
       expect(t.riskAmount).toBe(100);
       expect(t.currentStops).toEqual([
-        { kind: 'FIXED', price: 90, trailPercent: null, quantity: 10 },
+        { id: 'stop-0', kind: 'FIXED', price: 90, trailPercent: null, quantity: 10 },
       ]);
     });
 
@@ -302,6 +310,7 @@ describe('deriveTrades', () => {
           executedAt: new Date(2026, 0, 1),
           stopLevels: [
             {
+              id: 'legacy-0',
               kind: 'FIXED',
               price: 17.07, // above entry, on a long — the tell.
               trailPercent: null,
@@ -319,7 +328,7 @@ describe('deriveTrades', () => {
       // Still reported as the CURRENT stop — the dashboard and chart should
       // keep showing it, only risk/R must refuse to use it.
       expect(t.currentStops).toEqual([
-        { kind: 'FIXED', price: 17.07, trailPercent: null, quantity: 100 },
+        { id: 'legacy-0', kind: 'FIXED', price: 17.07, trailPercent: null, quantity: 100 },
       ]);
     });
 
@@ -340,6 +349,7 @@ describe('deriveTrades', () => {
           executedAt: new Date(2026, 0, 1),
           stopLevels: [
             {
+              id: 'legacy-0',
               kind: 'FIXED',
               price: 17.07,
               trailPercent: null,
@@ -348,6 +358,7 @@ describe('deriveTrades', () => {
               createdAt: null,
             },
             {
+              id: 'rev-1',
               kind: 'FIXED',
               price: 18.0,
               trailPercent: null,
@@ -362,7 +373,7 @@ describe('deriveTrades', () => {
       expect(t.riskAmount).toBeNull();
       expect(t.rMultiple).toBeNull();
       expect(t.currentStops).toEqual([
-        { kind: 'FIXED', price: 18.0, trailPercent: null, quantity: 100 },
+        { id: 'rev-1', kind: 'FIXED', price: 18.0, trailPercent: null, quantity: 100 },
       ]);
     });
   });
@@ -477,6 +488,7 @@ describe('selectEntryStops / selectCurrentStops', () => {
     price: number,
     createdAt: string | null,
   ): StopRevisionInput => ({
+    id: `rev-${revisionSeq}`,
     kind: 'FIXED',
     price,
     trailPercent: null,
@@ -625,12 +637,30 @@ describe('computeEffectiveStops', () => {
   const OPENED = new Date(2026, 0, 1);
   const RECORDED = new Date(2026, 0, 10);
 
-  function fixed(price: number, quantity: number): StopLevelInput {
-    return { kind: 'FIXED', price, trailPercent: null, quantity };
+  // Derived from price/trailPercent, not a shared constant: these fixtures
+  // predate recorded executions and only ever exercise price matching, which
+  // does not care about id. But `remaining.find(t => t.id === ...)` returns
+  // the FIRST match, so if every tier shared one id, a stray future test in
+  // this block that DID record an execution would silently consume tier
+  // index 0 regardless of which tier it named. Deriving the id from the
+  // tier's own identifying field keeps two tiers in the same test distinct,
+  // while still matching between an input tier and its `toEqual` expectation
+  // (both built by calling this helper with the same arguments).
+  function fixed(price: number, quantity: number): StopLevelInput & { id: string } {
+    return { id: `fixed-${price}`, kind: 'FIXED', price, trailPercent: null, quantity };
   }
 
-  function trailing(trailPercent: number, quantity: number): StopLevelInput {
-    return { kind: 'TRAILING', price: null, trailPercent, quantity };
+  function trailing(
+    trailPercent: number,
+    quantity: number,
+  ): StopLevelInput & { id: string } {
+    return {
+      id: `trailing-${trailPercent}`,
+      kind: 'TRAILING',
+      price: null,
+      trailPercent,
+      quantity,
+    };
   }
 
   function sell(quantity: number, price: number, day: number): ReducingFill {
@@ -767,5 +797,242 @@ describe('computeEffectiveStops', () => {
     const recorded = [fixed(36.92, 600), fixed(30.39, 550)];
     computeEffectiveStops(recorded, RECORDED, OPENED, [sell(600, 36.92, 15)]);
     expect(recorded).toEqual([fixed(36.92, 600), fixed(30.39, 550)]);
+  });
+});
+
+describe('computeEffectiveStops with recorded executions', () => {
+  it('consumes exactly the recorded tier, ignoring price proximity', () => {
+    // The fill price sits nearest tier A, but the OWNER said it was tier B.
+    // The record must win.
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+      { id: 'b', kind: 'FIXED' as const, price: 90, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(tiers, null, new Date('2026-01-01'), [
+      {
+        executedAt: new Date('2026-01-05'),
+        price: 99.9,
+        quantity: 50,
+        exitKind: 'STOP',
+        executions: [{ stopLevelId: 'b', quantity: 50 }],
+      },
+    ]);
+    expect(result.find((t) => t.id === 'a')?.quantity).toBe(50);
+    expect(result.find((t) => t.id === 'b')).toBeUndefined();
+  });
+
+  it('leaves every tier intact for a discretionary exit', () => {
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(tiers, null, new Date('2026-01-01'), [
+      {
+        executedAt: new Date('2026-01-05'),
+        price: 100,
+        quantity: 20,
+        exitKind: 'DISCRETIONARY',
+        executions: [],
+      },
+    ]);
+    // The shares are gone, so coverage cannot exceed what is held - but no
+    // tier is attributed, because the owner said this was his own decision.
+    expect(result.find((t) => t.id === 'a')?.quantity).toBe(50);
+  });
+
+  it('still price-matches a fill nobody has classified', () => {
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(tiers, null, new Date('2026-01-01'), [
+      { executedAt: new Date('2026-01-05'), price: 100, quantity: 50 },
+    ]);
+    expect(result.find((t) => t.id === 'a')).toBeUndefined();
+  });
+
+  it('consumes a recorded execution even when it predates recordedAt', () => {
+    // The headline rule: recordedAt/openedAt gates the PRICE-MATCHING guess
+    // only. A confirmed execution is authoritative regardless of revision
+    // timing — the owner named the tier himself, so there is nothing to
+    // "double count" the way there would be for an unclassified fill that
+    // predates the revision it would otherwise be re-consumed against.
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(
+      tiers,
+      new Date('2026-01-10'), // recordedAt, AFTER the fill below
+      new Date('2026-01-01'),
+      [
+        {
+          executedAt: new Date('2026-01-05'), // before recordedAt
+          price: 100,
+          quantity: 50,
+          exitKind: 'STOP',
+          executions: [{ stopLevelId: 'a', quantity: 50 }],
+        },
+      ],
+    );
+    expect(result.find((t) => t.id === 'a')).toBeUndefined();
+  });
+
+  it('silently ignores an execution naming a tier id not in this revision', () => {
+    // Reachable once a later revision replaces the tiers a StopExecution was
+    // recorded against, so `stopLevelId` no longer names anything here. That
+    // execution predates `recordedAt` and was already reflected in whatever
+    // the owner set as the later revision, so skipping it (rather than
+    // falling back to a price-matching guess) is correct, not an oversight.
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(tiers, null, new Date('2026-01-01'), [
+      {
+        executedAt: new Date('2026-01-05'),
+        price: 100,
+        quantity: 20,
+        exitKind: 'STOP',
+        executions: [{ stopLevelId: 'stale-tier-from-prior-revision', quantity: 20 }],
+      },
+    ]);
+    expect(result.find((t) => t.id === 'a')?.quantity).toBe(50);
+  });
+});
+
+describe('suggestTierForFill', () => {
+  const tiers = [
+    { id: 'a', kind: 'FIXED' as const, price: 36.92, trailPercent: null, quantity: 600 },
+    { id: 'b', kind: 'FIXED' as const, price: 30.39, trailPercent: null, quantity: 550 },
+  ];
+
+  it('picks the tier nearest the fill price', () => {
+    expect(suggestTierForFill(tiers, 36.92)).toBe('a');
+    expect(suggestTierForFill(tiers, 30.5)).toBe('b');
+  });
+
+  it('returns null when no tier has a resolvable price', () => {
+    expect(
+      suggestTierForFill(
+        [{ id: 'c', kind: 'TRAILING', price: null, trailPercent: 11.9, quantity: 100 }],
+        123.07,
+      ),
+    ).toBeNull();
+  });
+
+  it('returns null for an empty plan', () => {
+    expect(suggestTierForFill([], 10)).toBeNull();
+  });
+});
+
+describe('fills sharing an executedAt', () => {
+  // Journal entries record a DATE, not a time, so every fill logged for the
+  // same day lands on the identical timestamp. Ordering them by executedAt
+  // alone leaves the tie to chance, and the wrong guess merges a completed
+  // round trip into the position that replaced it — the closed trade then
+  // vanishes from the history that win rate, expectancy and R are computed
+  // from. `recordedAt` (the journal entry's createdAt) breaks the tie with
+  // the order the owner actually logged them in.
+  const sameDay = (
+    side: 'BUY' | 'SELL',
+    quantity: number,
+    price: number,
+    recordedMinute: number,
+  ): TradeTxn => ({
+    symbol: 'AVGO',
+    side,
+    quantity,
+    price,
+    fee: 0,
+    executedAt: new Date(2026, 8, 3, 12, 0, 0),
+    recordedAt: new Date(2026, 8, 3, 0, recordedMinute, 0),
+    stopLevels: [],
+  });
+
+  it('splits a close and a same-day re-entry into two trades', () => {
+    // The real AVGO case: bought in August, stopped out on 3 Sep, bought back
+    // the same day. Passed in re-entry-first order on purpose — that is the
+    // order that produced the bug.
+    const trades = deriveTrades([
+      {
+        symbol: 'AVGO',
+        side: 'BUY',
+        quantity: 40,
+        price: 373.38,
+        fee: 0,
+        executedAt: new Date(2026, 7, 28, 12, 0, 0),
+        recordedAt: new Date(2026, 7, 28, 17, 26, 0),
+        stopLevels: [],
+      },
+      sameDay('BUY', 40, 374.12, 28),
+      sameDay('SELL', 40, 349.91, 21),
+    ]);
+
+    expect(trades).toHaveLength(2);
+    const closed = trades.find((t) => !t.isOpen);
+    const open = trades.find((t) => t.isOpen);
+    expect(closed?.avgEntry).toBeCloseTo(373.38, 6);
+    expect(closed?.avgExit).toBeCloseTo(349.91, 6);
+    expect(open?.avgEntry).toBeCloseTo(374.12, 6);
+    expect(open?.remainingQuantity).toBe(40);
+  });
+
+  it('keeps a same-day open-and-close as one closed long, never a short', () => {
+    // The tie-break must not simply put reducing fills first: with nothing
+    // held, a sell processed before its buy reads as opening a short. The
+    // owner day-trades, so this is a real sequence, not a hypothetical.
+    const trades = deriveTrades([
+      sameDay('SELL', 40, 380, 30),
+      sameDay('BUY', 40, 370, 15),
+    ]);
+
+    expect(trades).toHaveLength(1);
+    expect(trades[0].direction).toBe('LONG');
+    expect(trades[0].isOpen).toBe(false);
+    expect(trades[0].avgEntry).toBeCloseTo(370, 6);
+    expect(trades[0].avgExit).toBeCloseTo(380, 6);
+  });
+});
+
+describe('autoAttributeTier', () => {
+  const fixed = (id: string, price: number) => ({
+    id,
+    kind: 'FIXED' as const,
+    price,
+    trailPercent: null,
+    quantity: 100,
+  });
+
+  it('matches an exact fill', () => {
+    expect(autoAttributeTier([fixed('a', 36.92)], 36.92)).toBe('a');
+  });
+
+  it('tolerates ordinary slippage', () => {
+    // The owner's real worst case: BE, filled at 206.90 against a 207.08 stop.
+    expect(autoAttributeTier([fixed('a', 207.08)], 206.9)).toBe('a');
+    // AVGO, 2 cents off a 349.93 stop.
+    expect(autoAttributeTier([fixed('a', 349.93)], 349.91)).toBe('a');
+  });
+
+  it('refuses a fill that is merely in the neighbourhood', () => {
+    // 1% away is not slippage, it is a different decision.
+    expect(autoAttributeTier([fixed('a', 100)], 99)).toBeNull();
+  });
+
+  it('picks the nearer of two tiers, never the further', () => {
+    expect(autoAttributeTier([fixed('a', 36.92), fixed('b', 36.95)], 36.94)).toBe('b');
+  });
+
+  it('never matches a trailing tier', () => {
+    // Its live level needs the high-water mark, which the journal write path
+    // does not have. MSTR is the real case: recorded 11.9%, exited at 123.07.
+    expect(
+      autoAttributeTier(
+        [{ id: 't', kind: 'TRAILING', price: null, trailPercent: 11.9, quantity: 100 }],
+        123.07,
+      ),
+    ).toBeNull();
+  });
+
+  it('answers null for no tiers or no price', () => {
+    expect(autoAttributeTier([], 10)).toBeNull();
+    expect(autoAttributeTier([fixed('a', 10)], 0)).toBeNull();
   });
 });

@@ -13,6 +13,8 @@ import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
+import { StopExecution } from '../transactions/stop-execution.entity.js';
+import { autoAttributeTier } from '../portfolio/derive-trades.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { HistoryService } from '../market-data/history.service.js';
@@ -95,6 +97,15 @@ export interface EntryView {
     stopLevels: StopLevelSpec[];
     /** Dollars at risk from the tiers, computed for display. */
     riskAmount: number | null;
+    /** The owner's confirmation of how this fill came about, if a reducing fill. */
+    exitKind: 'STOP' | 'DISCRETIONARY' | null;
+    /**
+     * The owner's confirmation of which stop tier(s) this fill executed.
+     * Exposed so an edit form can round-trip it: `update()` is a full
+     * replace, so keeping a confirmed execution across an unrelated edit
+     * requires resending it, which requires being able to read it back.
+     */
+    stopExecutions: { stopLevelId: string; quantity: number }[];
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   dividend: { symbol: string; amount: number } | null;
@@ -112,6 +123,10 @@ export interface CreateEntryInput {
     fee: number;
     plannedTarget?: number | null;
     stopLevels?: StopLevelSpec[];
+    /** The owner's confirmation of how a reducing fill came about. */
+    exitKind?: 'STOP' | 'DISCRETIONARY' | null;
+    /** The owner's confirmation of which stop tier(s) a reducing fill executed. */
+    stopExecutions?: { stopLevelId: string; quantity: number }[];
   };
   cash?: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number };
   dividend?: { symbol: string; amount: number };
@@ -139,6 +154,8 @@ export class JournalService {
     private readonly dividends: Repository<Dividend>,
     @InjectRepository(StopLevel)
     private readonly stopLevels: Repository<StopLevel>,
+    @InjectRepository(StopExecution)
+    private readonly stopExecutions: Repository<StopExecution>,
     @InjectRepository(Tag) private readonly tags: Repository<Tag>,
     @InjectRepository(EntryTag)
     private readonly entryTags: Repository<EntryTag>,
@@ -152,7 +169,7 @@ export class JournalService {
 
   async list(filters: ListFilters = {}): Promise<EntryView[]> {
     const user = await this.users.ensureDefaultUser();
-    const [entries, txns, flows, divs, instruments, allTags, joins, levels] =
+    const [entries, txns, flows, divs, instruments, allTags, joins, levels, executions] =
       await Promise.all([
         this.entries.find({
           where: { userId: user.id },
@@ -165,6 +182,7 @@ export class JournalService {
         this.tags.find({ where: { userId: user.id } }),
         this.entryTags.find(),
         this.stopLevels.find(),
+        this.stopExecutions.find(),
       ]);
 
     const symbolById = new Map(instruments.map((i) => [i.id, i.symbol]));
@@ -191,6 +209,14 @@ export class JournalService {
         .filter((l) => l.revisionSeq === maxSeq)
         .sort((a, b) => a.ordinal - b.ordinal);
     };
+
+    const executionsByTxn = new Map<string, StopExecution[]>();
+    for (const ex of executions) {
+      executionsByTxn.set(ex.transactionId, [
+        ...(executionsByTxn.get(ex.transactionId) ?? []),
+        ex,
+      ]);
+    }
 
     const tagIdsByEntry = new Map<string, string[]>();
     for (const j of joins) {
@@ -233,6 +259,11 @@ export class JournalService {
             quantity: l.quantity,
           })),
           riskAmount: risk.amount,
+          exitKind: t.exitKind,
+          stopExecutions: (executionsByTxn.get(t.id) ?? []).map((ex) => ({
+            stopLevelId: ex.stopLevelId,
+            quantity: ex.quantity,
+          })),
         };
       }
 
@@ -416,6 +447,12 @@ export class JournalService {
         input.trade.symbol,
       );
       await this.ensurePricedSafely(instrument);
+      // exitKind/stopExecutions are validated later, inside writeOwnedRows,
+      // against the SAME EntityManager as the write — not here. This method
+      // runs before the write transaction opens (see its doc comment), and
+      // that ownership/quantity check must read the data it guards inside
+      // the same transaction as the write, not on a separate connection
+      // that data could change underneath before the write commits.
       return { side, quantity, instrumentId: instrument.id };
     }
     if (input.kind === 'CASH' && !input.cash) {
@@ -432,6 +469,107 @@ export class JournalService {
       return { side: 'BUY' as const, quantity: 0, instrumentId: instrument.id };
     }
     return null;
+  }
+
+  /**
+   * The instrument's net signed position (positive long, negative short)
+   * from every transaction on record, read through `manager` — the SAME
+   * connection as the write this guards, inside the SAME transaction. In
+   * `update()`, `writeOwnedRows` always runs after `clearOwnedRows` has
+   * already deleted this entry's own prior transaction row on this manager,
+   * so that prior row is correctly invisible here without needing to filter
+   * it out by entry id.
+   */
+  private async currentNetQuantity(
+    manager: EntityManager,
+    instrumentId: string,
+  ): Promise<number> {
+    const txns = await manager.find(Transaction, { where: { instrumentId } });
+    return txns.reduce(
+      (sum, t) => sum + (t.side === 'BUY' ? t.quantity : -t.quantity),
+      0,
+    );
+  }
+
+  /**
+   * Guards the owner's confirmed stop attribution (`exitKind` /
+   * `stopExecutions`) against three ways it can go wrong before it ever
+   * reaches the database. Runs on `manager` — the SAME `EntityManager` as
+   * the write it guards, inside the SAME `dataSource.transaction(...)` —
+   * rather than the injected repositories, which are separate,
+   * non-transactional connections: reading through a different connection
+   * than the one that performs the write leaves a TOCTOU window where the
+   * data validated against could change before the write commits. A
+   * `BadRequestException` thrown here still rolls back the whole
+   * transaction and still surfaces as a 400, exactly as it did before.
+   *
+   * 1. It only means anything on a fill that actually REDUCES an existing
+   *    position — derivation (`computeEffectiveStops`) only ever reads it on
+   *    a reducing fill; an opening or adding fill has no tier to have
+   *    executed. Checked against the instrument's current net position
+   *    rather than blindly by side, because on margin a BUY can be a
+   *    reducing fill too (covering a short) — see product-brief.md.
+   * 2. Each `stopLevelId` must resolve to a stop level that ACTUALLY
+   *    protects this instrument. Without this, a cross-instrument id is
+   *    written silently, which is worse than a no-op: it makes
+   *    `fill.executions` non-empty, so `computeEffectiveStops` takes the
+   *    "confirmed" branch, finds no matching tier among this trade's own,
+   *    and skips price matching entirely — the real tier is never consumed
+   *    and the position reports stop coverage it does not have. A
+   *    well-formed but nonexistent id is rejected here too, rather than
+   *    left to surface as a 500 from the foreign key.
+   * 3. The executions named for one fill cannot claim more shares than the
+   *    fill itself sold — over-claiming does not corrupt derivation
+   *    (`computeEffectiveStops` clamps at zero) but it silently
+   *    UNDER-reports stop coverage, an "honest numbers" violation reachable
+   *    from one mistyped digit.
+   */
+  private async validateExitAttribution(
+    manager: EntityManager,
+    trade: NonNullable<CreateEntryInput['trade']>,
+    instrumentId: string,
+    side: 'BUY' | 'SELL',
+    quantity: number,
+  ): Promise<void> {
+    const netQty = await this.currentNetQuantity(manager, instrumentId);
+    const isReducing =
+      (side === 'SELL' && netQty > REVISION_EPSILON) ||
+      (side === 'BUY' && netQty < -REVISION_EPSILON);
+    if (!isReducing) {
+      throw new BadRequestException(
+        'exitKind and stopExecutions only apply to a fill that reduces an existing position',
+      );
+    }
+
+    const stopExecutions = trade.stopExecutions ?? [];
+    const requestedTotal = stopExecutions.reduce(
+      (sum, exec) => sum + exec.quantity,
+      0,
+    );
+    if (requestedTotal - quantity > REVISION_EPSILON) {
+      throw new BadRequestException(
+        'stopExecutions cannot claim more shares than the fill itself',
+      );
+    }
+
+    for (const exec of stopExecutions) {
+      const level = await manager.findOne(StopLevel, {
+        where: { id: exec.stopLevelId },
+      });
+      if (!level) {
+        throw new BadRequestException(
+          `Unknown stop level ${exec.stopLevelId}`,
+        );
+      }
+      const owningTxn = await manager.findOne(Transaction, {
+        where: { id: level.transactionId },
+      });
+      if (!owningTxn || owningTxn.instrumentId !== instrumentId) {
+        throw new BadRequestException(
+          `Stop level ${exec.stopLevelId} does not belong to this instrument`,
+        );
+      }
+    }
   }
 
   /**
@@ -467,6 +605,24 @@ export class JournalService {
     previousTransactionId: string | null,
   ): Promise<void> {
     if (input.kind === 'TRADE' && input.trade && resolved) {
+      const hasAttribution =
+        !!input.trade.exitKind || (input.trade.stopExecutions ?? []).length > 0;
+      if (hasAttribution) {
+        // Validated here, against `manager` — the same connection and the
+        // same transaction as the write below — rather than earlier in
+        // `resolveTrade` (which runs before this transaction opens, on the
+        // injected repositories' own connections). Must run BEFORE the
+        // Transaction row is inserted, so the net-position check reads this
+        // instrument's position as it stood before this fill.
+        await this.validateExitAttribution(
+          manager,
+          input.trade,
+          resolved.instrumentId,
+          resolved.side,
+          resolved.quantity,
+        );
+      }
+
       const txn = await manager.save(
         manager.create(Transaction, {
           userId,
@@ -488,6 +644,50 @@ export class JournalService {
         );
       }
       await this.writeStopRevision(manager, txn.id, input.trade.stopLevels);
+
+      // The owner's own confirmation of how this fill came about, and which
+      // tier(s) it executed — see stop-execution.entity.ts. An execution is
+      // a claim about THIS fill, so on update() it is rewritten from the new
+      // payload exactly like tags: `clearOwnedRows` deletes the previous
+      // Transaction row, which cascades away its `stop_executions` rows, and
+      // this recreates them against the fresh transaction id. That means an
+      // edit to any field of a TRADE entry must resend `exitKind` /
+      // `stopExecutions` to keep a previously confirmed attribution — the
+      // same way it must already resend `stopLevels` to keep the stop plan
+      // (stopLevels alone survives because it is re-parented, not deleted).
+      if (input.trade.exitKind) {
+        await manager.update(Transaction, txn.id, {
+          exitKind: input.trade.exitKind,
+        });
+      }
+      for (const exec of input.trade.stopExecutions ?? []) {
+        await manager.save(
+          manager.create(StopExecution, {
+            stopLevelId: exec.stopLevelId,
+            transactionId: txn.id,
+            quantity: Math.abs(exec.quantity),
+          }),
+        );
+      }
+
+      // Nothing was claimed explicitly, so work it out. A reducing fill whose
+      // price matches a recorded FIXED tier within ordinary slippage IS that
+      // stop firing — there is nothing for the owner to adjudicate, and asking
+      // him to confirm what the prices already prove is friction he was right
+      // to refuse.
+      //
+      // Recomputed on every save, which is what makes it safe: `update()`
+      // deletes and recreates the transaction row and the ON DELETE CASCADE
+      // takes the execution with it, so an attribution that had to survive an
+      // edit would need the client to resend it. Deriving it here means it is
+      // simply regenerated, and an edit cannot destroy it.
+      //
+      // A trailing tier is never matched (see autoAttributeTier): pricing one
+      // needs the high-water mark, which lives in the portfolio derivation and
+      // not here. Such an exit is left unrecorded rather than guessed at.
+      if (!input.trade.exitKind && (input.trade.stopExecutions ?? []).length === 0) {
+        await this.autoRecordStopExecution(manager, txn, resolved.instrumentId);
+      }
     }
 
     if (input.kind === 'CASH' && input.cash) {
@@ -597,6 +797,78 @@ export class JournalService {
     await this.dataSource.transaction(async (manager) => {
       await this.writeStopRevision(manager, transactionId, levels);
     });
+  }
+
+  /**
+   * Record, unprompted, that a stop fired — when the prices say so plainly.
+   *
+   * Only a fill that REDUCES the position can execute a stop, and only a
+   * FIXED tier can be priced from here, so this claims a stop exactly when a
+   * reducing fill lands within slippage of a recorded level. Everything else
+   * is left `null`: unrecorded is an honest answer, a wrong attribution is
+   * not.
+   *
+   * Reads the latest revision's tiers and subtracts what earlier executions
+   * already consumed, so a tier that has already fired is not credited twice
+   * on a later partial exit.
+   */
+  private async autoRecordStopExecution(
+    manager: EntityManager,
+    txn: Transaction,
+    instrumentId: string,
+  ): Promise<void> {
+    const all = await manager.find(Transaction, { where: { instrumentId } });
+    const netBefore = all
+      .filter((t) => t.id !== txn.id)
+      .reduce((sum, t) => sum + (t.side === 'BUY' ? t.quantity : -t.quantity), 0);
+    const isReducing =
+      (txn.side === 'SELL' && netBefore > REVISION_EPSILON) ||
+      (txn.side === 'BUY' && netBefore < -REVISION_EPSILON);
+    if (!isReducing) return;
+
+    const levels = await manager.find(StopLevel, {
+      where: all.map((t) => ({ transactionId: t.id })),
+    });
+    if (levels.length === 0) return;
+
+    const byTxn = new Map<string, StopLevel[]>();
+    for (const l of levels) {
+      byTxn.set(l.transactionId, [...(byTxn.get(l.transactionId) ?? []), l]);
+    }
+    const live: StopLevel[] = [];
+    for (const group of byTxn.values()) {
+      const maxSeq = Math.max(...group.map((l) => l.revisionSeq));
+      live.push(...group.filter((l) => l.revisionSeq === maxSeq));
+    }
+
+    const matchedId = autoAttributeTier(
+      live.map((l) => ({
+        id: l.id,
+        kind: l.kind,
+        price: l.price,
+        trailPercent: l.trailPercent,
+        quantity: l.quantity,
+      })),
+      txn.price,
+    );
+    if (matchedId === null) return;
+
+    const tier = live.find((l) => l.id === matchedId)!;
+    const already = await manager.find(StopExecution, {
+      where: { stopLevelId: matchedId },
+    });
+    const consumed = already.reduce((sum, e) => sum + e.quantity, 0);
+    const room = tier.quantity - consumed;
+    if (room <= REVISION_EPSILON) return;
+
+    await manager.save(
+      manager.create(StopExecution, {
+        stopLevelId: matchedId,
+        transactionId: txn.id,
+        quantity: Math.min(Math.abs(txn.quantity), room),
+      }),
+    );
+    await manager.update(Transaction, txn.id, { exitKind: 'STOP' });
   }
 
   /** Find-or-create each tag, then replace the entry's joins with exactly these. */

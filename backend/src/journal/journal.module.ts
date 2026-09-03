@@ -7,6 +7,7 @@ import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
+import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { JournalService } from './journal.service.js';
 import { JournalController } from './journal.controller.js';
@@ -24,6 +25,7 @@ import { UsersModule } from '../users/users.module.js';
       CashFlow,
       Dividend,
       StopLevel,
+      StopExecution,
       Instrument,
     ]),
     InstrumentsModule,

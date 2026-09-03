@@ -1,4 +1,4 @@
-import type { DerivedTxn } from './derive.js';
+import { compareFills, type DerivedTxn } from './derive.js';
 import { computeRisk, type StopLevelInput } from './risk.js';
 
 /**
@@ -8,6 +8,17 @@ import { computeRisk, type StopLevelInput } from './risk.js';
  * only code that should pick one revision out of that history.
  */
 export interface StopRevisionInput extends StopLevelInput {
+  /**
+   * `stop_levels.id` — required, not a convenience: this is what lets a
+   * recorded `StopExecution` name exactly which tier it fired, in
+   * `computeEffectiveStops` below. A tier that somehow arrived without one
+   * would silently fail that id match (see `selectCurrentStopsWithIds`) and
+   * be reported as still fully intact — an overstated at-risk figure with no
+   * error anywhere. `stop-level.entity.ts` generates a UUID for every row,
+   * so this is never actually absent; required here keeps it that way
+   * instead of leaving a silent-wrong-number trapdoor open.
+   */
+  id: string;
   /** 0 is the first revision ever recorded; increasing thereafter. */
   revisionSeq: number;
   /**
@@ -22,6 +33,16 @@ export interface StopRevisionInput extends StopLevelInput {
 export type TradeTxn = DerivedTxn & {
   stopLevels?: StopRevisionInput[];
   plannedTarget?: number | null;
+  /**
+   * The owner's confirmed attribution of this fill to the stop tier(s) it
+   * executed, from `stop_executions` — carried through to the matching
+   * `ReducingFill` so `computeEffectiveStops` can consume it directly. Only
+   * meaningful on a reducing fill; an opening or adding fill's value here is
+   * never read.
+   */
+  executions?: Array<{ stopLevelId: string; quantity: number }>;
+  /** From `transactions.exitKind` — see `ReducingFill.exitKind`. */
+  exitKind?: 'STOP' | 'DISCRETIONARY' | null;
 };
 
 function stripRevisionMeta(l: StopRevisionInput): StopLevelInput {
@@ -62,6 +83,31 @@ export function selectCurrentStops(levels: StopRevisionInput[]): StopLevelInput[
   return levels.filter((l) => l.revisionSeq === maxSeq).map(stripRevisionMeta);
 }
 
+/**
+ * Like `selectCurrentStops`, but keeps each tier's `stop_levels.id` — needed
+ * only internally, by `finish()` below, to pass tiers into
+ * `computeEffectiveStops` that a recorded `StopExecution` can be matched
+ * against by id. Not exported: `selectCurrentStops` stays the public,
+ * id-free view every existing caller and test already relies on. The id is
+ * stripped back off before `DerivedTrade.currentStops` is built, so it is
+ * never observed outside `computeEffectiveStops`'s own matching.
+ */
+function selectCurrentStopsWithIds(
+  levels: StopRevisionInput[],
+): Array<StopLevelInput & { id: string }> {
+  if (levels.length === 0) return [];
+  const maxSeq = Math.max(...levels.map((l) => l.revisionSeq));
+  return levels
+    .filter((l) => l.revisionSeq === maxSeq)
+    .map((l) => ({
+      id: l.id,
+      kind: l.kind,
+      price: l.price,
+      trailPercent: l.trailPercent,
+      quantity: l.quantity,
+    }));
+}
+
 /** When the latest revision was recorded, or null if that revision predates revision tracking. */
 function latestRevisionCreatedAt(levels: StopRevisionInput[]): Date | null {
   if (levels.length === 0) return null;
@@ -79,6 +125,25 @@ export interface ReducingFill {
   price: number;
   /** Always positive. */
   quantity: number;
+  /**
+   * Stop tiers the owner confirmed this fill executed — from `stop_executions`.
+   * When present (non-empty), this is authoritative and price matching is
+   * never run for this fill: the owner named the tier himself, so a price
+   * that happens to sit nearer a different tier is not a wrong guess to
+   * correct, it is irrelevant.
+   */
+  executions?: Array<{ stopLevelId: string; quantity: number }>;
+  /**
+   * How this exit came about, from `transactions.exitKind`. `'DISCRETIONARY'`
+   * means the owner exited by his own decision, not because a stop fired —
+   * `computeEffectiveStops` attributes no tier to it, though the fill still
+   * happened and the shares are still gone (that reduction in what is
+   * actually held is enforced downstream, in `computeRisk`'s coverage cap).
+   * Undefined/null means "not yet classified", which still falls back to
+   * price matching — the guess this whole feature is narrowing, not
+   * replacing.
+   */
+  exitKind?: 'STOP' | 'DISCRETIONARY' | null;
 }
 
 const EFFECTIVE_EPSILON = 1e-9;
@@ -95,6 +160,29 @@ function distanceFromFill(level: StopLevelInput, fillPrice: number): number | nu
     return Math.abs(level.price - fillPrice);
   }
   return null;
+}
+
+/**
+ * The tier a fill most plausibly executed, by price proximity — the same
+ * signal `computeEffectiveStops` uses, extracted so the entry sheet can
+ * offer it as a pre-selected default.
+ *
+ * This is a SUGGESTION and nothing more. It was wrong on a real trade
+ * (MSTR: the only tier was a trailing stop the exit never reached, and a
+ * matcher with one candidate will always pick it), which is exactly why the
+ * owner confirms it before anything is stored.
+ */
+export function suggestTierForFill(
+  tiers: Array<StopLevelInput & { id: string }>,
+  fillPrice: number,
+): string | null {
+  let best: { id: string; gap: number } | null = null;
+  for (const tier of tiers) {
+    const gap = distanceFromFill(tier, fillPrice);
+    if (gap === null) continue;
+    if (best === null || gap < best.gap) best = { id: tier.id, gap };
+  }
+  return best?.id ?? null;
 }
 
 /**
@@ -123,27 +211,68 @@ function distanceFromFill(level: StopLevelInput, fillPrice: number): number | nu
  * (there is nothing more this function can honestly report).
  *
  * Only fills at or after `recordedAt` (the latest revision's set-time) are
- * considered — an earlier reducing fill was already reflected in whatever
- * the owner set as that revision, so re-consuming it here would double
- * count. When `recordedAt` is unknown (a legacy, pre-revision-tracking
- * stop), `openedAt` is the fallback cutoff: everything since the position
- * opened is fair game, since tiers cannot consume a sale that predates the
- * position they protect.
+ * considered for PRICE MATCHING — an earlier reducing fill was already
+ * reflected in whatever the owner set as that revision, so re-consuming it
+ * here would double count. When `recordedAt` is unknown (a legacy,
+ * pre-revision-tracking stop), `openedAt` is the fallback cutoff: everything
+ * since the position opened is fair game, since tiers cannot consume a sale
+ * that predates the position they protect. This cutoff applies ONLY to the
+ * price-matched branch below — a recorded execution is authoritative
+ * regardless of revision timing, because the owner named the tier himself,
+ * not because its price happened to line up with a live revision.
+ *
+ * Every fill is processed oldest-first, and each one is handled by exactly
+ * one of three branches, decided before any proximity logic runs:
+ *
+ * 1. `fill.executions` is non-empty — a confirmed `StopExecution` record.
+ *    Consume each named tier by its recorded quantity directly, by id.
+ *    Nothing here is a guess, so proximity is not consulted at all.
+ * 2. `fill.exitKind === 'DISCRETIONARY'` — the owner's own decision, not a
+ *    stop firing. Attribute nothing: coverage still reads as if the tier is
+ *    intact, because it never triggered. (The shares are still gone; that is
+ *    enforced separately, downstream, by `computeRisk`'s coverage cap against
+ *    what is actually held — not here.)
+ * 3. Anything else — an unclassified fill — falls back to the price-matching
+ *    guess this function used exclusively before recorded executions existed.
  */
 export function computeEffectiveStops(
-  recordedTiers: StopLevelInput[],
+  recordedTiers: Array<StopLevelInput & { id: string }>,
   recordedAt: Date | null,
   openedAt: Date,
   reducingFills: ReducingFill[],
-): StopLevelInput[] {
+): Array<StopLevelInput & { id: string }> {
   const cutoff = recordedAt ?? openedAt;
-  const consumingFills = [...reducingFills]
-    .filter((f) => f.executedAt.getTime() >= cutoff.getTime())
-    .sort((a, b) => a.executedAt.getTime() - b.executedAt.getTime());
+  const orderedFills = [...reducingFills].sort(
+    (a, b) => a.executedAt.getTime() - b.executedAt.getTime(),
+  );
 
   const remaining = recordedTiers.map((t) => ({ ...t }));
 
-  for (const fill of consumingFills) {
+  for (const fill of orderedFills) {
+    if (fill.executions !== undefined && fill.executions.length > 0) {
+      for (const execution of fill.executions) {
+        const tier = remaining.find((t) => t.id === execution.stopLevelId);
+        // Deliberately silent, not a fallback to price matching: this is
+        // reachable once a later revision replaces the tiers a
+        // StopExecution was recorded against, so `stopLevelId` no longer
+        // appears in `recordedTiers` here. Such an execution predates
+        // `recordedAt` — it was already reflected in whatever the owner set
+        // as that later revision — so re-consuming it (against any tier,
+        // guessed or not) would double count exactly the case the
+        // recordedAt/openedAt cutoff below exists to prevent.
+        if (tier === undefined) continue;
+        tier.quantity = Math.max(0, tier.quantity - execution.quantity);
+      }
+      continue;
+    }
+
+    if (fill.exitKind === 'DISCRETIONARY') {
+      continue;
+    }
+
+    // Unclassified: the pre-existing price-matching guess, cutoff-gated.
+    if (fill.executedAt.getTime() < cutoff.getTime()) continue;
+
     let toConsume = fill.quantity;
     while (toConsume > EFFECTIVE_EPSILON) {
       const candidates = remaining
@@ -178,6 +307,10 @@ export interface TradeFill {
   price: number;
   quantity: number;
   fee: number;
+  /** Carried from `TradeTxn.executions` — see `ReducingFill.executions`. */
+  executions?: Array<{ stopLevelId: string; quantity: number }>;
+  /** Carried from `TradeTxn.exitKind` — see `ReducingFill.exitKind`. */
+  exitKind?: 'STOP' | 'DISCRETIONARY' | null;
 }
 
 export interface DerivedTrade {
@@ -236,7 +369,7 @@ export interface DerivedTrade {
    * rather than stored. Also NOT the plan as it stood at entry; see
    * `riskAmount`'s doc comment for that one.
    */
-  currentStops: StopLevelInput[];
+  currentStops: Array<StopLevelInput & { id: string }>;
 }
 
 const EPSILON = 1e-9;
@@ -277,9 +410,7 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
   const trades: DerivedTrade[] = [];
 
   for (const [symbol, list] of bySymbol) {
-    const ordered = [...list].sort(
-      (a, b) => a.executedAt.getTime() - b.executedAt.getTime(),
-    );
+    const ordered = [...list].sort(compareFills);
 
     let open: OpenTrade | null = null;
 
@@ -306,6 +437,8 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
           price: t.price,
           quantity: t.quantity,
           fee: t.fee,
+          executions: t.executions,
+          exitKind: t.exitKind,
         });
         continue;
       }
@@ -316,6 +449,8 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
         price: t.price,
         quantity: t.quantity,
         fee: t.fee,
+        executions: t.executions,
+        exitKind: t.exitKind,
       });
       open.fees += t.fee;
       const adding = Math.sign(signed) === Math.sign(open.position);
@@ -367,7 +502,6 @@ function finish(
   // entry tiers at all, so risk stays null rather than being guessed from
   // whatever stop is live now.
   const entryStops = selectEntryStops(open.stopLevels);
-  const recordedCurrentStops = selectCurrentStops(open.stopLevels);
 
   // A SELL against a long (a covering BUY against a short) is a reducing
   // fill — it may have executed one of the recorded tiers, which the tier
@@ -378,10 +512,21 @@ function finish(
   const reducingSide: 'BUY' | 'SELL' = open.direction === 'LONG' ? 'SELL' : 'BUY';
   const reducingFills: ReducingFill[] = open.fills
     .filter((f) => f.side === reducingSide)
-    .map((f) => ({ executedAt: f.executedAt, price: f.price, quantity: f.quantity }));
+    .map((f) => ({
+      executedAt: f.executedAt,
+      price: f.price,
+      quantity: f.quantity,
+      executions: f.executions,
+      exitKind: f.exitKind,
+    }));
 
+  // Each tier's id is carried through rather than stripped. It started out
+  // internal to matching a recorded StopExecution against the right tier, but
+  // the entry sheet needs it too: to say "this sale executed THAT tier" it has
+  // to be able to name the tier, and an id-free list leaves it nothing to
+  // name. Callers that do not care simply ignore the extra field.
   const currentStops = computeEffectiveStops(
-    recordedCurrentStops,
+    selectCurrentStopsWithIds(open.stopLevels),
     latestRevisionCreatedAt(open.stopLevels),
     open.enteredAt,
     reducingFills,
@@ -478,4 +623,47 @@ export function summariseTrades(trades: Summarisable[]): TradeSummary {
 
 function round(n: number): number {
   return Math.round(n * 1e8) / 1e8;
+}
+
+
+/**
+ * How close a fill must sit to a tier's price before the app will record, on
+ * its own, that the tier fired. 0.25% of the tier price.
+ *
+ * Calibrated against the owner's real history: his stop fills land between
+ * exact and 18 cents off a $207 level (0.09%), which is ordinary slippage.
+ * A wider window would start claiming that any sale in the neighbourhood of a
+ * stop WAS that stop, which is the guess this whole feature exists to stop
+ * making.
+ */
+const AUTO_ATTRIBUTE_TOLERANCE = 0.0025;
+
+/**
+ * The tier a fill demonstrably executed, or null.
+ *
+ * Unlike `suggestTierForFill`, which always returns its best candidate for a
+ * human to accept or reject, this refuses to answer unless the prices
+ * genuinely match — it is written to be believed without review, so it must
+ * only claim what it can see.
+ *
+ * TRAILING tiers are never matched here. Their live level depends on the
+ * high-water mark since entry, which exists in the portfolio derivation and
+ * not in the journal write path, so a trailing tier cannot be priced at the
+ * moment a fill is recorded. An exit against one is simply left unrecorded
+ * rather than guessed at.
+ */
+export function autoAttributeTier(
+  tiers: Array<StopLevelInput & { id: string }>,
+  fillPrice: number,
+): string | null {
+  if (!(fillPrice > 0)) return null;
+  let best: { id: string; gap: number } | null = null;
+  for (const tier of tiers) {
+    if (tier.kind !== 'FIXED') continue;
+    if (tier.price === null || !(tier.price > 0)) continue;
+    const gap = Math.abs(tier.price - fillPrice);
+    if (gap > tier.price * AUTO_ATTRIBUTE_TOLERANCE) continue;
+    if (best === null || gap < best.gap) best = { id: tier.id, gap };
+  }
+  return best?.id ?? null;
 }

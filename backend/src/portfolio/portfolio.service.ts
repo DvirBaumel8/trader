@@ -2,6 +2,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, MoreThanOrEqual, Repository } from 'typeorm';
@@ -9,6 +10,7 @@ import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
+import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
@@ -65,6 +67,8 @@ export class PortfolioService {
     private readonly dividendRows: Repository<Dividend>,
     @InjectRepository(StopLevel)
     private readonly stopLevels: Repository<StopLevel>,
+    @InjectRepository(StopExecution)
+    private readonly stopExecutions: Repository<StopExecution>,
     @InjectRepository(JournalEntry)
     private readonly entries: Repository<JournalEntry>,
     @InjectRepository(Instrument)
@@ -80,12 +84,22 @@ export class PortfolioService {
 
   async getPortfolio(opts: { refresh?: boolean } = {}) {
     const user = await this.users.ensureDefaultUser();
-    const [txnRows, flowRows, divRows, instrumentRows] = await Promise.all([
-      this.txns.find({ where: { userId: user.id } }),
-      this.flows.find({ where: { userId: user.id } }),
-      this.dividendRows.find({ where: { userId: user.id } }),
-      this.instruments.find(),
-    ]);
+    const [txnRows, flowRows, divRows, instrumentRows, entryRows] =
+      await Promise.all([
+        this.txns.find({ where: { userId: user.id } }),
+        this.flows.find({ where: { userId: user.id } }),
+        this.dividendRows.find({ where: { userId: user.id } }),
+        this.instruments.find(),
+        this.entries.find({ where: { userId: user.id } }),
+      ]);
+    // Journal entries record a date, not a time, so same-day fills collide on
+    // executedAt. The entry's createdAt is the order the owner logged them in
+    // - the tie-break compareFills uses. Taken from the ENTRY rather than the
+    // transaction because an edit recreates transaction rows (and their
+    // createdAt) while leaving the entry's own untouched.
+    const recordedAtByEntry = new Map(
+      entryRows.map((e) => [e.id, e.createdAt]),
+    );
 
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
     const nameBySymbol = new Map(instrumentRows.map((i) => [i.symbol, i.name]));
@@ -94,6 +108,7 @@ export class PortfolioService {
     );
 
     const derivedTxns: DerivedTxn[] = txnRows.map((t) => ({
+      recordedAt: recordedAtByEntry.get(t.entryId) ?? null,
       symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
       side: t.side,
       quantity: t.quantity,
@@ -411,11 +426,19 @@ export class PortfolioService {
    */
   private async deriveAllTrades(): Promise<DerivedTrade[]> {
     const user = await this.users.ensureDefaultUser();
-    const [txnRows, instrumentRows, levelRows] = await Promise.all([
-      this.txns.find({ where: { userId: user.id } }),
-      this.instruments.find(),
-      this.stopLevels.find(),
-    ]);
+    const [txnRows, instrumentRows, levelRows, executionRows, entryRows] =
+      await Promise.all([
+        this.txns.find({ where: { userId: user.id } }),
+        this.instruments.find(),
+        this.stopLevels.find(),
+        this.stopExecutions.find(),
+        this.entries.find({ where: { userId: user.id } }),
+      ]);
+    // See getPortfolio: same-day fills tie on executedAt and the entry's
+    // createdAt is the only surviving evidence of their real order.
+    const recordedAtByEntry = new Map(
+      entryRows.map((e) => [e.id, e.createdAt]),
+    );
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
 
     const levelsByTxn = new Map<string, StopLevel[]>();
@@ -426,8 +449,25 @@ export class PortfolioService {
       ]);
     }
 
+    // The owner's confirmed attribution of a reducing fill to the tier(s) it
+    // executed — see stop-execution.entity.ts. Keyed by transactionId so
+    // computeEffectiveStops (via deriveTrades) can consume them directly
+    // instead of guessing by price, exactly as it already does for a
+    // recorded exitKind.
+    const executionsByTxn = new Map<
+      string,
+      Array<{ stopLevelId: string; quantity: number }>
+    >();
+    for (const ex of executionRows) {
+      executionsByTxn.set(ex.transactionId, [
+        ...(executionsByTxn.get(ex.transactionId) ?? []),
+        { stopLevelId: ex.stopLevelId, quantity: ex.quantity },
+      ]);
+    }
+
     return deriveTrades(
       txnRows.map((t) => ({
+        recordedAt: recordedAtByEntry.get(t.entryId) ?? null,
         symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
         side: t.side,
         quantity: t.quantity,
@@ -439,6 +479,10 @@ export class PortfolioService {
         stopLevels: (levelsByTxn.get(t.id) ?? [])
           .sort((a, b) => a.revisionSeq - b.revisionSeq || a.ordinal - b.ordinal)
           .map((l) => ({
+            // Carried through so computeEffectiveStops can match a recorded
+            // StopExecution to the exact tier it names, not just guess by
+            // price. See derive-trades.ts's selectCurrentStopsWithIds.
+            id: l.id,
             kind: l.kind,
             price: l.price,
             trailPercent: l.trailPercent,
@@ -447,6 +491,8 @@ export class PortfolioService {
             createdAt: l.createdAt ? l.createdAt.toISOString() : null,
           })),
         plannedTarget: t.plannedTarget,
+        executions: executionsByTxn.get(t.id),
+        exitKind: t.exitKind,
       })),
     );
   }
@@ -655,6 +701,25 @@ export class PortfolioService {
       (t) => t.executedAt.toISOString() === parsed.enteredAt,
     );
     if (!openingTxn) throw new NotFoundException('Unknown trade');
+
+    // An empty plan cannot be recorded. `stop_levels` is append-only and a
+    // revision IS its rows, so "no stops" has no representation - writing
+    // zero rows leaves revisionSeq unadvanced and selectCurrentStops keeps
+    // returning the PREVIOUS revision. The save would appear to succeed while
+    // the tier stayed live and stayed priced into the at-risk figure the
+    // owner acts on. Rejecting loudly beats lying quietly; removing every
+    // stop goes through the journal entry, which CLAUDE.md already names as
+    // the one correction path.
+    if (levels.length === 0) {
+      const existing = await this.stopLevels.find({
+        where: { transactionId: openingTxn.id },
+      });
+      if (existing.length > 0) {
+        throw new BadRequestException(
+          'A stop plan cannot be emptied here. Edit the journal entry that opened this trade to remove its stops.',
+        );
+      }
+    }
 
     await this.journal.reviseStopLevels(openingTxn.id, levels);
     return this.getTrade(tradeId);

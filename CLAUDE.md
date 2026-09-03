@@ -108,6 +108,15 @@ frontend/src/
   routes/        Dashboard, Journal, TradeDetail, Seed, TickerProbe (dev only, not in nav)
 ```
 
+## Reading the dev server's logs
+
+`npm run dev` tees both processes to `logs/api.log` and `logs/web.log`
+(git-ignored, overwritten each start). Read those rather than asking the
+owner to copy something out of his terminal — a backend error he reports is
+almost always already there, e.g. `grep -n "Gemini call attempt" logs/api.log`
+for LLM failures. The files only exist once `npm run dev` has been started
+since this was added.
+
 ## Do not run `nest build` while `npm run dev` is running
 
 Both write `backend/dist`, and the build wipes it out from under the watcher,
@@ -165,6 +174,7 @@ Which file answers which question, and whether it loads on its own:
 | `docs/superpowers/specs/2026-09-01-trade-replay-design.md` | What Phase 4 (trade replay) is and the reasoning behind each decision, including the mid-implementation reversal from a hand-rolled chart to `lightweight-charts` | On demand |
 | `docs/superpowers/plans/2026-09-01-trader-phase-4-replay.md` | Phase 4 task-by-task plan and its recorded deviations | On demand |
 | `docs/superpowers/specs/2026-09-03-stop-executions-design.md` | Why stop executions are recorded rather than inferred, the entry-anchored signed at-risk change, and the one-off historical backfill | On demand |
+| `docs/superpowers/specs/2026-09-03-trade-idea-design.md` | The pre-trade opinion: what the app computes vs what the model may judge, and why proposing a stop is allowed where inventing a number is not | On demand |
 | `docs/DEPLOYMENT.md` | How to deploy, and the account setup behind it | On demand |
 
 The spec and plan documents above are deliberately **not** imported: they are

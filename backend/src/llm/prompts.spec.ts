@@ -33,8 +33,11 @@ describe('buildUserPrompt', () => {
     expect(prompt).toContain(facts);
   });
 
-  it('states the ask the button represents', () => {
+  it('asks for judgement, and forbids restating what a screen already shows', () => {
     const prompt = buildUserPrompt('irrelevant facts');
-    expect(prompt).toMatch(/AI summary/i);
+    expect(prompt).toMatch(/what you actually think/i);
+    expect(prompt).toMatch(/looking at a screen/i);
+    // A summary request produces a summary; this one must not read as one.
+    expect(prompt).not.toMatch(/give me an AI summary/i);
   });
 });

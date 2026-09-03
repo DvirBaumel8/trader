@@ -91,7 +91,10 @@ export function EntrySheet({
   }, [draft, editing]);
 
   const set = (patch: Partial<EntryDraft>) =>
-    setDraft((d) => ({ ...d, ...patch }));
+    setDraft((d) => ({
+      ...d,
+      ...patch,
+    }));
 
   const invalidate = () =>
     Promise.all(
@@ -259,6 +262,7 @@ export function EntrySheet({
               quantity={draft.quantity}
               side={draft.side}
             />
+
           </div>
         )}
 
