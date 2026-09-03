@@ -21,7 +21,7 @@
 - **Schema changes go through migrations** in `backend/src/database/migrations/`, named `<epoch-ms>-<Name>.ts`, and must be registered by hand in `backend/src/database/data-source.ts` — that file lists every migration class explicitly and a new one will silently never run if you skip it.
 - **Do not run `nest build` while `npm run dev` is running.** Typecheck with `npx tsc --noEmit -p tsconfig.json` from `backend/`.
 - **e2e runs against `trader_test`.** Never run anything against `trader`, which holds the owner's real portfolio.
-- **No test may call a real model or a real Yahoo endpoint.** `test/global-setup.ts` blanks `LLM_API_KEY`; stub `YahooClient` in tests rather than reaching the network.
+- **No test may reach the network at all** — not Yahoo, not an LLM, not anything external. Stub the client with `overrideProvider`. The suite must pass with the machine offline.
 - **Mobile is the primary device.** The iOS decimal keypad has no minus key; any numeric input uses a toggle, never a typed `-`.
 - **Frontend typecheck is `npx tsc -b`, not `tsc --noEmit -p`** — the build enforces `noUnusedLocals` across test files and `--noEmit -p` does not. Verify with `npm run build` from the repo root before claiming a frontend task is done.
 
@@ -1135,6 +1135,57 @@ git commit -m "feat: the Ideas tab"
 ```
 
 ---
+
+---
+
+## Slice 5 — Make the existing suite hermetic
+
+### Task 9: No test reaches the network
+
+**Files:**
+- Create: `backend/test/yahoo-stub.ts`
+- Modify: every e2e spec that boots `AppModule` — `portfolio`, `journal`, `trades`, `instruments`, `history`, `ai-summaries`, `health`, `auth`
+
+**Why:** the specs written before this rule call Yahoo for real. They validate
+`NVDA` against the live API and expect a genuine 404 for `ZZZZNOTREAL`, and
+`portfolio.e2e-spec.ts:303` works around "ONDS's real, live-fetched quote".
+That makes the suite fail offline, fail in CI without network, and quietly
+assert something different each day as prices move.
+
+- [ ] **Step 1: Write the shared stub**
+
+`backend/test/yahoo-stub.ts` exports `yahooStub()` returning an object with
+`quote`, `quoteMany` and `dailyBars`. It answers for a fixed set of symbols
+the specs already use and returns `null` from `quote` for anything else, so
+`ZZZZNOTREAL` still 404s — for a deterministic reason rather than a network
+one. Prices are fixed constants. `dailyBars` returns a generated flat series
+with strictly increasing dates.
+
+- [ ] **Step 2: Apply it to one spec and prove it works offline**
+
+Wire it into `instruments.e2e-spec.ts` first — the smallest surface. Then run
+that spec with the network disabled (`sudo ifconfig en0 down`, or simply
+disconnect Wi-Fi) and confirm it passes. Re-enable afterwards.
+
+- [ ] **Step 3: Apply it to the remaining specs**
+
+One spec at a time, running each after wiring it. Where an assertion depends
+on a live price, change the assertion to the stub's fixed value rather than
+loosening it — a test that stops asserting a number is worse than one that
+needed the network.
+
+- [ ] **Step 4: Verify the whole suite offline**
+
+Disconnect the network entirely and run `cd backend && npm run test:e2e`.
+Expected: every test passes. Reconnect. Note the runtime before and after in
+the commit message — most of the current ~23s is network.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/test
+git commit -m "test: no e2e test reaches the network"
+```
 
 ## Done when
 

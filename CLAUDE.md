@@ -84,6 +84,15 @@ unaffected; `main` deploys automatically on push.
 - **`derive.ts` is the highest-risk code in the repo** — a bug there produces
   plausible-looking wrong numbers. It is pure functions with no database and no
   network, covered by fixture-driven tests. Keep it that way.
+- **Tests never touch the network.** No test may reach Yahoo, an LLM, or any
+  other external system: stub the client instead. A suite that needs the
+  internet fails on a plane, fails in CI without secrets, and fails randomly
+  when a provider is slow — and a test that depends on a live market price is
+  asserting something different every day. `test/global-setup.ts` already
+  blanks `LLM_API_KEY` for this reason; `YahooClient` is stubbed with
+  `overrideProvider`. NOTE: the e2e specs written before this rule still call
+  Yahoo for real (they validate `NVDA` and expect a 404 for `ZZZZNOTREAL`);
+  making them hermetic is tracked work, not a settled state.
 - **e2e tests run against `trader_test`**, never `trader`. When verifying by hand
   with curl, use the test database or read-only calls — do not run seed/reset
   against the database the user's real portfolio lives in.
