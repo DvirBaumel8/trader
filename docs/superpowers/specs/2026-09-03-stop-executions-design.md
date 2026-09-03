@@ -79,11 +79,21 @@ means the exit has not been classified. Exit statistics count only
 non-null rows and state how many are outstanding, so they can never imply
 a completeness they do not have.
 
-**Backfill `stop_levels.createdAt`.** It is `NULL` on every existing row.
-`computeEffectiveStops` uses the latest revision's timestamp as the cutoff
-for which fills a revision could have consumed, and falls back to the
-position's open date when it is missing. Set it to the owning transaction's
-`executedAt` so the fallback stops being load-bearing.
+**`stop_levels.createdAt` is left alone.** An earlier draft of this spec
+proposed backfilling it from the owning transaction's `executedAt`. That
+would have been a data-corrupting change and is rejected: a NULL `createdAt`
+on revision 0 is how `selectEntryStops` recognises a stop of unknown vintage
+and deliberately reports risk as null, rather than computing an R from a
+stop that may already have been trailed before revisions were tracked. The
+owner's pre-revision rows had their originals destroyed by the old
+delete-and-rewrite behaviour, so filling the column in would dress every one
+of them up as a genuine entry stop and quietly corrupt R and expectancy.
+
+No backfill is needed anyway. Both readers already handle NULL, and handle it
+differently on purpose: `selectEntryStops` refuses to report risk, while
+`computeEffectiveStops` falls back to the position's open date as its
+consumption cutoff — safe, because a tier cannot consume a sale that
+predates the position it protects.
 
 `stop_levels` itself stays append-only. Nothing marks a tier executed in
 place; the execution is a separate fact pointing at it.
@@ -207,8 +217,8 @@ row is written, coverage drops, and `exitKind` is set.
 
 ## Slices
 
-1. Migration, `createdAt` backfill, and the per-tier dollar column on the
-   Stops table — visible immediately
+1. Migration and the per-tier dollar column on the Stops table — visible
+   immediately
 2. Stop CRUD editor
 3. Execution recording in the entry sheet
 4. Historical backfill by SQL
