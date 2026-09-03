@@ -97,6 +97,7 @@ export class LlmService {
         atRisk: portfolio.atRisk,
       },
       stats,
+      trades: stats.trades,
       performance:
         series.points.length > 0
           ? {

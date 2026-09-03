@@ -49,6 +49,7 @@ function baseInput(overrides: Partial<PortfolioContextInput> = {}): PortfolioCon
       youReturn: 0.042,
       deltas: { vsSp500: 0.021, vsNasdaq: -0.005 },
     },
+    trades: [],
     ...overrides,
   };
 }
@@ -132,9 +133,11 @@ describe('buildPortfolioContext', () => {
         portfolio: { ...baseInput().portfolio, positions, accountValue: 40000 },
       }),
     );
-    expect(text).toContain('Largest positions (5 of 8, by size)');
+    // Every position, not a top-N slice: the model cannot have an opinion
+    // about a book it can only see part of.
+    expect(text).toContain('All positions (8, largest first)');
     expect(text).toContain('SYM7');
-    expect(text).not.toContain('SYM0:');
+    expect(text).toContain('SYM0:');
   });
 
   it('marks a short position and a stale price on its line', () => {
@@ -176,5 +179,58 @@ describe('buildPortfolioContext', () => {
   it('says performance is not available rather than guessing when there is no series yet', () => {
     const text = buildPortfolioContext(baseInput({ performance: null }));
     expect(text).toContain('Not available yet (no priced history).');
+  });
+
+  it('lists every closed trade individually, not just the aggregate', () => {
+    // An aggregate can only be restated. Individual trades can be compared,
+    // which is what lets the model notice that both losses were shorts.
+    const text = buildPortfolioContext(
+      baseInput({
+        trades: [
+          {
+            symbol: 'AVGO',
+            direction: 'LONG',
+            quantity: 40,
+            avgEntry: 373.38,
+            avgExit: 349.91,
+            enteredAt: new Date('2026-08-28T12:00:00Z'),
+            exitedAt: new Date('2026-09-03T12:00:00Z'),
+            holdingDays: 6,
+            realizedPnl: -946.8,
+            rMultiple: -1.01,
+            riskAmount: 938,
+            isOpen: false,
+          },
+          {
+            symbol: 'NBIS',
+            direction: 'LONG',
+            quantity: 100,
+            avgEntry: 199.33,
+            avgExit: null,
+            enteredAt: new Date('2026-08-28T12:00:00Z'),
+            exitedAt: null,
+            holdingDays: null,
+            realizedPnl: null,
+            rMultiple: null,
+            riskAmount: 2246,
+            isOpen: true,
+          },
+        ],
+      }),
+    );
+
+    expect(text).toContain('Every closed trade');
+    expect(text).toContain('AVGO LONG');
+    expect(text).toContain('2026-08-28');
+    expect(text).toContain('-1.01R');
+    // The open trade is not a closed trade and must not appear in that list.
+    expect(text).not.toContain('NBIS LONG 100 sh: entered');
+  });
+
+  it('omits the closed-trade list entirely when nothing has closed', () => {
+    // Better an absent section than an empty heading the model might pad out.
+    expect(buildPortfolioContext(baseInput({ trades: [] }))).not.toContain(
+      'Every closed trade',
+    );
   });
 });

@@ -66,17 +66,38 @@ export interface ContextPerformance {
   deltas: { vsSp500: number | null; vsNasdaq: number | null } | null;
 }
 
+/** One derived round trip, as the trades endpoint serves it. */
+export interface ContextTrade {
+  symbol: string;
+  direction: 'LONG' | 'SHORT';
+  quantity: number;
+  avgEntry: number;
+  avgExit: number | null;
+  enteredAt: Date;
+  exitedAt: Date | null;
+  holdingDays: number | null;
+  realizedPnl: number | null;
+  rMultiple: number | null;
+  riskAmount: number | null;
+  isOpen: boolean;
+}
+
 export interface PortfolioContextInput {
   portfolio: ContextPortfolio;
   stats: ContextStats;
   /** Null when no daily-close history exists yet to build a series from. */
   performance: ContextPerformance | null;
+  /**
+   * Every round trip, not an aggregate. Aggregates can only be restated;
+   * individual trades can be compared, which is what an opinion is made of —
+   * "both your losses were shorts" is invisible in a win rate.
+   */
+  trades: ContextTrade[];
 }
 
-const MAX_POSITIONS_LISTED = 5;
 
 export function buildPortfolioContext(input: PortfolioContextInput): string {
-  const { portfolio, stats, performance } = input;
+  const { portfolio, stats, performance, trades } = input;
   const lines: string[] = [];
 
   lines.push(`FACTS (as of ${portfolio.pricedAt}, computed by the app — quote these, do not recalculate)`);
@@ -118,10 +139,12 @@ export function buildPortfolioContext(input: PortfolioContextInput): string {
   const bySize = [...portfolio.positions].sort(
     (a, b) => Math.abs(b.marketValue ?? 0) - Math.abs(a.marketValue ?? 0),
   );
-  const shown = bySize.slice(0, MAX_POSITIONS_LISTED);
-  lines.push(
-    `Largest positions (${shown.length} of ${portfolio.positions.length}, by size)`,
-  );
+  // Every position, largest first. Sending only the top few left most of the
+  // book invisible, so the model could not see the tail it was being asked to
+  // have an opinion about — and the whole list costs a trivial number of
+  // tokens against the context window.
+  const shown = bySize;
+  lines.push(`All positions (${shown.length}, largest first)`);
   for (const p of shown) {
     const side = p.quantity < 0 ? 'SHORT' : 'LONG';
     const weight =
@@ -152,6 +175,24 @@ export function buildPortfolioContext(input: PortfolioContextInput): string {
     }
   }
   lines.push('');
+
+  const closed = trades.filter((t) => !t.isOpen);
+  if (closed.length > 0) {
+    lines.push('Every closed trade (most recent first)');
+    const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : 'n/a');
+    for (const t of [...closed].sort(
+      (a, b) => (b.exitedAt?.getTime() ?? 0) - (a.exitedAt?.getTime() ?? 0),
+    )) {
+      lines.push(
+        `- ${t.symbol} ${t.direction} ${qty(t.quantity)} sh: entered ${day(t.enteredAt)} @ ${money(t.avgEntry)}` +
+          `, exited ${day(t.exitedAt)} @ ${t.avgExit !== null ? money(t.avgExit) : 'n/a'}` +
+          `, P&L ${t.realizedPnl !== null ? money(t.realizedPnl, true) : 'n/a'}` +
+          (t.rMultiple !== null ? `, ${t.rMultiple.toFixed(2)}R` : ', R n/a') +
+          (t.holdingDays !== null ? `, held ${t.holdingDays}d` : ''),
+      );
+    }
+    lines.push('');
+  }
 
   lines.push('Trading history (from the closed-trade log)');
   lines.push(`- Closed trades: ${stats.closedCount}, open trades: ${stats.openCount}`);

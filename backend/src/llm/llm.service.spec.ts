@@ -39,6 +39,9 @@ function fakePortfolioService(): PortfolioService {
       expectancyDollars: 220,
       expectancyR: 0.5,
       rTradeCount: 8,
+      // The real getStats() carries the per-trade list the facts block now
+      // renders; without it the context builder has nothing to iterate.
+      trades: [],
     }),
     getOpenTradeEntryVolume: vi.fn().mockResolvedValue(
       new Map([['AAPL', 1.8]]),
