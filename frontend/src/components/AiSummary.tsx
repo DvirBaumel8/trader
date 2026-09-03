@@ -63,18 +63,49 @@ function ResultCard({ result }: { result: PortfolioSummaryResult }) {
   }
 
   return (
+    <CollapsibleSummary summary={result.summary} factsAsOf={result.factsAsOf} />
+  );
+}
+
+/**
+ * A generated summary runs to several hundred words, which on a phone buries
+ * everything below it — the history list, and the button that makes the next
+ * one. Collapsing keeps the result available without making the rest of the
+ * screen unreachable.
+ *
+ * Open on arrival: it was just asked for, so hiding it would be perverse. The
+ * header is the toggle, so there is no separate control to find.
+ */
+function CollapsibleSummary({
+  summary,
+  factsAsOf,
+}: {
+  summary: string;
+  factsAsOf: string | null;
+}) {
+  const [open, setOpen] = useState(true);
+
+  return (
     <div className="space-y-2 rounded-xl border border-dashed border-accent/40 bg-surface-1 p-3">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-accent">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 text-left text-[10px] uppercase tracking-wide text-accent"
+      >
         <span className="rounded bg-accent/15 px-1.5 py-0.5 font-medium">
           AI generated
         </span>
-        {result.factsAsOf && (
+        {factsAsOf && (
           <span className="text-muted normal-case">
-            from data as of {formatTimestamp(result.factsAsOf)}
+            from data as of {formatTimestamp(factsAsOf)}
           </span>
         )}
-      </div>
-      <Markdown text={result.summary} />
+        <span className="ml-auto text-[9px] text-muted">
+          {open ? 'Hide ▲' : 'Show ▼'}
+        </span>
+      </button>
+      {open && <Markdown text={summary} />}
     </div>
   );
 }
@@ -244,7 +275,7 @@ export function AiSummary() {
             Thinking…
           </span>
         ) : (
-          'Give me an AI summary'
+          'Analyse my portfolio'
         )}
       </button>
 
