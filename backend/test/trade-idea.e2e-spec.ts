@@ -172,6 +172,57 @@ describe('Trade idea (e2e)', () => {
     expect(nvda.factsSnapshot).toContain('NVDA');
   });
 
+  it('lists ideas newest first, without the bulky facts snapshot', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'AAPL' }).expect(201);
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+
+    // Two requests can land in the same millisecond, and `ORDER BY createdAt`
+    // is then a coin flip — a test that asserts an order must not depend on
+    // one it did not set. Backdating AAPL makes "newest first" a real claim
+    // about the query rather than an accident of timing.
+    await dataSource.query(
+      `UPDATE trade_ideas SET "createdAt" = "createdAt" - interval '1 hour' WHERE symbol = 'AAPL'`,
+    );
+
+    const res = await http(app, token).get('/ai/trade-ideas').expect(200);
+
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0].symbol).toBe('NVDA'); // newest first
+    expect(res.body[1].symbol).toBe('AAPL');
+    // A list row carries what makes it worth opening — the symbol, the
+    // numbers, and a taste of the prose — but never the multi-KB snapshot.
+    expect(res.body[0].factsSnapshot).toBeUndefined();
+    expect(res.body[0].preview).toContain('Real prose');
+    expect(res.body[0].riskReward).toBeCloseTo(20 / 11, 6);
+  });
+
+  it('serves one idea in full, and 404s an id that is not there', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+    const [row] = (await http(app, token).get('/ai/trade-ideas').expect(200)).body;
+
+    const res = await http(app, token).get(`/ai/trade-ideas/${row.id}`).expect(200);
+    expect(res.body.symbol).toBe('NVDA');
+    expect(res.body.opinion).toContain('Real prose');
+    // The full record is the one place the snapshot comes back.
+    expect(res.body.factsSnapshot).toContain('NVDA');
+
+    await http(app, token)
+      .get('/ai/trade-ideas/00000000-0000-4000-8000-000000000000')
+      .expect(404);
+  });
+
+  it('deletes an idea, and 404s an id that is not there', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+    const [row] = (await http(app, token).get('/ai/trade-ideas').expect(200)).body;
+
+    await http(app, token).delete(`/ai/trade-ideas/${row.id}`).expect(200);
+    expect((await http(app, token).get('/ai/trade-ideas').expect(200)).body).toHaveLength(0);
+
+    await http(app, token)
+      .delete('/ai/trade-ideas/00000000-0000-4000-8000-000000000000')
+      .expect(404);
+  });
+
   it('saves nothing when the model call fails', async () => {
     await http(app, token).post('/ai/trade-idea').send({ symbol: 'BOOM' }).expect(201);
 

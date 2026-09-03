@@ -9,6 +9,7 @@ import { TradeIdea } from './trade-idea.entity.js';
 import { PortfolioModule } from '../portfolio/portfolio.module.js';
 import { MarketDataModule } from '../market-data/market-data.module.js';
 import { TradeIdeaService } from './trade-idea.service.js';
+import { TradeIdeaHistoryService } from './trade-idea-history.service.js';
 import { PerformanceModule } from '../performance/performance.module.js';
 import { UsersModule } from '../users/users.module.js';
 
@@ -25,6 +26,7 @@ import { UsersModule } from '../users/users.module.js';
     LlmService,
     AiSummaryService,
     TradeIdeaService,
+    TradeIdeaHistoryService,
   ],
   controllers: [LlmController],
 })
