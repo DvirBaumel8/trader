@@ -107,7 +107,10 @@ describe('computeIndicators', () => {
   });
 
   it('takes the 52-week high and low from intraday extremes, not closes', () => {
-    const bars = flat(300, 100);
+    // 200 bars, deliberately fewer than the 252-bar window, so the extremes
+    // set below are inside it. With 300 the window would drop the first 48
+    // and this test would silently assert nothing.
+    const bars = flat(200, 100);
     bars[10] = { ...bars[10], high: 150 };
     bars[20] = { ...bars[20], low: 50 };
     const r = computeIndicators(bars, 100);
