@@ -55,7 +55,7 @@ const SORT_KEY = 'trader.stopsSort.v1';
 const DEFAULT_DIR: StopSortDir = 'asc';
 
 /**
- * Only two directions exist here, but the control stays a native <select> —
+ * A native <select> —
  * the same affordance Dashboard's holdings sort uses — rather than a custom
  * toggle, so the app has one sort idiom instead of two.
  */
@@ -76,6 +76,7 @@ function SortPicker({
       >
         <option value="asc">Nearest to trigger first</option>
         <option value="desc">Furthest first</option>
+        <option value="risk">Largest risk first</option>
       </select>
       <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-muted">
         ▼
