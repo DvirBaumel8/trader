@@ -31,6 +31,20 @@ describe('computeTradeRisk', () => {
     expect(r.sharesAtUsualRisk).toBe(333);
   });
 
+  it('reports the average it sized against, which the rounded size understates', () => {
+    const r = computeTradeRisk({ entryPrice: 50, stop: 47, target: 60, usualRisk: 1000 })!;
+    // The caller can say "your usual $1,000" truthfully. Deriving it from the
+    // rounded share count would give $999 — a wrong number wearing a precise
+    // label, which is exactly what this field exists to prevent.
+    expect(r.usualRisk).toBe(1000);
+    expect(r.riskPerShare * r.sharesAtUsualRisk!).toBeCloseTo(999, 6);
+  });
+
+  it('reports no average when there was none to size against', () => {
+    const r = computeTradeRisk({ entryPrice: 50, stop: 45, target: 65, usualRisk: null })!;
+    expect(r.usualRisk).toBeNull();
+  });
+
   it('offers no size when there is no recorded average risk to size against', () => {
     const r = computeTradeRisk({ entryPrice: 50, stop: 45, target: 65, usualRisk: null })!;
     expect(r.sharesAtUsualRisk).toBeNull();
