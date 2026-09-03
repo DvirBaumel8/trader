@@ -4,6 +4,8 @@ import { MarketDataService } from './market-data.service.js';
 import { YahooClient } from './yahoo.client.js';
 import { HistoryService } from './history.service.js';
 import { HistoryController } from './history.controller.js';
+import { TickerFactsService } from './ticker-facts.service.js';
+import { MarketDataController } from './market-data.controller.js';
 import { DailyClose } from './daily-close.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
@@ -19,6 +21,7 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
   providers: [
     YahooClient,
     HistoryService,
+    TickerFactsService,
     {
       // Built by factory so the cache TTL stays an explicit constructor
       // argument, which is what makes the service testable without Nest.
@@ -27,7 +30,7 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
       inject: [YahooClient],
     },
   ],
-  controllers: [HistoryController],
+  controllers: [HistoryController, MarketDataController],
   exports: [MarketDataService, HistoryService],
 })
 export class MarketDataModule {}
