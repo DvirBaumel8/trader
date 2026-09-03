@@ -432,6 +432,21 @@ describe('Journal (e2e)', () => {
     expect(txns).toHaveLength(0);
   });
 
+  it('rejects exitKind alone (no stopExecutions) on an opening fill, with nothing written', async () => {
+    await post({
+      kind: 'TRADE',
+      body: 'entry',
+      occurredAt: '2026-01-03T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA', quantity: 100, price: 200, fee: 0,
+        exitKind: 'STOP',
+      },
+    }).expect(400);
+
+    const txns = await dataSource.query('SELECT * FROM transactions');
+    expect(txns).toHaveLength(0);
+  });
+
   it('rejects a well-formed but nonexistent stopLevelId with 400, not a 500', async () => {
     await post({
       kind: 'TRADE',

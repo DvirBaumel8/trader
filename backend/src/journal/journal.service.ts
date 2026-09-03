@@ -316,7 +316,7 @@ export class JournalService {
    */
   async create(input: CreateEntryInput): Promise<EntryView> {
     const user = await this.users.ensureDefaultUser();
-    const resolved = await this.resolveTrade(input, null);
+    const resolved = await this.resolveTrade(input);
 
     const entryId = await this.dataSource.transaction(async (manager) => {
       const entry = await manager.save(
@@ -359,7 +359,7 @@ export class JournalService {
     });
     if (!existing) throw new NotFoundException('Entry not found');
 
-    const resolved = await this.resolveTrade(input, id);
+    const resolved = await this.resolveTrade(input);
 
     await this.dataSource.transaction(async (manager) => {
       const previousTxn = await manager.findOne(Transaction, {
@@ -436,16 +436,7 @@ export class JournalService {
    * never boot the Nest container, so neither caught it). JournalModule's
    * dependency on MarketDataModule is one-directional, so no such cycle here.
    */
-  private async resolveTrade(
-    input: CreateEntryInput,
-    /**
-     * The entry being edited, if this is an `update()`. Excluded from the
-     * net-position check in `validateExitAttribution` so a re-saved fill is
-     * not counted twice against its own prior version — `create()` passes
-     * `null`, since there is no prior transaction to exclude.
-     */
-    excludeEntryId: string | null,
-  ) {
+  private async resolveTrade(input: CreateEntryInput) {
     if (input.kind === 'TRADE') {
       if (!input.trade) {
         throw new BadRequestException('A trade entry needs trade details');
@@ -455,17 +446,12 @@ export class JournalService {
         input.trade.symbol,
       );
       await this.ensurePricedSafely(instrument);
-      const hasAttribution =
-        !!input.trade.exitKind || (input.trade.stopExecutions ?? []).length > 0;
-      if (hasAttribution) {
-        await this.validateExitAttribution(
-          input.trade,
-          instrument.id,
-          side,
-          quantity,
-          excludeEntryId,
-        );
-      }
+      // exitKind/stopExecutions are validated later, inside writeOwnedRows,
+      // against the SAME EntityManager as the write — not here. This method
+      // runs before the write transaction opens (see its doc comment), and
+      // that ownership/quantity check must read the data it guards inside
+      // the same transaction as the write, not on a separate connection
+      // that data could change underneath before the write commits.
       return { side, quantity, instrumentId: instrument.id };
     }
     if (input.kind === 'CASH' && !input.cash) {
@@ -486,24 +472,35 @@ export class JournalService {
 
   /**
    * The instrument's net signed position (positive long, negative short)
-   * from every OTHER transaction on record — `excludeEntryId` leaves out
-   * this entry's own prior fill on an `update()`, so re-saving a fill
-   * unchanged does not count it against itself.
+   * from every transaction on record, read through `manager` — the SAME
+   * connection as the write this guards, inside the SAME transaction. In
+   * `update()`, `writeOwnedRows` always runs after `clearOwnedRows` has
+   * already deleted this entry's own prior transaction row on this manager,
+   * so that prior row is correctly invisible here without needing to filter
+   * it out by entry id.
    */
   private async currentNetQuantity(
+    manager: EntityManager,
     instrumentId: string,
-    excludeEntryId: string | null,
   ): Promise<number> {
-    const txns = await this.txns.find({ where: { instrumentId } });
-    return txns
-      .filter((t) => t.entryId !== excludeEntryId)
-      .reduce((sum, t) => sum + (t.side === 'BUY' ? t.quantity : -t.quantity), 0);
+    const txns = await manager.find(Transaction, { where: { instrumentId } });
+    return txns.reduce(
+      (sum, t) => sum + (t.side === 'BUY' ? t.quantity : -t.quantity),
+      0,
+    );
   }
 
   /**
    * Guards the owner's confirmed stop attribution (`exitKind` /
    * `stopExecutions`) against three ways it can go wrong before it ever
-   * reaches the database:
+   * reaches the database. Runs on `manager` — the SAME `EntityManager` as
+   * the write it guards, inside the SAME `dataSource.transaction(...)` —
+   * rather than the injected repositories, which are separate,
+   * non-transactional connections: reading through a different connection
+   * than the one that performs the write leaves a TOCTOU window where the
+   * data validated against could change before the write commits. A
+   * `BadRequestException` thrown here still rolls back the whole
+   * transaction and still surfaces as a 400, exactly as it did before.
    *
    * 1. It only means anything on a fill that actually REDUCES an existing
    *    position — derivation (`computeEffectiveStops`) only ever reads it on
@@ -527,13 +524,13 @@ export class JournalService {
    *    from one mistyped digit.
    */
   private async validateExitAttribution(
+    manager: EntityManager,
     trade: NonNullable<CreateEntryInput['trade']>,
     instrumentId: string,
     side: 'BUY' | 'SELL',
     quantity: number,
-    excludeEntryId: string | null,
   ): Promise<void> {
-    const netQty = await this.currentNetQuantity(instrumentId, excludeEntryId);
+    const netQty = await this.currentNetQuantity(manager, instrumentId);
     const isReducing =
       (side === 'SELL' && netQty > REVISION_EPSILON) ||
       (side === 'BUY' && netQty < -REVISION_EPSILON);
@@ -555,7 +552,7 @@ export class JournalService {
     }
 
     for (const exec of stopExecutions) {
-      const level = await this.stopLevels.findOne({
+      const level = await manager.findOne(StopLevel, {
         where: { id: exec.stopLevelId },
       });
       if (!level) {
@@ -563,7 +560,7 @@ export class JournalService {
           `Unknown stop level ${exec.stopLevelId}`,
         );
       }
-      const owningTxn = await this.txns.findOne({
+      const owningTxn = await manager.findOne(Transaction, {
         where: { id: level.transactionId },
       });
       if (!owningTxn || owningTxn.instrumentId !== instrumentId) {
@@ -607,6 +604,24 @@ export class JournalService {
     previousTransactionId: string | null,
   ): Promise<void> {
     if (input.kind === 'TRADE' && input.trade && resolved) {
+      const hasAttribution =
+        !!input.trade.exitKind || (input.trade.stopExecutions ?? []).length > 0;
+      if (hasAttribution) {
+        // Validated here, against `manager` — the same connection and the
+        // same transaction as the write below — rather than earlier in
+        // `resolveTrade` (which runs before this transaction opens, on the
+        // injected repositories' own connections). Must run BEFORE the
+        // Transaction row is inserted, so the net-position check reads this
+        // instrument's position as it stood before this fill.
+        await this.validateExitAttribution(
+          manager,
+          input.trade,
+          resolved.instrumentId,
+          resolved.side,
+          resolved.quantity,
+        );
+      }
+
       const txn = await manager.save(
         manager.create(Transaction, {
           userId,
