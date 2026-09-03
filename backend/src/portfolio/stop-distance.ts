@@ -49,6 +49,16 @@ export interface StopDistanceRow {
   distance: number;
   /** True when the current price has already crossed this stop level. */
   passed: boolean;
+  /**
+   * Dollars given back if this tier fires: `distance x currentPrice x
+   * quantity`, which resolves to (current - stop) for a long and
+   * (stop - current) for a short because `distance` is already signed by
+   * direction. Negative exactly when `passed` — the level has been crossed
+   * and firing it now would realise more than the stop promised. The
+   * headline sum in portfolio.service.ts floors each position at zero for
+   * that reason; this row-level figure stays honest about the sign.
+   */
+  amountAtRisk: number;
 }
 
 const EPSILON = 1e-9;
@@ -101,6 +111,7 @@ export function computeStopDistances(
         stale: p.stale,
         distance: round(distance),
         passed: perShare < 0,
+        amountAtRisk: distance * p.currentPrice * level.quantity,
       });
     }
   }

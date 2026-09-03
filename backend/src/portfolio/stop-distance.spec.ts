@@ -160,3 +160,58 @@ describe('computeStopDistances', () => {
     expect(rows).toEqual([]);
   });
 });
+
+describe('amountAtRisk', () => {
+  it('is (current - stop) x quantity for a long', () => {
+    const [row] = computeStopDistances([
+      {
+        symbol: 'SMCI',
+        direction: 'LONG',
+        avgEntry: 32,
+        currentPrice: 36.7,
+        session: 'REGULAR',
+        extended: false,
+        stale: false,
+        highWaterPrice: null,
+        levels: [{ kind: 'FIXED', price: 30.39, trailPercent: null, quantity: 550 }],
+      },
+    ]);
+    expect(row.amountAtRisk).toBeCloseTo((36.7 - 30.39) * 550, 6);
+  });
+
+  it('is (stop - current) x quantity for a short', () => {
+    const [row] = computeStopDistances([
+      {
+        symbol: 'MRNA',
+        direction: 'SHORT',
+        avgEntry: 146.43,
+        currentPrice: 100,
+        session: 'REGULAR',
+        extended: false,
+        stale: false,
+        highWaterPrice: null,
+        levels: [{ kind: 'FIXED', price: 110, trailPercent: null, quantity: 50 }],
+      },
+    ]);
+    expect(row.amountAtRisk).toBeCloseTo((110 - 100) * 50, 6);
+  });
+
+  it('goes negative when the stop has already been passed', () => {
+    const [row] = computeStopDistances([
+      {
+        symbol: 'BE',
+        direction: 'LONG',
+        avgEntry: 206,
+        currentPrice: 200,
+        session: 'REGULAR',
+        extended: false,
+        stale: false,
+        highWaterPrice: null,
+        levels: [{ kind: 'FIXED', price: 207.08, trailPercent: null, quantity: 45 }],
+      },
+    ]);
+    expect(row.passed).toBe(true);
+    expect(row.amountAtRisk).toBeLessThan(0);
+    expect(row.amountAtRisk).toBeCloseTo((200 - 207.08) * 45, 6);
+  });
+});
