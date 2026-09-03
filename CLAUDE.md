@@ -90,8 +90,14 @@ unaffected; `main` deploys automatically on push.
   when a provider is slow — and a test that depends on a live market price is
   asserting something different every day. `test/global-setup.ts` already
   blanks `LLM_API_KEY` for this reason; `YahooClient` is stubbed with
-  `overrideProvider`. Every e2e spec that boots `AppModule` overrides it with
-  the shared `test/yahoo-stub.ts` — including a new one, or it silently starts
+  `overrideProvider`. **This is enforced, not just documented**:
+  `test/offline-guard.ts` is a `setupFiles` entry in both vitest configs and
+  throws on any connection to a non-localhost host, naming the host that was
+  called. It must be `setupFiles` rather than `globalSetup` — the latter runs
+  once in vitest's main process and specs run in workers that would never see
+  it. (The frontend suite has no such guard yet.) Every e2e spec that boots
+  `AppModule` overrides `YahooClient` with the shared `test/yahoo-stub.ts`
+  — including a new one, or it silently starts
   calling Yahoo. The stub returns `null` from `quote` for anything beginning
   `ZZZZ`, which is what keeps the unknown-ticker 404s honest, and serves bars
   only when asked (`yahooStub({ withBars: true })`), so specs that insert their
