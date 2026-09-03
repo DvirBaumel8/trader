@@ -113,8 +113,8 @@ export function suggestTierForFill(
 ): string | null {
   let best: { id: string; gap: number } | null = null;
   for (const tier of tiers) {
-    if (tier.price === null || !(tier.price > 0)) continue;
-    const gap = Math.abs(tier.price - fillPrice);
+    const gap = distanceFromFill(tier, fillPrice);
+    if (gap === null) continue;
     if (best === null || gap < best.gap) best = { id: tier.id, gap };
   }
   return best?.id ?? null;
