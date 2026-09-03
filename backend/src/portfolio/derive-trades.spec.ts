@@ -5,6 +5,7 @@ import {
   selectCurrentStops,
   computeEffectiveStops,
   suggestTierForFill,
+  computeExitStats,
   type TradeTxn,
   type StopRevisionInput,
   type ReducingFill,
@@ -918,5 +919,65 @@ describe('suggestTierForFill', () => {
 
   it('returns null for an empty plan', () => {
     expect(suggestTierForFill([], 10)).toBeNull();
+  });
+});
+
+describe('computeExitStats', () => {
+  const trade = (
+    direction: 'LONG' | 'SHORT',
+    fills: Array<{ side: 'BUY' | 'SELL'; exitKind?: 'STOP' | 'DISCRETIONARY' | null }>,
+  ) => ({
+    direction,
+    fills: fills.map((f) => ({
+      executedAt: new Date('2026-01-05'),
+      side: f.side,
+      price: 10,
+      quantity: 1,
+      fee: 0,
+      exitKind: f.exitKind ?? null,
+    })),
+  });
+
+  it('counts classified exits and reports the unclassified separately', () => {
+    expect(
+      computeExitStats([
+        trade('LONG', [
+          { side: 'BUY' },
+          { side: 'SELL', exitKind: 'STOP' },
+          { side: 'SELL', exitKind: 'STOP' },
+        ]),
+        trade('LONG', [
+          { side: 'BUY' },
+          { side: 'SELL', exitKind: 'DISCRETIONARY' },
+          { side: 'SELL', exitKind: null },
+        ]),
+      ]),
+    ).toEqual({ stopped: 2, discretionary: 1, unclassified: 1 });
+  });
+
+  it('ignores fills that open or add to a position', () => {
+    // Two BUYs on a long: the opening fill and a scale-in. Neither is an exit,
+    // and counting them as unclassified would understate the stopped-out rate.
+    expect(
+      computeExitStats([
+        trade('LONG', [{ side: 'BUY' }, { side: 'BUY' }, { side: 'SELL', exitKind: 'STOP' }]),
+      ]),
+    ).toEqual({ stopped: 1, discretionary: 0, unclassified: 0 });
+  });
+
+  it('treats a covering BUY as the exit on a short', () => {
+    expect(
+      computeExitStats([
+        trade('SHORT', [{ side: 'SELL' }, { side: 'BUY', exitKind: 'STOP' }]),
+      ]),
+    ).toEqual({ stopped: 1, discretionary: 0, unclassified: 0 });
+  });
+
+  it('is all zeroes when nothing has been exited', () => {
+    expect(computeExitStats([])).toEqual({
+      stopped: 0,
+      discretionary: 0,
+      unclassified: 0,
+    });
   });
 });

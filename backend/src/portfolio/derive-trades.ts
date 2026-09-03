@@ -631,3 +631,44 @@ export function summariseTrades(trades: Summarisable[]): TradeSummary {
 function round(n: number): number {
   return Math.round(n * 1e8) / 1e8;
 }
+
+/**
+ * How the owner's exits came about, across every derived trade.
+ *
+ * `unclassified` is reported rather than folded into `discretionary`, because
+ * "I chose to sell" and "nobody has said yet" are different facts: merging
+ * them would silently overstate discipline on exactly the history that
+ * predates this feature, where nothing is classified at all.
+ *
+ * Takes trades rather than pre-filtered fills so the rule for what counts as
+ * an exit — a fill on the side opposite the position's direction, a SELL
+ * against a long or a covering BUY against a short — stays in this file
+ * beside `computeEffectiveStops`, which derives it the same way. A caller
+ * re-deriving it would be a second copy free to drift.
+ */
+export function computeExitStats(
+  trades: Array<{
+    direction: 'LONG' | 'SHORT';
+    fills: Array<{
+      side: 'BUY' | 'SELL';
+      exitKind?: 'STOP' | 'DISCRETIONARY' | null;
+    }>;
+  }>,
+): { stopped: number; discretionary: number; unclassified: number } {
+  let stopped = 0;
+  let discretionary = 0;
+  let unclassified = 0;
+
+  for (const trade of trades) {
+    const reducingSide: 'BUY' | 'SELL' =
+      trade.direction === 'LONG' ? 'SELL' : 'BUY';
+    for (const fill of trade.fills) {
+      if (fill.side !== reducingSide) continue;
+      if (fill.exitKind === 'STOP') stopped += 1;
+      else if (fill.exitKind === 'DISCRETIONARY') discretionary += 1;
+      else unclassified += 1;
+    }
+  }
+
+  return { stopped, discretionary, unclassified };
+}
