@@ -81,7 +81,28 @@ export function buildSystemPrompt(profile: string | null): string {
  * portfolio-context.ts. Kept separate from the system prompt so the same
  * facts block is easy to unit-test independent of instruction wording.
  */
-export function buildUserPrompt(factsBlock: string): string {
+export function buildUserPrompt(
+  factsBlock: string,
+  previous: { summary: string; factsAsOf: Date } | null = null,
+): string {
+  // The previous summary, when there is one, turns "what is true" into "what
+  // changed" - the one question a single snapshot can never answer, and the
+  // reason "what to watch next" otherwise just restates the headline.
+  const previously = previous
+    ? [
+        '',
+        `Here is the summary you gave last time, from data as of ${previous.factsAsOf.toISOString()}:`,
+        '---',
+        previous.summary,
+        '---',
+        'Say what has MATERIALLY changed since then, and be specific about what',
+        'is new versus what you already flagged. Do not repeat an observation',
+        'that still holds unless it has got worse, or unless I ignored it - in',
+        'which case say so plainly. If little has changed, say that in one line',
+        'rather than padding.',
+      ].join('\n')
+    : '';
+
   return `Read my book and tell me what you actually think.
 
 Open with one sentence: the single most important thing about my portfolio
@@ -90,6 +111,7 @@ have seen by looking at a screen. End with what you would watch next.
 
 If something is genuinely fine, say so briefly rather than manufacturing a
 concern.
+${previously}
 
 ${factsBlock}`;
 }

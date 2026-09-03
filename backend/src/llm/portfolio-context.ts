@@ -152,8 +152,8 @@ export function buildPortfolioContext(input: PortfolioContextInput): string {
         ? ` — ${percent(Math.abs(p.marketValue) / portfolio.accountValue)} of account`
         : '';
     lines.push(
-      `- ${p.symbol}: ${side} ${qty(p.quantity)} sh @ ${money(p.avgCost)} avg, ` +
-        `now ${p.price !== null ? money(p.price) : 'unpriced'}, ` +
+      `- ${p.symbol}: ${side} ${qty(p.quantity)} sh @ ${price(p.avgCost)} avg, ` +
+        `now ${p.price !== null ? price(p.price) : 'unpriced'}, ` +
         `value ${p.marketValue !== null ? money(p.marketValue) : 'unknown'}${weight}, ` +
         `unrealized ${p.unrealizedPnl !== null ? money(p.unrealizedPnl, true) : 'unknown'}` +
         (p.unrealizedPct !== null ? ` (${percent(p.unrealizedPct, true)})` : '') +
@@ -184,8 +184,8 @@ export function buildPortfolioContext(input: PortfolioContextInput): string {
       (a, b) => (b.exitedAt?.getTime() ?? 0) - (a.exitedAt?.getTime() ?? 0),
     )) {
       lines.push(
-        `- ${t.symbol} ${t.direction} ${qty(t.quantity)} sh: entered ${day(t.enteredAt)} @ ${money(t.avgEntry)}` +
-          `, exited ${day(t.exitedAt)} @ ${t.avgExit !== null ? money(t.avgExit) : 'n/a'}` +
+        `- ${t.symbol} ${t.direction} ${qty(t.quantity)} sh: entered ${day(t.enteredAt)} @ ${price(t.avgEntry)}` +
+          `, exited ${day(t.exitedAt)} @ ${t.avgExit !== null ? price(t.avgExit) : 'n/a'}` +
           `, P&L ${t.realizedPnl !== null ? money(t.realizedPnl, true) : 'n/a'}` +
           (t.rMultiple !== null ? `, ${t.rMultiple.toFixed(2)}R` : ', R n/a') +
           (t.holdingDays !== null ? `, held ${t.holdingDays}d` : ''),
@@ -242,16 +242,36 @@ export function buildPortfolioContext(input: PortfolioContextInput): string {
   return lines.join('\n');
 }
 
+/**
+ * Whole dollars, deliberately. Cents on a six-figure account are noise
+ * dressed as rigour, and the model quotes back exactly the precision it is
+ * given — "$10,686.00" reads as a measurement when the meaningful figure is
+ * "$10,686". Prices are the exception and are not formatted through here.
+ */
 function money(n: number, signed = false): string {
   const abs = Math.abs(n);
   const formatted = abs.toLocaleString('en-US', {
     style: 'currency',
     currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   });
   if (n < 0) return `-${formatted}`;
   return signed ? `+${formatted}` : formatted;
+}
+
+/**
+ * A share price, which keeps its cents: $36.92 is a level the owner set and
+ * trades against, and rounding it to $37 would misstate it. Only aggregate
+ * dollar AMOUNTS go through `money`.
+ */
+function price(n: number): string {
+  return n.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function percent(n: number, signed = false): string {

@@ -110,6 +110,25 @@ export class AiSummaryService {
     }));
   }
 
+  /**
+   * The most recent summary, or null if there is none yet — fed back into the
+   * next prompt so the model can say what has CHANGED rather than describing
+   * the same book again. `factsSnapshot` is deliberately not selected: the
+   * model gets fresh facts every time, and handing it a stale copy alongside
+   * them is an invitation to quote the wrong one.
+   */
+  async findLatest(): Promise<{ summary: string; factsAsOf: Date } | null> {
+    const user = await this.users.ensureDefaultUser();
+    const row = await this.summaries
+      .createQueryBuilder('s')
+      .select(['s.summary', 's.factsAsOf'])
+      .where('s.userId = :userId', { userId: user.id })
+      .orderBy('s.createdAt', 'DESC')
+      .limit(1)
+      .getOne();
+    return row ? { summary: row.summary, factsAsOf: row.factsAsOf } : null;
+  }
+
   async findOne(id: string): Promise<AiSummaryDetail> {
     const user = await this.users.ensureDefaultUser();
     const row = await this.summaries.findOne({ where: { id, userId: user.id } });

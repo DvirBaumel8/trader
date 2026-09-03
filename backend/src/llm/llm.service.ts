@@ -110,7 +110,8 @@ export class LlmService {
 
     const profile = await this.readProfile();
     const system = buildSystemPrompt(profile);
-    const user = buildUserPrompt(facts);
+    const previous = await this.summaries.findLatest();
+    const user = buildUserPrompt(facts, previous);
 
     // Google Search grounding is NOT available on the free Gemini tier —
     // verified empirically against a fresh key: an ungrounded call succeeds

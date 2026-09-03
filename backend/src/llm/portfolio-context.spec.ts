@@ -62,9 +62,9 @@ describe('buildPortfolioContext', () => {
 
   it('quotes account, cash and deployed value exactly, without recomputation', () => {
     const text = buildPortfolioContext(baseInput());
-    expect(text).toContain('$21,000.00');
-    expect(text).toContain('$5,000.00');
-    expect(text).toContain('$16,000.00');
+    expect(text).toContain('$21,000');
+    expect(text).toContain('$5,000');
+    expect(text).toContain('$16,000');
   });
 
   it('flags negative cash as margin', () => {
@@ -76,7 +76,7 @@ describe('buildPortfolioContext', () => {
         },
       }),
     );
-    expect(text).toContain('-$3,000.00');
+    expect(text).toContain('-$3,000');
     expect(text).toContain('on margin');
   });
 
@@ -95,7 +95,7 @@ describe('buildPortfolioContext', () => {
         },
       }),
     );
-    expect(text).toContain('Gross exposure (sum of |position value|): $15,000.00');
+    expect(text).toContain('Gross exposure (sum of |position value|): $15,000');
     expect(text).toContain('Leverage (gross exposure / account value): 1.50x');
   });
 
@@ -120,7 +120,7 @@ describe('buildPortfolioContext', () => {
         },
       }),
     );
-    expect(text).toContain('At risk (sum of stop-loss exposure): $1,200.00');
+    expect(text).toContain('At risk (sum of stop-loss exposure): $1,200');
     expect(text).toContain('Positions without a recorded stop: 2 (TSLA, NFLX)');
   });
 
@@ -156,8 +156,8 @@ describe('buildPortfolioContext', () => {
   it('reports win rate, avg win/loss, expectancy and R exactly as given', () => {
     const text = buildPortfolioContext(baseInput());
     expect(text).toContain('Win rate: 60.0%');
-    expect(text).toContain('Avg win: $500.00, avg loss: $200.00');
-    expect(text).toContain('Expectancy: +$220.00 per trade, 0.50R average (based on 8 trade(s))');
+    expect(text).toContain('Avg win: $500, avg loss: $200');
+    expect(text).toContain('Expectancy: +$220 per trade, 0.50R average (based on 8 trade(s))');
   });
 
   it('says plainly when there are not enough closed trades for a win rate', () => {
