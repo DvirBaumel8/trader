@@ -10,6 +10,9 @@
   --color-accent: #2dd4bf;
   --color-up: #22c55e;
   --color-down: #f43f5e;
+  /* Attention, not danger: a stop plan that drifted is not the same state as
+     a position carrying no stop at all, which is what --color-down marks. */
+  --color-warn: #f59e0b;
 }
 
 html {

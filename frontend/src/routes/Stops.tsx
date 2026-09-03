@@ -7,6 +7,10 @@ import { formatQuantity } from '../components/format';
 import { SessionBadge } from '../components/SessionBadge';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { sortStopTiers, type StopSortDir } from '../lib/sortStopTiers';
+import {
+  describeStopPlanIssue,
+  type StopPlanRow,
+} from '../lib/stopPlanIssue';
 
 type Session = 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
 
@@ -38,7 +42,11 @@ interface Position {
 interface Portfolio {
   positions: Position[];
   accountValue: number;
-  atRisk: { amount: number; positionsWithoutStop: { count: number; symbols: string[] } };
+  atRisk: {
+    amount: number;
+    positionsWithoutStop: { count: number; symbols: string[] };
+    stopPlanNeedsUpdate: { count: number; positions: StopPlanRow[] };
+  };
   stopTiers: StopTierRow[];
 }
 
@@ -251,6 +259,72 @@ function UnstoppedPositions({
   );
 }
 
+/**
+ * Positions whose recorded stop plan no longer describes what is held (see
+ * `evaluateStopPlan` in the backend's risk.ts). Deliberately its own group,
+ * amber rather than red: these are NOT unprotected positions — a plan exists,
+ * it just cannot be trusted, so pricing it into the tier list below would put
+ * a confident number on a stale level. The backend leaves them out of
+ * `stopTiers` for the same reason, and this card is what stops them from
+ * silently vanishing off the page.
+ */
+function StopPlanNeedsUpdate({
+  rows,
+  tradeIdBySymbol,
+}: {
+  rows: StopPlanRow[];
+  tradeIdBySymbol: Map<string, string | null>;
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="rounded-xl border border-warn/40 bg-warn/10 p-3">
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-warn">
+        Needs update · {rows.length}{' '}
+        {rows.length === 1 ? 'position' : 'positions'}
+      </div>
+      <ul>
+        {rows.map((row) => {
+          const { label, detail } = describeStopPlanIssue(row);
+          const tradeId = tradeIdBySymbol.get(row.symbol) ?? null;
+          const content = (
+            <div className="flex items-baseline justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <span className="text-[15px] font-semibold leading-tight">
+                  {row.symbol}
+                </span>
+                <div className="mt-0.5 text-[11px] leading-tight text-muted">
+                  {detail}
+                </div>
+              </div>
+              <span className="shrink-0 rounded bg-warn/15 px-1.5 py-px text-[10px] font-medium tracking-wide text-warn">
+                {label}
+              </span>
+            </div>
+          );
+          return (
+            <li
+              key={row.symbol}
+              className="border-b border-warn/20 py-2 last:border-0 last:pb-0"
+            >
+              {tradeId !== null ? (
+                <Link
+                  to={`/trades/${encodeURIComponent(tradeId)}`}
+                  className="block"
+                >
+                  {content}
+                </Link>
+              ) : (
+                content
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export function Stops() {
   const [dir, setDir] = useState<StopSortDir>(
     () => loadDraft(SORT_KEY, { dir: DEFAULT_DIR }).dir,
@@ -299,6 +373,11 @@ export function Stops() {
       <UnstoppedPositions
         positions={unstoppedPositions}
         accountValue={data.accountValue}
+      />
+
+      <StopPlanNeedsUpdate
+        rows={data.atRisk.stopPlanNeedsUpdate.positions}
+        tradeIdBySymbol={tradeIdBySymbol}
       />
 
       <section>
