@@ -37,7 +37,7 @@ export interface PortfolioSummaryResult {
 }
 
 /** Calm, factual copy per failure kind — house style is honest, not alarming. */
-const ERROR_COPY: Record<LlmFailureKind, string> = {
+export const ERROR_COPY: Record<LlmFailureKind, string> = {
   busy: 'The AI model is busy right now. Worth another tap in a moment.',
   quota_exceeded: "Today's free AI quota is used up. Try again tomorrow.",
   setup_problem: 'The AI summary is not set up correctly. Ask the developer to check the model and API key.',

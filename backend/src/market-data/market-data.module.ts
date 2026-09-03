@@ -31,6 +31,6 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
     },
   ],
   controllers: [HistoryController, MarketDataController],
-  exports: [MarketDataService, HistoryService],
+  exports: [MarketDataService, HistoryService, TickerFactsService],
 })
 export class MarketDataModule {}

@@ -26,10 +26,10 @@ describe('Ticker facts (e2e)', () => {
       .overrideProvider(YahooClient)
       .useValue({
         quote: async (symbol: string) =>
-          symbol === 'NVDA'
+          symbol === 'NVDA' || symbol === 'TFONLY'
             ? {
-                symbol: 'NVDA',
-                name: 'NVIDIA',
+                symbol,
+                name: `${symbol} Inc`,
                 price: 110,
                 currency: 'USD',
                 session: 'REGULAR',
@@ -83,8 +83,12 @@ describe('Ticker facts (e2e)', () => {
     // not surface as a position, so checking /portfolio alone would pass
     // even if the service had inserted the researched ticker. Query the
     // table the invariant is actually about.
+    // A symbol no other spec touches. `instruments` is deliberately NOT
+    // truncated between specs (it caches Yahoo-validated tickers), so
+    // asserting on a common symbol like NVDA would fail the moment another
+    // spec created it — which is exactly what happened.
     const rows = (await dataSource.query(
-      `SELECT id FROM instruments WHERE symbol = 'NVDA'`,
+      `SELECT id FROM instruments WHERE symbol = 'TFONLY'`,
     )) as Array<{ id: string }>;
     expect(rows).toEqual([]);
 
