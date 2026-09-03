@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { StopLevelEditor } from './StopLevelEditor';
+import { usePersistentState } from '../lib/persistentState';
 import type { StopRow } from '../lib/stopRisk';
 
 interface Tier {
@@ -37,8 +37,18 @@ export function StopPlanEditor({
   quantity: number;
   direction: 'LONG' | 'SHORT';
 }) {
-  const [open, setOpen] = useState(false);
-  const [rows, setRows] = useState<StopRow[]>(() => fromTiers(tiers));
+  // Keyed per trade, so two positions being edited never share a draft.
+  // Switching to a broker app to read a level is the normal way this screen is
+  // used, and iOS discards the tab while you are there — typed rows used to
+  // come back reset to the server's values, silently losing the edit.
+  const [open, setOpen, clearOpen] = usePersistentState(
+    `trader.stopPlan.${tradeId}.open`,
+    false,
+  );
+  const [rows, setRows, clearRows] = usePersistentState<StopRow[]>(
+    `trader.stopPlan.${tradeId}.rows`,
+    fromTiers(tiers),
+  );
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
@@ -70,6 +80,10 @@ export function StopPlanEditor({
           queryClient.invalidateQueries({ queryKey: [key] }),
         ),
       );
+      // Saved: the draft has become the server's truth, so it must not be
+      // restored on top of a later plan.
+      clearRows();
+      clearOpen();
       setOpen(false);
     },
   });
@@ -116,7 +130,13 @@ export function StopPlanEditor({
       <div className="flex gap-2">
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            // Cancel means discard: without clearing, the abandoned draft
+            // would be restored the next time this trade is opened.
+            clearRows();
+            clearOpen();
+            setOpen(false);
+          }}
           disabled={mutation.isPending}
           className="flex-1 rounded-lg border border-border px-3 py-2 text-sm text-muted"
         >

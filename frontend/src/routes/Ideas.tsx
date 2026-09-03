@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client';
 import { formatMoney, formatPercent, formatQuantity, formatTimestamp } from '../components/format';
 import { Markdown } from '../components/Markdown';
 import { SessionBadge } from '../components/SessionBadge';
+import { usePersistentState } from '../lib/persistentState';
 
 /** Mirrors `LlmFailureKind` in `backend/src/llm/llm.client.ts`. */
 type ErrorKind = 'busy' | 'quota_exceeded' | 'setup_problem' | 'unknown';
@@ -410,8 +411,18 @@ function HistoryRow({
  */
 export function Ideas() {
   const queryClient = useQueryClient();
-  const [symbol, setSymbol] = useState('');
-  const [openId, setOpenId] = useState<string | null>(null);
+  // All three survive the app being discarded — switching to a broker app
+  // mid-read is the normal way this screen gets used. The result matters
+  // most: it cost a model call, and losing it means paying for it twice.
+  const [symbol, setSymbol] = usePersistentState('trader.ideas.symbol', '');
+  const [openId, setOpenId] = usePersistentState<string | null>(
+    'trader.ideas.openId',
+    null,
+  );
+  const [lastResult, setLastResult] = usePersistentState<TradeIdeaResult | null>(
+    'trader.ideas.lastResult',
+    null,
+  );
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const mutation = useMutation({
@@ -420,7 +431,8 @@ export function Ideas() {
         method: 'POST',
         body: JSON.stringify({ symbol: ticker }),
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      setLastResult(data);
       void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
     },
   });
@@ -494,7 +506,13 @@ export function Ideas() {
         </button>
       </form>
 
-      {mutation.isSuccess && <ResultCard result={mutation.data} />}
+      {/*
+        Read from the persisted copy rather than `mutation.data`, so the
+        answer is still here after iOS discards the tab. A new request
+        replaces it; a failed one leaves the previous answer alone rather
+        than blanking the screen.
+      */}
+      {lastResult && !mutation.isPending && <ResultCard result={lastResult} />}
       {mutation.isError && <p className="text-xs text-down">{errorMessage(mutation.error)}</p>}
 
       <section className="space-y-2">
