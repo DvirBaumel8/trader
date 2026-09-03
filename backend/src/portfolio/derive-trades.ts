@@ -601,7 +601,17 @@ export function summariseTrades(trades: Summarisable[]): TradeSummary {
   const losses = closed.filter((t) => t.isWin === false);
   const withR = closed.filter((t) => t.rMultiple !== null);
   // Risk is known at entry, so an open trade contributes to average risk.
-  const withRisk = trades.filter((t) => t.riskAmount !== null);
+  //
+  // Positive, not merely non-null: a plan whose every tier locks in a gain
+  // reports $0 risk (see `computeRisk`, which counts such a tier as covering
+  // its shares), and averaging those zeros in would drag "what I typically
+  // risk" toward nothing. This average exists to size the next position —
+  // trades that risked nothing are not representative of that, and several
+  // real positions have exactly this shape because a trailed-up plan is
+  // recorded against the entry.
+  const withRisk = trades.filter(
+    (t) => t.riskAmount !== null && t.riskAmount > 0,
+  );
 
   const mean = (xs: number[]) =>
     xs.length === 0 ? null : round(xs.reduce((a, b) => a + b, 0) / xs.length);
