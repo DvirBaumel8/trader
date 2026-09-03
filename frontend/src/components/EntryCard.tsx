@@ -22,6 +22,15 @@ export interface Entry {
     plannedTarget: number | null;
     stopLevels: StopLevel[];
     riskAmount: number | null;
+    /**
+     * How this exit came about, and which tier it executed. Exposed on the
+     * read model so the edit form can resend them: the journal's update path
+     * deletes and recreates the transaction row, and `stop_executions`
+     * cascades with it, so an edit that omits these destroys a confirmed
+     * attribution — even an edit that only fixed a typo.
+     */
+    exitKind: 'STOP' | 'DISCRETIONARY' | null;
+    stopExecutions: { stopLevelId: string; quantity: number }[];
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   dividend: { symbol: string; amount: number } | null;

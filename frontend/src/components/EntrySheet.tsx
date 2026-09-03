@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { clearDraft, loadDraft, saveDraft } from '../lib/draftStorage';
+import {
+  defaultTierId,
+  shouldAskAboutStop,
+} from '../lib/stopExecutionPrompt';
 import {
   dateToIso,
   emptyDraft,
@@ -15,6 +19,17 @@ import { StopLevelEditor } from './StopLevelEditor';
 import type { Entry } from './EntryCard';
 
 const DRAFT_KEY = 'trader.entryDraft.v1';
+
+/** One live stop tier of the position being reduced, as the trade endpoint serves it. */
+interface LiveTier {
+  id: string;
+  kind: 'FIXED' | 'TRAILING';
+  price: number | null;
+  trailPercent: number | null;
+  quantity: number;
+  /** A trailing tier's price today; null when there is no high-water data. */
+  resolvedPrice: number | null;
+}
 
 const inputClass =
   'w-full min-w-0 rounded-lg border border-border bg-surface-1 px-3 py-2 text-base outline-none focus:border-accent';
@@ -53,6 +68,15 @@ function draftFromEntry(entry: Entry, defaultFee: number): EntryDraft {
     dividendAmount: entry.dividend ? String(entry.dividend.amount) : '',
     setups: entry.tags.filter((t) => t.type === 'SETUP').map((t) => t.label),
     mistakes: entry.tags.filter((t) => t.type === 'MISTAKE').map((t) => t.label),
+    // Read back so an edit can resend it — omitting it on a save destroys the
+    // attribution via the cascade. Only the first execution is represented:
+    // this form attributes an exit to ONE tier, and nothing in the app creates
+    // a multi-tier attribution today, so nothing is currently lost. If that
+    // changes, this is where it would silently drop.
+    exitAttribution:
+      entry.trade?.exitKind === 'DISCRETIONARY'
+        ? 'DISCRETIONARY'
+        : (entry.trade?.stopExecutions?.[0]?.stopLevelId ?? null),
   };
 }
 
@@ -92,6 +116,43 @@ export function EntrySheet({
 
   const set = (patch: Partial<EntryDraft>) =>
     setDraft((d) => ({ ...d, ...patch }));
+
+  // The position this fill acts on, and its live stop tiers. Both reuse the
+  // query keys the rest of the app already caches under, so opening the sheet
+  // usually costs no extra round trip.
+  const symbol = draft.symbol.trim().toUpperCase();
+  const { data: portfolio } = useQuery<{
+    positions: { symbol: string; quantity: number; tradeId: string | null }[];
+  }>({
+    queryKey: ['portfolio'],
+    queryFn: () => api('/portfolio'),
+    enabled: open && draft.kind === 'TRADE' && symbol.length > 0,
+  });
+  const position =
+    portfolio?.positions?.find((p) => p.symbol === symbol) ?? null;
+
+  const { data: tradeDetail } = useQuery<{ stopLevels: LiveTier[] }>({
+    queryKey: ['trade', position?.tradeId],
+    queryFn: () => api(`/portfolio/trades/${position?.tradeId ?? ''}`),
+    enabled: open && !!position?.tradeId,
+  });
+  const tiers = tradeDetail?.stopLevels ?? [];
+
+  const askAboutStop = shouldAskAboutStop({
+    signedQuantity: signedQuantity(draft),
+    heldQuantity: position?.quantity ?? 0,
+    tierCount: tiers.length,
+  });
+
+  // A choice made and then invalidated — the side toggled back to a buy, the
+  // symbol retyped — must not survive to be submitted against a fill it no
+  // longer describes. The backend rejects that with a 400; clearing it here
+  // means the owner never meets that error.
+  useEffect(() => {
+    if (!askAboutStop && draft.exitAttribution !== null) {
+      setDraft((d) => ({ ...d, exitAttribution: null }));
+    }
+  }, [askAboutStop, draft.exitAttribution]);
 
   const invalidate = () =>
     Promise.all(
@@ -136,6 +197,19 @@ export function EntrySheet({
                           : undefined,
                       quantity: Math.abs(parseFloat(r.quantity)),
                     })),
+                  ...(askAboutStop && draft.exitAttribution
+                    ? draft.exitAttribution === 'DISCRETIONARY'
+                      ? { exitKind: 'DISCRETIONARY' as const }
+                      : {
+                          exitKind: 'STOP' as const,
+                          stopExecutions: [
+                            {
+                              stopLevelId: draft.exitAttribution,
+                              quantity: Math.abs(signedQuantity(draft)),
+                            },
+                          ],
+                        }
+                    : {}),
                 }
               : undefined,
           cash:
@@ -259,6 +333,73 @@ export function EntrySheet({
               quantity={draft.quantity}
               side={draft.side}
             />
+
+            {askAboutStop && (
+              <div className="rounded-xl border border-border bg-surface-1 p-3">
+                <div className="text-xs font-medium tracking-wide text-muted uppercase">
+                  Was this a stop?
+                </div>
+                <p className="mt-0.5 text-[11px] leading-tight text-muted">
+                  Recording which tier fired keeps the plan honest and feeds
+                  your stopped-out rate.
+                </p>
+                <div className="mt-2 space-y-1.5">
+                  {tiers.map((tier) => {
+                    const chosen = draft.exitAttribution === tier.id;
+                    const shown =
+                      tier.kind === 'TRAILING'
+                        ? tier.resolvedPrice
+                        : tier.price;
+                    return (
+                      <button
+                        key={tier.id}
+                        type="button"
+                        aria-pressed={chosen}
+                        onClick={() =>
+                          set({ exitAttribution: chosen ? null : tier.id })
+                        }
+                        className={`flex w-full items-baseline justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
+                          chosen
+                            ? 'border-accent bg-accent/10'
+                            : 'border-border bg-surface-2'
+                        }`}
+                      >
+                        <span className="text-[15px] font-semibold">
+                          {shown === null ? '—' : shown.toFixed(2)}
+                          {tier.kind === 'TRAILING' && (
+                            <span className="ml-1.5 text-[11px] font-normal text-muted">
+                              {tier.trailPercent}% trail
+                            </span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-muted">
+                          {tier.quantity} sh
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    aria-pressed={draft.exitAttribution === 'DISCRETIONARY'}
+                    onClick={() =>
+                      set({
+                        exitAttribution:
+                          draft.exitAttribution === 'DISCRETIONARY'
+                            ? null
+                            : 'DISCRETIONARY',
+                      })
+                    }
+                    className={`w-full rounded-lg border px-3 py-2 text-left text-[13px] ${
+                      draft.exitAttribution === 'DISCRETIONARY'
+                        ? 'border-accent bg-accent/10'
+                        : 'border-border bg-surface-2'
+                    }`}
+                  >
+                    No — my own decision
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
