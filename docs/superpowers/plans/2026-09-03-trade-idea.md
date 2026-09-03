@@ -1152,7 +1152,7 @@ git commit -m "feat: the Ideas tab"
 That makes the suite fail offline, fail in CI without network, and quietly
 assert something different each day as prices move.
 
-- [ ] **Step 1: Write the shared stub**
+- [x] **Step 1: Write the shared stub**
 
 `backend/test/yahoo-stub.ts` exports `yahooStub()` returning an object with
 `quote`, `quoteMany` and `dailyBars`. It answers for a fixed set of symbols
@@ -1161,31 +1161,60 @@ the specs already use and returns `null` from `quote` for anything else, so
 one. Prices are fixed constants. `dailyBars` returns a generated flat series
 with strictly increasing dates.
 
-- [ ] **Step 2: Apply it to one spec and prove it works offline**
+- [x] **Step 2: Apply it to one spec and prove it works offline**
 
 Wire it into `instruments.e2e-spec.ts` first — the smallest surface. Then run
 that spec with the network disabled (`sudo ifconfig en0 down`, or simply
 disconnect Wi-Fi) and confirm it passes. Re-enable afterwards.
 
-- [ ] **Step 3: Apply it to the remaining specs**
+- [x] **Step 3: Apply it to the remaining specs**
 
 One spec at a time, running each after wiring it. Where an assertion depends
 on a live price, change the assertion to the stub's fixed value rather than
 loosening it — a test that stops asserting a number is worse than one that
 needed the network.
 
-- [ ] **Step 4: Verify the whole suite offline**
+- [x] **Step 4: Verify the whole suite offline**
 
 Disconnect the network entirely and run `cd backend && npm run test:e2e`.
 Expected: every test passes. Reconnect. Note the runtime before and after in
 the commit message — most of the current ~23s is network.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/test
 git commit -m "test: no e2e test reaches the network"
 ```
+
+**Deviations:**
+
+- **Offline was simulated in-process, not by pulling the Wi-Fi.** Step 2 and
+  Step 4 called for disconnecting the network. Instead the suite ran with a
+  preloaded guard that throws on any `net`/`tls`/`dns` call to a non-localhost
+  host, leaving Postgres reachable. It is stricter than unplugging — it names
+  the offending host and API — and it does not interrupt whatever else is using
+  the connection. It was proved live with a deliberately network-touching spec
+  that failed under it, so a pass means the guard was actually loaded in the
+  vitest workers rather than silently absent.
+- **`quote` resolves every symbol except `ZZZZ*`, rather than enumerating the
+  specs' symbols.** Step 1 said unknown symbols return `null`. Enumerating would
+  mean any future test introducing a symbol fails with a confusing 404 instead
+  of doing what it says. The one behaviour the specs depend on is that
+  `ZZZZNOTREAL` is not real, so that is what the stub encodes; unnamed symbols
+  get a default price, since a test that cares about a price names it.
+- **`dailyBars` is empty unless asked.** Several specs insert precise
+  `daily_closes` rows to build a scenario — a high-water mark, a trade with no
+  history at all — and a stub volunteering bars for every symbol would give "no
+  history" a history. Only `history.e2e-spec.ts`, which exercises the backfill,
+  passes `{ withBars: true }`.
+- **The trailing-stop test got realistic prices.** `portfolio.e2e-spec.ts` used
+  a bar high of 1000 solely to dominate ONDS's live quote. With the quote
+  stubbed the bars are ordinary numbers (high 10.00, stop 9.15) — the point of
+  the stub is that tests no longer need absurd values to defend against live
+  data.
+- **Runtime: ~23s to ~6s** for `test:e2e` (89 tests, 10 files), confirming most
+  of the old duration was network.
 
 ## Done when
 

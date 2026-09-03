@@ -3,6 +3,8 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { http, login } from './http.js';
+import { YahooClient } from '../src/market-data/yahoo.client.js';
+import { yahooStub } from './yahoo-stub.js';
 
 describe('Health (e2e)', () => {
   let app: INestApplication;
@@ -11,7 +13,11 @@ describe('Health (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      // No test reaches the network. See test/yahoo-stub.ts.
+      .overrideProvider(YahooClient)
+      .useValue(yahooStub())
+      .compile();
     app = moduleRef.createNestApplication();
     await app.init();
     token = await login(app);

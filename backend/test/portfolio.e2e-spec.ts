@@ -3,6 +3,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
+import { YahooClient } from '../src/market-data/yahoo.client.js';
+import { yahooStub } from './yahoo-stub.js';
 
 describe('Portfolio (e2e)', () => {
   let app: INestApplication;
@@ -12,7 +14,11 @@ describe('Portfolio (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      // No test reaches the network. See test/yahoo-stub.ts.
+      .overrideProvider(YahooClient)
+      .useValue(yahooStub())
+      .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
@@ -298,10 +304,10 @@ describe('Portfolio (e2e)', () => {
   it('resolves a trailing stop from the high-water price since entry, not the entry price', async () => {
     // ONDS-shaped: entry 7.36, TRAILING 8.5%, still open. The bug this
     // guards was resolving the trail from the entry price forever — a
-    // fixed stop wearing a trailing label. Bars carry an artificially huge
-    // high (1000) so the assertion is deterministic regardless of ONDS's
-    // real, live-fetched quote: a real stock price will never exceed it,
-    // so the high-water mark is guaranteed to be dominated by this bar.
+    // fixed stop wearing a trailing label. The bars below once carried an
+    // absurd high (1000) purely to dominate ONDS's real, live-fetched
+    // quote; with the quote stubbed they can be the ordinary prices this
+    // trade would actually have printed.
     await http(app, token)
       .post('/journal')
       .send({
@@ -324,7 +330,7 @@ describe('Portfolio (e2e)', () => {
     await dataSource.query(
       `INSERT INTO daily_closes (id, "instrumentId", date, close, "adjClose", open, high, low, volume)
        VALUES (public.uuid_generate_v4(), $1, '2026-01-03', 7.40, 7.40, 7.36, 7.50, 7.20, 1000000),
-              (public.uuid_generate_v4(), $1, '2026-01-06', 950, 950, 960, 1000, 900, 2000000)`,
+              (public.uuid_generate_v4(), $1, '2026-01-06', 9.60, 9.60, 9.10, 10.00, 9.00, 2000000)`,
       [instrumentId],
     );
 
@@ -333,9 +339,9 @@ describe('Portfolio (e2e)', () => {
       (r: { symbol: string }) => r.symbol === 'ONDS',
     );
     expect(row).toBeDefined();
-    // 1000 * (1 - 0.085) = 915 — from the high-water mark, never
+    // 10.00 * (1 - 0.085) = 9.15 — from the high-water mark, never
     // 7.36 * (1 - 0.085) = 6.7344, the old entry-anchored (wrong) answer.
-    expect(row.stopPrice).toBeCloseTo(915, 6);
+    expect(row.stopPrice).toBeCloseTo(9.15, 6);
 
     const needsUpdate = res.body.atRisk.stopPlanNeedsUpdate.positions.find(
       (n: { symbol: string }) => n.symbol === 'ONDS',

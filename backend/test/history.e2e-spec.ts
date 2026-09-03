@@ -3,6 +3,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
+import { YahooClient } from '../src/market-data/yahoo.client.js';
+import { yahooStub } from './yahoo-stub.js';
 
 describe('History (e2e)', () => {
   let app: INestApplication;
@@ -12,7 +14,13 @@ describe('History (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      // No test reaches the network. See test/yahoo-stub.ts.
+      .overrideProvider(YahooClient)
+      // This spec exercises the backfill itself, so it is the one place
+      // that needs the provider to hand back bars.
+      .useValue(yahooStub({ withBars: true }))
+      .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();

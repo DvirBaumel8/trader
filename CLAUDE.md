@@ -90,9 +90,12 @@ unaffected; `main` deploys automatically on push.
   when a provider is slow — and a test that depends on a live market price is
   asserting something different every day. `test/global-setup.ts` already
   blanks `LLM_API_KEY` for this reason; `YahooClient` is stubbed with
-  `overrideProvider`. NOTE: the e2e specs written before this rule still call
-  Yahoo for real (they validate `NVDA` and expect a 404 for `ZZZZNOTREAL`);
-  making them hermetic is tracked work, not a settled state.
+  `overrideProvider`. Every e2e spec that boots `AppModule` overrides it with
+  the shared `test/yahoo-stub.ts` — including a new one, or it silently starts
+  calling Yahoo. The stub returns `null` from `quote` for anything beginning
+  `ZZZZ`, which is what keeps the unknown-ticker 404s honest, and serves bars
+  only when asked (`yahooStub({ withBars: true })`), so specs that insert their
+  own `daily_closes` rows are not overwritten by volunteered history.
 - **e2e tests run against `trader_test`**, never `trader`. When verifying by hand
   with curl, use the test database or read-only calls — do not run seed/reset
   against the database the user's real portfolio lives in.
