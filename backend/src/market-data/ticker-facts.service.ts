@@ -55,6 +55,13 @@ export class TickerFactsService {
     try {
       bars = await this.yahoo.dailyBars(upper, from);
     } catch {
+      // The quote can succeed while history fails — this is a real,
+      // possible split, not a hypothetical. It would be tempting to return
+      // quote-only facts with null indicators in that case, but that is a
+      // partial answer wearing the same shape as a complete one, and the
+      // caller has no field to tell the two apart. So a bars-only outage
+      // takes down the whole request, same as a quote outage: no partial
+      // answer is ever returned.
       throw new ServiceUnavailableException(
         'Price history is unavailable right now, so this ticker cannot be checked.',
       );

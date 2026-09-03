@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import request from 'supertest';
 import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
@@ -7,6 +8,7 @@ import { YahooClient } from '../src/market-data/yahoo.client.js';
 
 describe('Ticker facts (e2e)', () => {
   let app: INestApplication;
+  let dataSource: DataSource;
   let token: string;
 
   const bars = Array.from({ length: 220 }, (_, i) => ({
@@ -43,6 +45,7 @@ describe('Ticker facts (e2e)', () => {
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
+    dataSource = app.get(DataSource);
     token = await login(app);
   });
 
@@ -75,6 +78,16 @@ describe('Ticker facts (e2e)', () => {
 
   it('writes nothing to instruments — a researched ticker is not a holding', async () => {
     await http(app, token).get('/market-data/ticker-facts/NVDA').expect(200);
+
+    // The direct check: an orphan instruments row with no transaction would
+    // not surface as a position, so checking /portfolio alone would pass
+    // even if the service had inserted the researched ticker. Query the
+    // table the invariant is actually about.
+    const rows = (await dataSource.query(
+      `SELECT id FROM instruments WHERE symbol = 'NVDA'`,
+    )) as Array<{ id: string }>;
+    expect(rows).toEqual([]);
+
     const res = await http(app, token).get('/portfolio').expect(200);
     expect(res.body.positions).toEqual([]);
   });
