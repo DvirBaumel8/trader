@@ -236,6 +236,9 @@ describe('Trades (e2e)', () => {
         .expect(200);
       expect(revised.body.stopLevels).toEqual([
         {
+          // A real uuid from stop_levels; the entry sheet needs it to name
+          // which tier an exit executed, so it is part of the payload now.
+          id: expect.any(String),
           kind: 'FIXED',
           price: 30.39,
           trailPercent: null,
@@ -255,6 +258,9 @@ describe('Trades (e2e)', () => {
         .expect(200);
       expect(detail.body.stopLevels).toEqual([
         {
+          // A real uuid from stop_levels; the entry sheet needs it to name
+          // which tier an exit executed, so it is part of the payload now.
+          id: expect.any(String),
           kind: 'FIXED',
           price: 30.39,
           trailPercent: null,

@@ -369,7 +369,7 @@ export interface DerivedTrade {
    * rather than stored. Also NOT the plan as it stood at entry; see
    * `riskAmount`'s doc comment for that one.
    */
-  currentStops: StopLevelInput[];
+  currentStops: Array<StopLevelInput & { id: string }>;
 }
 
 const EPSILON = 1e-9;
@@ -522,22 +522,17 @@ function finish(
       exitKind: f.exitKind,
     }));
 
-  // computeEffectiveStops needs each tier's id to match a recorded
-  // StopExecution against the right one (see selectCurrentStopsWithIds), but
-  // DerivedTrade.currentStops keeps the same id-free shape it always has —
-  // the id is internal to this matching, not part of the public result.
-  const currentStopsWithIds = computeEffectiveStops(
+  // Each tier's id is carried through rather than stripped. It started out
+  // internal to matching a recorded StopExecution against the right tier, but
+  // the entry sheet needs it too: to say "this sale executed THAT tier" it has
+  // to be able to name the tier, and an id-free list leaves it nothing to
+  // name. Callers that do not care simply ignore the extra field.
+  const currentStops = computeEffectiveStops(
     selectCurrentStopsWithIds(open.stopLevels),
     latestRevisionCreatedAt(open.stopLevels),
     open.enteredAt,
     reducingFills,
   );
-  const currentStops: StopLevelInput[] = currentStopsWithIds.map((t) => ({
-    kind: t.kind,
-    price: t.price,
-    trailPercent: t.trailPercent,
-    quantity: t.quantity,
-  }));
 
   const risk = computeRisk({
     avgEntry,

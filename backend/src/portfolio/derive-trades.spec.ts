@@ -273,7 +273,7 @@ describe('deriveTrades', () => {
       // currentStops is revision 2, the live stop — well above entry, as a
       // trailed profit-lock legitimately is.
       expect(t.currentStops).toEqual([
-        { kind: 'FIXED', price: 112, trailPercent: null, quantity: 10 },
+        { id: 'rev-2', kind: 'FIXED', price: 112, trailPercent: null, quantity: 10 },
       ]);
     });
 
@@ -281,7 +281,7 @@ describe('deriveTrades', () => {
       const [t] = deriveTrades([txn('NVDA', 'BUY', 10, 100, 1, { stop: 90 })]);
       expect(t.riskAmount).toBe(100);
       expect(t.currentStops).toEqual([
-        { kind: 'FIXED', price: 90, trailPercent: null, quantity: 10 },
+        { id: 'stop-0', kind: 'FIXED', price: 90, trailPercent: null, quantity: 10 },
       ]);
     });
 
@@ -328,7 +328,7 @@ describe('deriveTrades', () => {
       // Still reported as the CURRENT stop — the dashboard and chart should
       // keep showing it, only risk/R must refuse to use it.
       expect(t.currentStops).toEqual([
-        { kind: 'FIXED', price: 17.07, trailPercent: null, quantity: 100 },
+        { id: 'legacy-0', kind: 'FIXED', price: 17.07, trailPercent: null, quantity: 100 },
       ]);
     });
 
@@ -373,7 +373,7 @@ describe('deriveTrades', () => {
       expect(t.riskAmount).toBeNull();
       expect(t.rMultiple).toBeNull();
       expect(t.currentStops).toEqual([
-        { kind: 'FIXED', price: 18.0, trailPercent: null, quantity: 100 },
+        { id: 'rev-1', kind: 'FIXED', price: 18.0, trailPercent: null, quantity: 100 },
       ]);
     });
   });
