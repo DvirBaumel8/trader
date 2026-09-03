@@ -36,6 +36,7 @@ function txn(
         ? []
         : [
             {
+              id: 'stop-0',
               kind: 'FIXED',
               price: extra.stop,
               trailPercent: null,
@@ -170,6 +171,7 @@ describe('deriveTrades', () => {
         executedAt: new Date(2026, 0, 1),
         stopLevels: [
           {
+            id: 'a',
             kind: 'FIXED',
             price: 205,
             trailPercent: null,
@@ -178,6 +180,7 @@ describe('deriveTrades', () => {
             createdAt: KNOWN_CREATED_AT,
           },
           {
+            id: 'b',
             kind: 'TRAILING',
             price: null,
             trailPercent: 8,
@@ -230,6 +233,7 @@ describe('deriveTrades', () => {
           stopLevels: [
             // revision 0: the original stop, set at entry.
             {
+              id: 'rev-0',
               kind: 'FIXED',
               price: 90,
               trailPercent: null,
@@ -239,6 +243,7 @@ describe('deriveTrades', () => {
             },
             // revision 1: trailed up as the trade worked.
             {
+              id: 'rev-1',
               kind: 'FIXED',
               price: 105,
               trailPercent: null,
@@ -248,6 +253,7 @@ describe('deriveTrades', () => {
             },
             // revision 2: trailed again, this is the current stop.
             {
+              id: 'rev-2',
               kind: 'FIXED',
               price: 112,
               trailPercent: null,
@@ -303,6 +309,7 @@ describe('deriveTrades', () => {
           executedAt: new Date(2026, 0, 1),
           stopLevels: [
             {
+              id: 'legacy-0',
               kind: 'FIXED',
               price: 17.07, // above entry, on a long — the tell.
               trailPercent: null,
@@ -341,6 +348,7 @@ describe('deriveTrades', () => {
           executedAt: new Date(2026, 0, 1),
           stopLevels: [
             {
+              id: 'legacy-0',
               kind: 'FIXED',
               price: 17.07,
               trailPercent: null,
@@ -349,6 +357,7 @@ describe('deriveTrades', () => {
               createdAt: null,
             },
             {
+              id: 'rev-1',
               kind: 'FIXED',
               price: 18.0,
               trailPercent: null,
@@ -478,6 +487,7 @@ describe('selectEntryStops / selectCurrentStops', () => {
     price: number,
     createdAt: string | null,
   ): StopRevisionInput => ({
+    id: `rev-${revisionSeq}`,
     kind: 'FIXED',
     price,
     trailPercent: null,
@@ -626,21 +636,30 @@ describe('computeEffectiveStops', () => {
   const OPENED = new Date(2026, 0, 1);
   const RECORDED = new Date(2026, 0, 10);
 
-  // A constant, not a per-tier id: these fixtures predate recorded
-  // executions and only ever exercise price matching, which does not care
-  // about id. computeEffectiveStops now requires one on its way in only
-  // because a *different* fill (see the describe block below) may need to
-  // name a tier by id — every assertion here compares two tiers built by
-  // this same helper, so the shared constant cancels out.
+  // Derived from price/trailPercent, not a shared constant: these fixtures
+  // predate recorded executions and only ever exercise price matching, which
+  // does not care about id. But `remaining.find(t => t.id === ...)` returns
+  // the FIRST match, so if every tier shared one id, a stray future test in
+  // this block that DID record an execution would silently consume tier
+  // index 0 regardless of which tier it named. Deriving the id from the
+  // tier's own identifying field keeps two tiers in the same test distinct,
+  // while still matching between an input tier and its `toEqual` expectation
+  // (both built by calling this helper with the same arguments).
   function fixed(price: number, quantity: number): StopLevelInput & { id: string } {
-    return { id: 'stub', kind: 'FIXED', price, trailPercent: null, quantity };
+    return { id: `fixed-${price}`, kind: 'FIXED', price, trailPercent: null, quantity };
   }
 
   function trailing(
     trailPercent: number,
     quantity: number,
   ): StopLevelInput & { id: string } {
-    return { id: 'stub', kind: 'TRAILING', price: null, trailPercent, quantity };
+    return {
+      id: `trailing-${trailPercent}`,
+      kind: 'TRAILING',
+      price: null,
+      trailPercent,
+      quantity,
+    };
   }
 
   function sell(quantity: number, price: number, day: number): ReducingFill {
@@ -827,6 +846,53 @@ describe('computeEffectiveStops with recorded executions', () => {
       { executedAt: new Date('2026-01-05'), price: 100, quantity: 50 },
     ]);
     expect(result.find((t) => t.id === 'a')).toBeUndefined();
+  });
+
+  it('consumes a recorded execution even when it predates recordedAt', () => {
+    // The headline rule: recordedAt/openedAt gates the PRICE-MATCHING guess
+    // only. A confirmed execution is authoritative regardless of revision
+    // timing — the owner named the tier himself, so there is nothing to
+    // "double count" the way there would be for an unclassified fill that
+    // predates the revision it would otherwise be re-consumed against.
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(
+      tiers,
+      new Date('2026-01-10'), // recordedAt, AFTER the fill below
+      new Date('2026-01-01'),
+      [
+        {
+          executedAt: new Date('2026-01-05'), // before recordedAt
+          price: 100,
+          quantity: 50,
+          exitKind: 'STOP',
+          executions: [{ stopLevelId: 'a', quantity: 50 }],
+        },
+      ],
+    );
+    expect(result.find((t) => t.id === 'a')).toBeUndefined();
+  });
+
+  it('silently ignores an execution naming a tier id not in this revision', () => {
+    // Reachable once a later revision replaces the tiers a StopExecution was
+    // recorded against, so `stopLevelId` no longer names anything here. That
+    // execution predates `recordedAt` and was already reflected in whatever
+    // the owner set as the later revision, so skipping it (rather than
+    // falling back to a price-matching guess) is correct, not an oversight.
+    const tiers = [
+      { id: 'a', kind: 'FIXED' as const, price: 100, trailPercent: null, quantity: 50 },
+    ];
+    const result = computeEffectiveStops(tiers, null, new Date('2026-01-01'), [
+      {
+        executedAt: new Date('2026-01-05'),
+        price: 100,
+        quantity: 20,
+        exitKind: 'STOP',
+        executions: [{ stopLevelId: 'stale-tier-from-prior-revision', quantity: 20 }],
+      },
+    ]);
+    expect(result.find((t) => t.id === 'a')?.quantity).toBe(50);
   });
 });
 

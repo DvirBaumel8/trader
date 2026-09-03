@@ -9,12 +9,16 @@ import { computeRisk, type StopLevelInput } from './risk.js';
  */
 export interface StopRevisionInput extends StopLevelInput {
   /**
-   * `stop_levels.id`. Optional only because older fixtures/callers predate
-   * it — real rows loaded by `portfolio.service.ts` always carry one. This
-   * is what lets a recorded `StopExecution` name exactly which tier it
-   * executed, in `computeEffectiveStops` below.
+   * `stop_levels.id` — required, not a convenience: this is what lets a
+   * recorded `StopExecution` name exactly which tier it fired, in
+   * `computeEffectiveStops` below. A tier that somehow arrived without one
+   * would silently fail that id match (see `selectCurrentStopsWithIds`) and
+   * be reported as still fully intact — an overstated at-risk figure with no
+   * error anywhere. `stop-level.entity.ts` generates a UUID for every row,
+   * so this is never actually absent; required here keeps it that way
+   * instead of leaving a silent-wrong-number trapdoor open.
    */
-  id?: string;
+  id: string;
   /** 0 is the first revision ever recorded; increasing thereafter. */
   revisionSeq: number;
   /**
@@ -74,11 +78,9 @@ export function selectCurrentStops(levels: StopRevisionInput[]): StopLevelInput[
  * only internally, by `finish()` below, to pass tiers into
  * `computeEffectiveStops` that a recorded `StopExecution` can be matched
  * against by id. Not exported: `selectCurrentStops` stays the public,
- * id-free view every existing caller and test already relies on. A revision
- * of unknown vintage (a legacy fixture, or a real row with no id) falls back
- * to a positional placeholder — it is stripped back off before
- * `DerivedTrade.currentStops` is built, so it is never observed outside
- * `computeEffectiveStops`'s own matching.
+ * id-free view every existing caller and test already relies on. The id is
+ * stripped back off before `DerivedTrade.currentStops` is built, so it is
+ * never observed outside `computeEffectiveStops`'s own matching.
  */
 function selectCurrentStopsWithIds(
   levels: StopRevisionInput[],
@@ -87,8 +89,8 @@ function selectCurrentStopsWithIds(
   const maxSeq = Math.max(...levels.map((l) => l.revisionSeq));
   return levels
     .filter((l) => l.revisionSeq === maxSeq)
-    .map((l, index) => ({
-      id: l.id ?? `unknown-${index}`,
+    .map((l) => ({
+      id: l.id,
       kind: l.kind,
       price: l.price,
       trailPercent: l.trailPercent,
@@ -240,7 +242,15 @@ export function computeEffectiveStops(
     if (fill.executions !== undefined && fill.executions.length > 0) {
       for (const execution of fill.executions) {
         const tier = remaining.find((t) => t.id === execution.stopLevelId);
-        if (tier === undefined) continue; // Named a tier not present here.
+        // Deliberately silent, not a fallback to price matching: this is
+        // reachable once a later revision replaces the tiers a
+        // StopExecution was recorded against, so `stopLevelId` no longer
+        // appears in `recordedTiers` here. Such an execution predates
+        // `recordedAt` — it was already reflected in whatever the owner set
+        // as that later revision — so re-consuming it (against any tier,
+        // guessed or not) would double count exactly the case the
+        // recordedAt/openedAt cutoff below exists to prevent.
+        if (tier === undefined) continue;
         tier.quantity = Math.max(0, tier.quantity - execution.quantity);
       }
       continue;
