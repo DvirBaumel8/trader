@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import request from 'supertest';
 import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
@@ -41,6 +42,7 @@ const yahooStub = {
 describe('Trade idea (e2e)', () => {
   let app: INestApplication;
   let token: string;
+  let dataSource: DataSource;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -50,16 +52,26 @@ describe('Trade idea (e2e)', () => {
       .useValue({
         isConfigured: () => true,
         modelName: () => 'stub-model',
-        complete: async ({ user }: { user: string }) =>
-          user.includes('NOLEVELS')
+        complete: async ({ user }: { user: string }) => {
+          if (user.includes('BOOM')) throw new Error('provider exploded');
+          return user.includes('NOLEVELS')
             ? 'Prose with no block at all.'
-            : 'Real prose about the trade.\n\nLEVELS\nstop: 99\ntarget: 130',
+            : 'Real prose about the trade.\n\nLEVELS\nstop: 99\ntarget: 130';
+        },
       })
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
     token = await login(app);
+    dataSource = app.get(DataSource);
+  });
+
+  // Every test in this file asks for an opinion, and asking now persists one.
+  // Without this, a test counting rows counts the ones its neighbours left
+  // behind — and passes or fails depending on what ran before it.
+  beforeEach(async () => {
+    await dataSource.query('TRUNCATE trade_ideas RESTART IDENTITY CASCADE');
   });
 
   afterAll(async () => {
@@ -118,6 +130,55 @@ describe('Trade idea (e2e)', () => {
       .post('/ai/trade-idea')
       .send({ symbol: 'not a ticker!' })
       .expect(400);
+  });
+
+  it('persists the idea, including one whose levels could not be read', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NOLEVELS' }).expect(201);
+
+    const rows = (await dataSource.query(
+      `SELECT symbol, "entryPrice", stop, target, "riskReward", opinion, "factsSnapshot", model
+         FROM trade_ideas ORDER BY symbol`,
+    )) as Array<{
+      symbol: string;
+      entryPrice: string;
+      stop: string | null;
+      target: string | null;
+      riskReward: string | null;
+      opinion: string;
+      factsSnapshot: string;
+      model: string;
+    }>;
+    expect(rows).toHaveLength(2);
+
+    const noLevels = rows.find((r) => r.symbol === 'NOLEVELS')!;
+    expect(noLevels.stop).toBeNull();
+    expect(noLevels.target).toBeNull();
+    expect(noLevels.riskReward).toBeNull();
+    // The prose is kept even when the numbers were refused — that is the
+    // whole reason those three columns are nullable.
+    expect(noLevels.opinion).toContain('Prose with no block');
+
+    const nvda = rows.find((r) => r.symbol === 'NVDA')!;
+    expect(Number(nvda.stop)).toBeCloseTo(99, 6);
+    expect(Number(nvda.target)).toBeCloseTo(130, 6);
+    expect(Number(nvda.entryPrice)).toBeCloseTo(110, 6);
+    // Entry 110, stop 99, target 130 -> 20/11. Stored as the app computed it.
+    expect(Number(nvda.riskReward)).toBeCloseTo(20 / 11, 6);
+    expect(nvda.model).toBe('stub-model');
+    // The LEVELS block is stripped from what the owner reads, but the facts
+    // the model was given are kept verbatim, or the opinion can't be judged.
+    expect(nvda.opinion).not.toContain('LEVELS');
+    expect(nvda.factsSnapshot).toContain('NVDA');
+  });
+
+  it('saves nothing when the model call fails', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'BOOM' }).expect(201);
+
+    const rows = (await dataSource.query(
+      `SELECT id FROM trade_ideas`,
+    )) as Array<{ id: string }>;
+    expect(rows).toHaveLength(0);
   });
 });
 
