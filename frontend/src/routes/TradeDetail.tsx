@@ -9,6 +9,7 @@ import {
   type StopLevel,
 } from '../components/TradeChart';
 import { unresolvedTrailingStops } from '../lib/stopSummary';
+import { StopPlanEditor } from '../components/StopPlanEditor';
 import type { Bar } from '../lib/candleScale';
 import type { Trade } from '../components/TradeCard';
 
@@ -195,6 +196,21 @@ export function TradeDetail() {
       </header>
 
       <TradeChart bars={bars} fills={fills} stopLevels={stopLevels} />
+
+      {/*
+        Only an OPEN trade gets an editable plan: a stop on a position that no
+        longer exists protects nothing, and letting one be edited would invite
+        exactly the drift the Stops page flags.
+      */}
+      {trade.isOpen && (
+        <StopPlanEditor
+          tradeId={id!}
+          tiers={stopLevels}
+          avgEntry={trade.avgEntry}
+          quantity={trade.quantity}
+          direction={trade.direction}
+        />
+      )}
 
       {unresolvedTrailing.length > 0 && (
         <p className="text-xs text-muted">
