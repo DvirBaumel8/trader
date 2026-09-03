@@ -280,6 +280,30 @@ function HistoryDetail({ id }: { id: string }) {
   return (
     <div className="space-y-2 border-t border-border px-3 pb-3 pt-2">
       <Markdown text={data.opinion} />
+
+      {/*
+        The stored figures, shown as they were stored. Risk per share and the
+        position size are NOT re-derived here: that arithmetic belongs to the
+        backend, and a second implementation of it in the UI is exactly how
+        two subtly different answers to the same question start appearing.
+      */}
+      {data.stop !== null && data.target !== null ? (
+        <div className="grid grid-cols-4 gap-2 rounded-lg bg-surface-2 p-3">
+          <Figure label="Entry" value={formatMoney(data.entryPrice)} />
+          <Figure label="Stop" value={formatMoney(data.stop)} className="text-down" />
+          <Figure label="Target" value={formatMoney(data.target)} className="text-up" />
+          <Figure
+            label="R / R"
+            value={data.riskReward === null ? '—' : `${data.riskReward.toFixed(2)}R`}
+          />
+        </div>
+      ) : (
+        <p className="rounded-lg bg-surface-2 p-3 text-xs leading-relaxed text-muted">
+          The model's levels couldn't be read for this one, so no numbers were saved
+          with it.
+        </p>
+      )}
+
       <details className="text-xs">
         <summary className="cursor-pointer select-none font-medium text-accent">
           Facts snapshot
