@@ -8,11 +8,20 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Max,
+  Min,
   IsUUID,
   Length,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+
+/**
+ * The largest magnitude a `numeric(20,8)` column accepts. Past this Postgres
+ * raises rather than storing, and an unvalidated request became a 500 that
+ * quoted the database at the caller.
+ */
+const MAX_NUMERIC = 1e11;
 
 export class StopExecutionDto {
   @IsUUID()
@@ -46,20 +55,40 @@ export class TradeDto {
   @Length(1, 12)
   symbol: string;
 
-  /** Signed: positive buys, negative sells. */
+  /**
+   * Signed: positive buys, negative sells. Bounded because the column is
+   * `numeric(20,8)` — anything at or past 10^12 makes Postgres raise
+   * "must round to an absolute value less than 10^12", which surfaced as a
+   * 500 with the database's own error text in it. A rejected request should
+   * say what is wrong with it, not leak the schema.
+   */
   @IsNumber()
+  @Min(-MAX_NUMERIC)
+  @Max(MAX_NUMERIC)
   quantity: number;
 
+  /**
+   * Strictly positive. A negative price is not a short — direction lives in
+   * the sign of `quantity` — it is nonsense that silently corrupts cost
+   * basis, cash and every figure derived from them. The API used to accept
+   * it and return 201.
+   */
   @IsNumber()
+  @IsPositive()
+  @Max(MAX_NUMERIC)
   price: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(MAX_NUMERIC)
   fee?: number;
 
   /** The plan at entry. Optional — see the decisions table. */
   @IsOptional()
   @IsNumber()
+  @IsPositive()
+  @Max(MAX_NUMERIC)
   plannedTarget?: number;
 
   @IsOptional()

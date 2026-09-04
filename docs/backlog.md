@@ -121,7 +121,16 @@ Raised as a block; each needs its own slice.
   it wipes `dist` under the watcher and looks like an upgrade breaking the app
   when it is not.
 
-- [ ] Manual QA by the agent, hunting for bugs rather than confirming features.
+- [x] Manual QA hunt (first pass, `8f0…`). Probed the API with hostile input
+  rather than re-testing features. Two real bugs, both fixed and pinned:
+  a negative trade price was accepted and stored (201), and a quantity past
+  `numeric(20,8)`'s limit came back as a 500 quoting Postgres at the caller.
+  Pure functions came through clean on every edge case tried (empty book,
+  zero account value, no trades, zero quantity, single bar, no history).
+- [ ] **Second QA pass, on the areas the first did not reach**: date-range
+  validation (`?from=hello` is accepted and silently returns nothing rather
+  than 400), concurrent edits to the same journal entry, and behaviour when
+  Yahoo returns a partial or malformed payload rather than failing outright.
 - [ ] A pass for best practices — interfaces, generics, inheritance where they
   genuinely earn their place.
 - [x] Remove dead code — for now. `oxlint` reports nothing across `src` and

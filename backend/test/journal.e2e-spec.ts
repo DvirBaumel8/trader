@@ -912,4 +912,46 @@ describe('Journal (e2e)', () => {
       .expect(200);
     expect(none.body).toEqual([]);
   });
+  it('refuses a negative price rather than storing nonsense', async () => {
+    // Found by probing, not by a report. Direction lives in the sign of
+    // quantity; a negative PRICE is not a short, it is a number that silently
+    // corrupts cost basis, cash and everything derived from them. The API
+    // used to answer 201.
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: '',
+        occurredAt: '2026-01-01T12:00:00.000Z',
+        trade: { symbol: 'NVDA', quantity: -5, price: -100, fee: 0 },
+      })
+      .expect(400);
+  });
+
+  it('refuses a quantity the column cannot hold, with 400 not 500', async () => {
+    // numeric(20,8) tops out below 10^12. Past it Postgres raised, and the
+    // caller got a 500 quoting the database's own error text back at them.
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: '',
+        occurredAt: '2026-01-01T12:00:00.000Z',
+        trade: { symbol: 'NVDA', quantity: 1e15, price: 1, fee: 0 },
+      })
+      .expect(400);
+  });
+
+  it('still accepts an ordinary sell, which is negative on purpose', async () => {
+    // The guard above must not make shorts or exits unenterable.
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'short',
+        occurredAt: '2026-01-01T12:00:00.000Z',
+        trade: { symbol: 'NVDA', quantity: -5, price: 100, fee: 1 },
+      })
+      .expect(201);
+  });
 });
