@@ -7,6 +7,7 @@ import { UsersService } from '../users/users.service.js';
 import { ERROR_COPY } from './llm.service.js';
 import { buildSystemPrompt } from './prompts.js';
 import { buildTradeIdeaPrompt } from './trade-idea-prompt.js';
+import { buildBookSection, buildRecordSection } from './trade-idea-context.js';
 import { parseProposedLevels, stripLevelsBlock } from './trade-idea-parse.js';
 import {
   TickerFactsService,
@@ -86,10 +87,21 @@ export class TradeIdeaService {
     // from "the model could not answer", and flattening them into this
     // result shape would hide which one happened.
     const facts = await this.tickerFacts.get(upper);
-    const usualRisk = (await this.portfolio.getStats()).avgRisk ?? null;
+
+    // The book and the record, not just the chart. Without them the model
+    // answered "should I open this?" when he already held 4,600 shares of the
+    // name — see trade-idea-context.ts.
+    const [stats, book] = await Promise.all([
+      this.portfolio.getStats(),
+      this.portfolio.getPortfolio(),
+    ]);
+    const usualRisk = stats.avgRisk ?? null;
 
     const system = buildSystemPrompt(await this.readProfile());
-    const user = buildTradeIdeaPrompt(facts, usualRisk);
+    const user = buildTradeIdeaPrompt(facts, usualRisk, {
+      book: buildBookSection(book, upper),
+      record: buildRecordSection(stats, upper),
+    });
 
     let raw: string;
     try {

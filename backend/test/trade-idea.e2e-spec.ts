@@ -43,6 +43,8 @@ describe('Trade idea (e2e)', () => {
   let app: INestApplication;
   let token: string;
   let dataSource: DataSource;
+  /** Every prompt the model was actually handed, so the wiring is testable. */
+  const prompts: string[] = [];
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -53,6 +55,7 @@ describe('Trade idea (e2e)', () => {
         isConfigured: () => true,
         modelName: () => 'stub-model',
         complete: async ({ user }: { user: string }) => {
+          prompts.push(user);
           if (user.includes('BOOM')) throw new Error('provider exploded');
           return user.includes('NOLEVELS')
             ? 'Prose with no block at all.'
@@ -130,6 +133,22 @@ describe('Trade idea (e2e)', () => {
       .post('/ai/trade-idea')
       .send({ symbol: 'not a ticker!' })
       .expect(400);
+  });
+
+  it('hands the model the book, the record and the recent sessions', async () => {
+    prompts.length = 0;
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+
+    const [prompt] = prompts;
+    expect(prompt).toBeDefined();
+    // Formatting is unit-tested; what this proves is that the sections are
+    // actually reaching the model rather than being built and dropped.
+    expect(prompt).toContain('MY BOOK RIGHT NOW');
+    expect(prompt).toContain('MY RECORD');
+    expect(prompt).toContain('Last 10 sessions');
+    // With an empty test book, it must say so rather than stay silent — the
+    // model needs to know this is a new position, not merely be left guessing.
+    expect(prompt).toContain('I do NOT currently hold NVDA');
   });
 
   it('persists the idea, including one whose levels could not be read', async () => {

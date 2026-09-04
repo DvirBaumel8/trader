@@ -17,6 +17,7 @@ import type { TickerFacts } from '../market-data/ticker-facts.service.js';
 export function buildTradeIdeaPrompt(
   facts: TickerFacts,
   usualRisk: number | null,
+  context?: { book: string; record: string },
 ): string {
   const i = facts.indicators;
   const price = (n: number) =>
@@ -72,7 +73,10 @@ export function buildTradeIdeaPrompt(
 
 Answer three things, in this order:
 1. Does this fit the way I trade? Use my profile above — my setups, my rules,
-   my stated weaknesses — not generic good practice.
+   my stated weaknesses — AND my book and my record below. If I already hold
+   this name, the question is whether to add, hold or trim, not whether to
+   open it. Judge it against what I am already carrying, including anything
+   in the same theme.
 2. Is this stock worth buying right now? Trend, momentum, where price sits,
    and the business itself.
 3. Is the risk/reward worth taking?
@@ -93,5 +97,6 @@ LEVELS
 stop: <price>
 target: <price>
 
-${lines.join('\n')}`;
+${lines.join('\n')}
+${context ? `\n${context.book}\n\n${context.record}\n` : ''}`;
 }
