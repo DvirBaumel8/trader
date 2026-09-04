@@ -59,6 +59,20 @@ export interface StopDistanceRow {
    * that reason; this row-level figure stays honest about the sign.
    */
   amountAtRisk: number;
+  /**
+   * How a TRAILING tier arrived at its price: the percentage and the
+   * high-water mark it trails from. Null for a FIXED tier, which needs no
+   * explanation — its price is the number that was typed.
+   *
+   * The row shows a stop and a current price, both rounded to cents, and
+   * invites subtracting one from the other. For a trail the stop is a
+   * derived figure with more precision than it displays, so that subtraction
+   * disagrees with the dollars-at-risk beside it and the whole row looks
+   * wrong even when every number in it is right. Showing what it trails from
+   * makes it checkable instead.
+   */
+  trailPercent: number | null;
+  trailsFrom: number | null;
 }
 
 const EPSILON = 1e-9;
@@ -99,6 +113,11 @@ export function computeStopDistances(
         : stopPrice - p.currentPrice;
       const distance = perShare / p.currentPrice;
 
+      const trailing =
+        level.kind === 'TRAILING' &&
+        level.trailPercent !== null &&
+        level.trailPercent > 0;
+
       rows.push({
         symbol: p.symbol,
         direction: p.direction,
@@ -111,6 +130,8 @@ export function computeStopDistances(
         distance: round(distance),
         passed: perShare < 0,
         amountAtRisk: distance * p.currentPrice * level.quantity,
+        trailPercent: trailing ? level.trailPercent : null,
+        trailsFrom: trailing ? (p.highWaterPrice ?? null) : null,
       });
     }
   }

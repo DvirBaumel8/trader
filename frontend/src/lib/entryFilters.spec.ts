@@ -175,3 +175,33 @@ describe('sortTrades', () => {
     ]);
   });
 });
+
+describe('filtering trades by several tickers', () => {
+  const trades = [
+    { symbol: 'NVDA', enteredAt: '2026-08-01', exitedAt: '2026-08-05', realizedPnl: 100, avgEntry: 1, quantity: 1 },
+    { symbol: 'META', enteredAt: '2026-08-02', exitedAt: '2026-08-06', realizedPnl: -50, avgEntry: 1, quantity: 1 },
+    { symbol: 'AAPL', enteredAt: '2026-08-03', exitedAt: '2026-08-07', realizedPnl: 20, avgEntry: 1, quantity: 1 },
+  ];
+
+  it('matches any of a comma-separated list', () => {
+    const out = filterTrades(trades, { ...emptyFilters, search: 'NVDA, META' });
+    expect(out.map((t) => t.symbol)).toEqual(['NVDA', 'META']);
+  });
+
+  it('still treats a single term as it always did', () => {
+    expect(
+      filterTrades(trades, { ...emptyFilters, search: 'nvd' }).map((t) => t.symbol),
+    ).toEqual(['NVDA']);
+  });
+
+  it('ignores empty terms from stray commas', () => {
+    // "NVDA," while still typing the next ticker must not match everything.
+    expect(
+      filterTrades(trades, { ...emptyFilters, search: 'NVDA, ,' }).map((t) => t.symbol),
+    ).toEqual(['NVDA']);
+  });
+
+  it('returns everything when the search is blank', () => {
+    expect(filterTrades(trades, emptyFilters)).toHaveLength(3);
+  });
+});

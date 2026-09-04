@@ -82,17 +82,34 @@ export interface FilterableTrade {
   quantity: number;
 }
 
+/**
+ * Search terms, split on commas.
+ *
+ * A comma means "any of these": `NVDA, META` is two tickers, not a phrase.
+ * Splitting on whitespace instead would break the moment a search is
+ * ordinary text, so the comma is the signal — it is what someone writing a
+ * list of tickers reaches for anyway, and a single term still behaves
+ * exactly as it always did.
+ */
+export function searchTerms(search: string): string[] {
+  return search
+    .split(',')
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t !== '');
+}
+
 export function filterTrades<T extends FilterableTrade>(
   trades: T[],
   f: Filters,
 ): T[] {
-  const needle = f.search.trim().toLowerCase();
+  const terms = searchTerms(f.search);
   return trades.filter((t) => {
     // A closed trade is filtered on when it closed — that is the date a reader
     // means by "trades in August".
     if (!withinRange(t.exitedAt ?? t.enteredAt, f.from, f.to)) return false;
-    if (needle === '') return true;
-    return t.symbol.toLowerCase().includes(needle);
+    if (terms.length === 0) return true;
+    const symbol = t.symbol.toLowerCase();
+    return terms.some((term) => symbol.includes(term));
   });
 }
 

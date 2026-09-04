@@ -87,7 +87,7 @@ export function FilterBar({
           <input
             value={filters.search}
             onChange={(e) => set({ search: e.target.value })}
-            placeholder="Ticker or text"
+            placeholder="Ticker, or NVDA, META"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}

@@ -23,6 +23,9 @@ interface StopTierRow {
   distance: number;
   passed: boolean;
   amountAtRisk: number;
+  /** Set only for a trailing tier — see the note on the row below. */
+  trailPercent: number | null;
+  trailsFrom: number | null;
 }
 
 interface Position {
@@ -119,6 +122,19 @@ function StopTierRowView({
           Stop <Money value={row.stopPrice} /> · {formatQuantity(row.quantity)} sh
           · now <Money value={row.currentPrice} />
         </div>
+        {/*
+          A trail's stop is derived, and both it and the price are rounded to
+          cents, so subtracting one from the other disagrees with the dollars
+          beside them — the row looks wrong while every number in it is right.
+          Saying what it trails from makes it checkable rather than asking for
+          trust. Pre- and after-hours prints count toward that high, which is
+          why it can sit above anything on the daily chart.
+        */}
+        {row.trailPercent !== null && row.trailsFrom !== null && (
+          <div className="truncate text-[10px] leading-tight text-muted opacity-80">
+            trails {row.trailPercent}% from <Money value={row.trailsFrom} />
+          </div>
+        )}
       </div>
 
       <div className="shrink-0 text-right">

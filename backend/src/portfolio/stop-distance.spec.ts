@@ -215,3 +215,52 @@ describe('amountAtRisk', () => {
     expect(row.amountAtRisk).toBeCloseTo((200 - 207.08) * 45, 6);
   });
 });
+
+describe('trail traceability', () => {
+  it('says what a trailing tier trails from', () => {
+    // The row shows "$17.66" and "now $18.24" and invites subtracting them.
+    // For a trail the stop is derived, so that subtraction disagrees with the
+    // figures beside it — showing the basis makes it checkable.
+    const [row] = computeStopDistances([
+      {
+        symbol: 'BITX',
+        direction: 'LONG',
+        avgEntry: 13.29,
+        currentPrice: 18.24,
+        session: 'REGULAR',
+        extended: false,
+        stale: false,
+        highWaterPrice: 19.58,
+        levels: [
+          { kind: 'TRAILING', price: null, trailPercent: 9.8, quantity: 1000 },
+        ],
+      },
+    ]);
+
+    expect(row.trailPercent).toBe(9.8);
+    expect(row.trailsFrom).toBeCloseTo(19.58, 6);
+    // 19.58 * (1 - 0.098) — the number the broker shows.
+    expect(row.stopPrice).toBeCloseTo(17.66, 2);
+  });
+
+  it('leaves a fixed tier unexplained, because its price was typed', () => {
+    const [row] = computeStopDistances([
+      {
+        symbol: 'META',
+        direction: 'LONG',
+        avgEntry: 593.49,
+        currentPrice: 605,
+        session: 'REGULAR',
+        extended: false,
+        stale: false,
+        highWaterPrice: 619,
+        levels: [
+          { kind: 'FIXED', price: 572.68, trailPercent: null, quantity: 20 },
+        ],
+      },
+    ]);
+
+    expect(row.trailPercent).toBeNull();
+    expect(row.trailsFrom).toBeNull();
+  });
+});

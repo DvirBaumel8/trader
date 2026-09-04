@@ -51,12 +51,15 @@ this says what is outstanding.
 - [ ] **19 frontend lint warnings**, mostly `react(refs)` in `Journal.tsx`
   from reading a ref during render, plus a few `set-state-in-effect`. Nearly
   all pre-existing. The backend is at zero; the frontend has never been swept.
-- [ ] **Filter trades by ticker** (possibly multiple tickers at once).
+- [x] **Filter trades by ticker, including several at once** — a comma means
+  "any of these": `NVDA, META`. Comma rather than whitespace, so an ordinary
+  text search still works. Only the Trades tab; the journal's server-side
+  search still takes one term.
 - [ ] **The trade-idea result buries its numbers** under ~400 words of prose.
   A compact verdict strip above the writing, prose collapsible below.
-- [ ] **Make a trailing stop traceable on the Stops row** — `Stop $24.48 ·
-  11.48% from $27.66`. The figures are right but the row invites a subtraction
-  of two separately-rounded numbers and appears wrong. Trust problem, not maths.
+- [x] **Trailing stop traceable on the Stops row** — now shows `trails 9.8%
+  from $19.58` beneath the stop, so a derived number is checkable rather than
+  asking for trust.
 - [ ] **Look hard at the UI as a whole.** More conventional components? Study
   comparable products and decide what the right shape actually is.
 
