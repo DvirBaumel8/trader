@@ -1,5 +1,4 @@
 import {
-  ConflictException,
   Injectable,
   NotFoundException,
   BadRequestException,
@@ -45,18 +44,6 @@ import { computeRelativeVolumeAtEntry } from './relative-volume.js';
 import { computeStopDistances } from './stop-distance.js';
 import { bucketFees, totalFees, type FeePeriod } from './fee-buckets.js';
 import type { StopLevelSpec } from '../journal/journal.service.js';
-
-export interface SeedHolding {
-  symbol: string;
-  quantity: number;
-  avgCost: number;
-}
-
-export interface SeedRequest {
-  asOf: string;
-  startingCash: number;
-  holdings: SeedHolding[];
-}
 
 @Injectable()
 export class PortfolioService {
@@ -590,7 +577,7 @@ export class PortfolioService {
       ...summariseTrades(trades),
       // Fills are for the detail screen; sending them for every trade would
       // bloat a response the list view re-fetches often.
-      trades: trades.map(({ fills, currentStops, ...rest }) => rest),
+      trades: trades.map(({ fills: _fills, currentStops: _stops, ...rest }) => rest),
     };
   }
 
@@ -757,98 +744,6 @@ export class PortfolioService {
 
     await this.journal.reviseStopLevels(openingTxn.id, levels);
     return this.getTrade(tradeId);
-  }
-
-  async isSeeded(): Promise<boolean> {
-    const user = await this.users.ensureDefaultUser();
-    return (await this.entries.count({ where: { userId: user.id } })) > 0;
-  }
-
-  /**
-   * One-time: writes an opening BUY per holding plus an opening-capital
-   * deposit, each wrapped in a journal entry so the "transactions only via
-   * journal" invariant holds from the very first row.
-   */
-  async seed(req: SeedRequest) {
-    const user = await this.users.ensureDefaultUser();
-    if (await this.isSeeded()) {
-      throw new ConflictException(
-        'Portfolio already seeded. Reset it before seeding again.',
-      );
-    }
-
-    // Validate every ticker BEFORE writing anything, so one bad symbol cannot
-    // leave a half-seeded portfolio behind.
-    const resolved = await Promise.all(
-      req.holdings.map(async (h) => ({
-        holding: h,
-        instrument: await this.instrumentsService.findOrCreate(h.symbol),
-      })),
-    );
-
-    const asOf = new Date(`${req.asOf}T00:00:00Z`);
-
-    /**
-     * `startingCash` is the cash held RIGHT NOW, standing alongside holdings
-     * already owned. But the opening BUYs about to be written will each
-     * subtract their cost from cash. So the seed deposit must be the capital
-     * actually contributed — cash plus what the holdings cost — otherwise the
-     * opening trades would eat the balance the user just reported.
-     *
-     *   contributed = startingCash + Σ(signed quantity × avgCost)
-     *
-     * A short has negative quantity, so it correctly reduces contributed
-     * capital by the proceeds it generated. After derivation, cash ===
-     * startingCash.
-     */
-    const holdingsCost = req.holdings.reduce(
-      (sum, h) => sum + h.quantity * h.avgCost,
-      0,
-    );
-    const contributed = req.startingCash + holdingsCost;
-
-    // Written through the journal service, the single write path into
-    // transactions and cash flows. Tickers were validated above, so the
-    // realistic failure mode is already gone; a partial seed is recoverable
-    // with reset-and-re-seed.
-    if (contributed !== 0) {
-      await this.journal.create({
-        kind: 'CASH',
-        // No 'seeded' marker: where a row came from is not the user's concern.
-        body: '',
-        occurredAt: asOf.toISOString(),
-        cash: {
-          direction: contributed > 0 ? 'DEPOSIT' : 'WITHDRAW',
-          amount: Math.abs(contributed),
-        },
-      });
-    }
-
-    for (const { holding, instrument } of resolved) {
-      await this.journal.create({
-        kind: 'TRADE',
-        body: '',
-        occurredAt: asOf.toISOString(),
-        trade: {
-          symbol: instrument.symbol,
-          quantity: holding.quantity,
-          price: holding.avgCost,
-          // Seeding is not a real trade, so it carries no fee.
-          fee: 0,
-        },
-      });
-    }
-
-    return this.getPortfolio();
-  }
-
-  async reset() {
-    const user = await this.users.ensureDefaultUser();
-    await this.dataSource.transaction(async (manager) => {
-      await manager.delete(Transaction, { userId: user.id });
-      await manager.delete(CashFlow, { userId: user.id });
-      await manager.delete(JournalEntry, { userId: user.id });
-    });
   }
 }
 

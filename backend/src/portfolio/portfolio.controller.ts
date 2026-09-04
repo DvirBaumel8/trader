@@ -21,6 +21,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PortfolioService } from './portfolio.service.js';
+import { SeedService } from './seed.service.js';
 import { StopLevelDto } from '../journal/journal.dto.js';
 import { computeRisk } from './risk.js';
 import type { FeePeriod } from './fee-buckets.js';
@@ -80,7 +81,10 @@ class ReviseStopsDto {
 
 @Controller('portfolio')
 export class PortfolioController {
-  constructor(private readonly portfolio: PortfolioService) {}
+  constructor(
+    private readonly portfolio: PortfolioService,
+    private readonly seeding: SeedService,
+  ) {}
 
   @Get()
   get(@Query('refresh') refresh?: string) {
@@ -155,17 +159,20 @@ export class PortfolioController {
 
   @Get('status')
   async status() {
-    return { seeded: await this.portfolio.isSeeded() };
+    return { seeded: await this.seeding.isSeeded() };
   }
 
   @Post('seed')
-  seed(@Body() body: SeedDto) {
-    return this.portfolio.seed(body);
+  async seed(@Body() body: SeedDto) {
+    await this.seeding.seed(body);
+    // Composed here rather than inside SeedService, so seeding does not have
+    // to depend on the read path to answer with a portfolio.
+    return this.portfolio.getPortfolio();
   }
 
   @Delete('reset')
   async reset() {
-    await this.portfolio.reset();
+    await this.seeding.reset();
     return { ok: true };
   }
 }

@@ -19,7 +19,7 @@ class TradeIdeaDto {
   // Letters, digits, dot and dash only - the shapes a real ticker takes
   // (BRK.B, RDS-A). Rejecting the rest here means a malformed symbol never
   // reaches the provider at all.
-  @Matches(/^[A-Za-z0-9.\-]+$/, { message: 'symbol must be a ticker' })
+  @Matches(/^[A-Za-z0-9.-]+$/, { message: 'symbol must be a ticker' })
   symbol: string;
 }
 

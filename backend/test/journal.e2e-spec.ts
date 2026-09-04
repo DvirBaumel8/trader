@@ -425,7 +425,7 @@ describe('Journal (e2e)', () => {
   });
 
   it('records which stop tier a sell executed', async () => {
-    const open = await http(app, token).post('/journal').send({
+    await http(app, token).post('/journal').send({
       kind: 'TRADE',
       body: 'entry',
       occurredAt: '2026-01-03T14:30:00.000Z',
