@@ -86,7 +86,9 @@ Raised as a block; each needs its own slice.
   says otherwise.** Unit-only coverage reads ~59% because services covered by
   the e2e suite look untested; merged it is 91.6% of statements and 92.9% of
   lines. `npm run test:cov:all` (from `backend/`) reports the real figure.
-- [ ] Upgrade dependencies.
+- [x] Upgrade dependencies (minor/patch). `0e2cb55` — including a moderate
+  `qs` advisory reachable in production through express. Zero vulnerabilities
+  now. Majors are the separate item below.
 - [ ] **Major dependency upgrades.** Wanted, but deliberately not bundled with
   the security patch in `0e2cb55` — a green suite after six majors at once
   proves nothing about any one of them. Take them in separate commits, in
@@ -108,9 +110,15 @@ Raised as a block; each needs its own slice.
 - [ ] Manual QA by the agent, hunting for bugs rather than confirming features.
 - [ ] A pass for best practices — interfaces, generics, inheritance where they
   genuinely earn their place.
-- [ ] Remove dead code.
-- [ ] Break up oversized methods and classes. `portfolio.service.ts` is ~9k
-  tokens and the obvious first candidate.
+- [x] Remove dead code — for now. `oxlint` reports nothing across `src` and
+  `test`, down from five warnings. That only catches what a linter can see;
+  unreferenced exports and unreachable branches are still worth a deliberate
+  sweep.
+- [x] Break up oversized methods and classes. `portfolio.service.ts` 857 → 439
+  lines, split into `TradesService` (`82011d8`) and `SeedService` (`6cad60a`)
+  by question rather than by size. **`getPortfolio` is still ~240 lines** and
+  is the next candidate — it fetches, derives, prices, resolves trailing stops
+  and assembles a response in one method.
 - [ ] Loosen tight coupling.
 - [x] Add database indexes where they are needed. **Measured 2026-09-04:
   none are.** The largest table is `daily_closes` at 1,176 rows / 488 kB; the
