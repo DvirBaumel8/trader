@@ -96,19 +96,19 @@ Raised as a block; each needs its own slice.
 - [ ] **The frontend is for display. Calculation and business logic belong in
   the backend.** Audited 2026-09-04:
 
-  **Violates the rule:**
-  - `lib/stopRisk.ts` (`draftRisk`) — money arithmetic, and a second
-    implementation of the backend's `computeRisk`. The clearest breach: it
-    has already drifted twice, once overstating risk by $450 on an
-    overshooting plan. The tension is that it feeds live risk feedback as he
-    types, which is why it was written client-side; see the open question
-    below.
-  - `lib/feeBuckets.ts` — aggregates fees into day/week/month/year buckets
-    with totals. Analytics, and the backend already owns every other
-    aggregate (`summariseTrades`, `derive.ts`).
-  - `lib/entryFilters.ts` — filters journal entries by text and date range.
-    Data selection that belongs in a query, and moving it is also what makes
-    pagination possible later.
+  **All three breaches are closed** (`59dcbf9`, `4440579`, `dcf118f`):
+  - `lib/stopRisk.ts` — deleted; `POST /portfolio/stop-risk` prices a plan
+    being typed, debounced at 250ms. Confirmed fast on the phone.
+  - `lib/feeBuckets.ts` — deleted; `GET /portfolio/fees` buckets and totals.
+  - `lib/entryFilters.ts` — `filterEntries` deleted; `GET /journal` takes
+    `search`, `from` and `to`.
+
+  **One deliberate exception, not an oversight:** `filterTrades` stays in the
+  frontend. Its data comes from `/portfolio/stats`, whose aggregates must be
+  computed over every trade rather than the filtered subset — filtering it
+  server-side would mean a second request, or a win rate that changes as you
+  type. Sorting stays client-side throughout, for the same reason it does for
+  positions and stop tiers: ordering rows is display.
 
   **Legitimately client-side, not to be moved:** `auth.ts`,
   `draftStorage.ts`, `persistentState.ts`, `uiState.ts` (browser storage);
@@ -116,9 +116,5 @@ Raised as a block; each needs its own slice.
   (chart rendering mechanics); `markdown.ts` (rendering); `sortPositions.ts`,
   `sortStopTiers.ts` (display ordering); `entryDraft.ts` (form shaping).
 
-  **Open question — live risk feedback.** The stop editor shows dollars at
-  risk updating as each digit is typed, which is what turns setting a stop
-  into a sizing tool. Serving that from the backend means a request per
-  keystroke (debounced). On the LAN that is imperceptible; from Render it is
-  a few hundred ms and it stops working the moment the network does. Needs a
-  decision before `draftRisk` moves.
+  **Live risk feedback**, the open question when this was written, was
+  settled: backend, debounced. Confirmed fast enough in use.
