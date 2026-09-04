@@ -14,6 +14,7 @@ import {
   type TickerFacts,
 } from '../market-data/ticker-facts.service.js';
 import { PortfolioService } from '../portfolio/portfolio.service.js';
+import { TradesService } from '../portfolio/trades.service.js';
 import {
   computeTradeRisk,
   type TradeRiskResult,
@@ -57,6 +58,7 @@ export class TradeIdeaService {
     private readonly llm: LlmClient,
     private readonly tickerFacts: TickerFactsService,
     private readonly portfolio: PortfolioService,
+    private readonly trades: TradesService,
     @InjectRepository(TradeIdea)
     private readonly ideas: Repository<TradeIdea>,
     private readonly users: UsersService,
@@ -92,7 +94,7 @@ export class TradeIdeaService {
     // answered "should I open this?" when he already held 4,600 shares of the
     // name — see trade-idea-context.ts.
     const [stats, book] = await Promise.all([
-      this.portfolio.getStats(),
+      this.trades.getStats(),
       this.portfolio.getPortfolio(),
     ]);
     const usualRisk = stats.avgRisk ?? null;

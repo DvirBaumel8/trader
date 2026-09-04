@@ -7,6 +7,7 @@ import { buildPortfolioContext } from './portfolio-context.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts.js';
 import { AiSummaryService } from './ai-summary.service.js';
 import { PortfolioService } from '../portfolio/portfolio.service.js';
+import { TradesService } from '../portfolio/trades.service.js';
 import { PerformanceService } from '../performance/performance.service.js';
 
 // Resolved relative to this compiled file (backend/dist/llm/llm.service.js)
@@ -51,6 +52,7 @@ export class LlmService {
   constructor(
     private readonly llm: LlmClient,
     private readonly portfolio: PortfolioService,
+    private readonly trades: TradesService,
     private readonly performance: PerformanceService,
     private readonly summaries: AiSummaryService,
   ) {}
@@ -77,9 +79,9 @@ export class LlmService {
 
     const [portfolio, stats, series, entryVolumeBySymbol] = await Promise.all([
       this.portfolio.getPortfolio(),
-      this.portfolio.getStats(),
+      this.trades.getStats(),
       this.performance.getSeries('1M'),
-      this.portfolio.getOpenTradeEntryVolume(),
+      this.trades.getOpenTradeEntryVolume(),
     ]);
 
     const last = series.points.at(-1) ?? null;

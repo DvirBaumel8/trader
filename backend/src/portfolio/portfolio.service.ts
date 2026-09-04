@@ -1,10 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, DataSource, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, MoreThanOrEqual, Repository } from 'typeorm';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
@@ -16,6 +12,7 @@ import { DailyClose } from '../market-data/daily-close.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { MarketDataService } from '../market-data/market-data.service.js';
 import { HistoryService } from '../market-data/history.service.js';
+import { TradesService } from './trades.service.js';
 import { UsersService } from '../users/users.service.js';
 import { JournalService } from '../journal/journal.service.js';
 import {
@@ -26,24 +23,16 @@ import {
   type DerivedFlow,
   type DerivedDividend,
 } from './derive.js';
-import {
-  deriveTrades,
-  summariseTrades,
-  type DerivedTrade,
-} from './derive-trades.js';
-import { parseTradeId, tradeId, windowBounds } from './trade-window.js';
+import { tradeId } from './trade-window.js';
 import {
   computeFavorablePrice,
   computeRiskFromCurrentPrice,
   evaluateStopPlan,
-  resolveStopPrice,
   type StopLevelInput,
   type StopPlanIssue,
 } from './risk.js';
-import { computeRelativeVolumeAtEntry } from './relative-volume.js';
 import { computeStopDistances } from './stop-distance.js';
 import { bucketFees, totalFees, type FeePeriod } from './fee-buckets.js';
-import type { StopLevelSpec } from '../journal/journal.service.js';
 
 @Injectable()
 export class PortfolioService {
@@ -69,6 +58,7 @@ export class PortfolioService {
     private readonly history: HistoryService,
     private readonly users: UsersService,
     private readonly journal: JournalService,
+    private readonly trades: TradesService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -132,7 +122,9 @@ export class PortfolioService {
       opts.refresh === true,
     );
 
-    const openTrades = (await this.deriveAllTrades()).filter((t) => t.isOpen);
+    const openTrades = (await this.trades.deriveAllTrades()).filter(
+      (t) => t.isOpen,
+    );
     const openTradeBySymbol = new Map(
       openTrades.map((t) => [t.symbol, tradeId(t.symbol, t.enteredAt)]),
     );
@@ -316,6 +308,31 @@ export class PortfolioService {
    * `stopPlanNeedsUpdate`, distinct from "no stop at all" — the owner has a
    * plan on record, it just no longer matches the position.
    */
+  /**
+   * Fees grouped into periods, for the journal's fees tab.
+   *
+   * Read from `transactions` rather than from journal entries: a fee is
+   * charged on a fill, and transactions are the record of fills. The frontend
+   * used to fetch every trade entry and total them itself.
+   */
+  async getFees(period: FeePeriod) {
+    const user = await this.users.ensureDefaultUser();
+    const rows = await this.txns.find({
+      where: { userId: user.id },
+      select: { executedAt: true, fee: true },
+    });
+    const events = rows.map((t) => ({ occurredAt: t.executedAt, fee: t.fee }));
+
+    return {
+      period,
+      buckets: bucketFees(events, period),
+      // The total is over EVERY fee ever paid, not just the buckets shown:
+      // the window is a display limit, and a "total fees" that silently
+      // excluded older trades would be wrong rather than merely partial.
+      total: totalFees(events),
+    };
+  }
+
   private computeAtRisk(
     positions: Array<{
       symbol: string;
@@ -415,336 +432,6 @@ export class PortfolioService {
     };
   }
 
-  /**
-   * Every round trip, with the stop plan recorded at entry attached. Shared
-   * by the stats summary and the trade detail screen so the two can never
-   * disagree about what a trade is.
-   */
-  private async deriveAllTrades(): Promise<DerivedTrade[]> {
-    const user = await this.users.ensureDefaultUser();
-    const [txnRows, instrumentRows, levelRows, executionRows, entryRows] =
-      await Promise.all([
-        this.txns.find({ where: { userId: user.id } }),
-        this.instruments.find(),
-        this.stopLevels.find(),
-        this.stopExecutions.find(),
-        this.entries.find({ where: { userId: user.id } }),
-      ]);
-    // See getPortfolio: same-day fills tie on executedAt and the entry's
-    // createdAt is the only surviving evidence of their real order.
-    const recordedAtByEntry = new Map(
-      entryRows.map((e) => [e.id, e.createdAt]),
-    );
-    const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
-
-    const levelsByTxn = new Map<string, StopLevel[]>();
-    for (const l of levelRows) {
-      levelsByTxn.set(l.transactionId, [
-        ...(levelsByTxn.get(l.transactionId) ?? []),
-        l,
-      ]);
-    }
-
-    // The owner's confirmed attribution of a reducing fill to the tier(s) it
-    // executed — see stop-execution.entity.ts. Keyed by transactionId so
-    // computeEffectiveStops (via deriveTrades) can consume them directly
-    // instead of guessing by price, exactly as it already does for a
-    // recorded exitKind.
-    const executionsByTxn = new Map<
-      string,
-      Array<{ stopLevelId: string; quantity: number }>
-    >();
-    for (const ex of executionRows) {
-      executionsByTxn.set(ex.transactionId, [
-        ...(executionsByTxn.get(ex.transactionId) ?? []),
-        { stopLevelId: ex.stopLevelId, quantity: ex.quantity },
-      ]);
-    }
-
-    return deriveTrades(
-      txnRows.map((t) => ({
-        recordedAt: recordedAtByEntry.get(t.entryId) ?? null,
-        symbol: symbolById.get(t.instrumentId) ?? 'UNKNOWN',
-        side: t.side,
-        quantity: t.quantity,
-        price: t.price,
-        fee: t.fee,
-        executedAt: t.executedAt,
-        // Every revision ever recorded, not just the live one — deriveTrades
-        // picks the entry (earliest) and current (latest) revision itself.
-        stopLevels: (levelsByTxn.get(t.id) ?? [])
-          .sort((a, b) => a.revisionSeq - b.revisionSeq || a.ordinal - b.ordinal)
-          .map((l) => ({
-            // Carried through so computeEffectiveStops can match a recorded
-            // StopExecution to the exact tier it names, not just guess by
-            // price. See derive-trades.ts's selectCurrentStopsWithIds.
-            id: l.id,
-            kind: l.kind,
-            price: l.price,
-            trailPercent: l.trailPercent,
-            quantity: l.quantity,
-            revisionSeq: l.revisionSeq,
-            createdAt: l.createdAt ? l.createdAt.toISOString() : null,
-          })),
-        plannedTarget: t.plannedTarget,
-        executions: executionsByTxn.get(t.id),
-        exitKind: t.exitKind,
-      })),
-    );
-  }
-
-  /**
-   * Relative volume at entry — entry-day volume against the 20 trading days
-   * before it — for every currently open position, keyed by symbol. This is
-   * the fact that lets the AI summary check the owner's own stated rule
-   * ("volume as a confirming indicator"); see relative-volume.ts.
-   *
-   * Deliberately not part of `getPortfolio()`: that endpoint is polled by
-   * the dashboard on a normal, frequent cadence, and this does one extra
-   * `daily_closes` query per open position. It is computed fresh here
-   * instead, only when something actually needs it — today, that is the AI
-   * summary, which already makes a fresh, uncached call on every request.
-   */
-  async getOpenTradeEntryVolume(): Promise<Map<string, number | null>> {
-    const openTrades = (await this.deriveAllTrades()).filter((t) => t.isOpen);
-    const out = new Map<string, number | null>();
-    if (openTrades.length === 0) return out;
-
-    const instrumentRows = await this.instruments.find();
-    const instrumentIdBySymbol = new Map(
-      instrumentRows.map((i) => [i.symbol, i.id]),
-    );
-
-    await Promise.all(
-      openTrades.map(async (t) => {
-        const instrumentId = instrumentIdBySymbol.get(t.symbol);
-        if (!instrumentId) {
-          out.set(t.symbol, null);
-          return;
-        }
-        const entryDate = t.enteredAt.toISOString().slice(0, 10);
-        // Same 45-day runway HistoryService uses ahead of a first trade —
-        // comfortably more calendar days than the 20 TRADING days
-        // computeRelativeVolumeAtEntry needs, even across holidays.
-        const from = new Date(t.enteredAt);
-        from.setUTCDate(from.getUTCDate() - 45);
-        const bars = await this.closes.find({
-          where: {
-            instrumentId,
-            date: Between(from.toISOString().slice(0, 10), entryDate),
-          },
-          order: { date: 'ASC' },
-        });
-        const { relativeVolume } = computeRelativeVolumeAtEntry(
-          bars.map((b) => ({ date: b.date, volume: b.volume })),
-          entryDate,
-        );
-        out.set(t.symbol, relativeVolume);
-      }),
-    );
-
-    return out;
-  }
-
-  /**
-   * Fees grouped into periods, for the journal's fees tab.
-   *
-   * Read from `transactions` rather than from journal entries: a fee is
-   * charged on a fill, and transactions are the record of fills. The frontend
-   * used to fetch every trade entry and total them itself.
-   */
-  async getFees(period: FeePeriod) {
-    const user = await this.users.ensureDefaultUser();
-    const rows = await this.txns.find({
-      where: { userId: user.id },
-      select: { executedAt: true, fee: true },
-    });
-    const events = rows.map((t) => ({ occurredAt: t.executedAt, fee: t.fee }));
-
-    return {
-      period,
-      buckets: bucketFees(events, period),
-      // The total is over EVERY fee ever paid, not just the buckets shown:
-      // the window is a display limit, and a "total fees" that silently
-      // excluded older trades would be wrong rather than merely partial.
-      total: totalFees(events),
-    };
-  }
-
-  async getStats() {
-    const trades = await this.deriveAllTrades();
-    return {
-      ...summariseTrades(trades),
-      // Fills are for the detail screen; sending them for every trade would
-      // bloat a response the list view re-fetches often.
-      trades: trades.map(({ fills: _fills, currentStops: _stops, ...rest }) => rest),
-    };
-  }
-
-  /**
-   * One trade with everything the chart draws: its fills, the stop tiers
-   * recorded at entry, and the daily bars either side of it.
-   */
-  async getTrade(id: string) {
-    const parsed = parseTradeId(id);
-    if (!parsed) throw new NotFoundException('Unknown trade');
-
-    const trades = await this.deriveAllTrades();
-    const trade = trades.find(
-      (t) =>
-        t.symbol === parsed.symbol &&
-        t.enteredAt.toISOString() === parsed.enteredAt,
-    );
-    // A stale link after the opening transaction was edited lands here. The
-    // trade still exists under a new id; this one no longer identifies it.
-    if (!trade) throw new NotFoundException('Unknown trade');
-
-    const instrument = await this.instruments.findOne({
-      where: { symbol: trade.symbol },
-    });
-    if (!instrument) throw new NotFoundException('Unknown trade');
-
-    const { fromDate, toDate } = windowBounds(trade.enteredAt, trade.exitedAt);
-    const bars = await this.closes.find({
-      where: {
-        instrumentId: instrument.id,
-        date: toDate ? Between(fromDate, toDate) : MoreThanOrEqual(fromDate),
-      },
-      order: { date: 'ASC' },
-    });
-
-    const { fills, currentStops, ...summary } = trade;
-    // Reuses the bars already fetched for the chart window above — that
-    // window is padded ~21 trading days before entry (see windowBounds),
-    // comfortably covering the 20-day lookback this needs. Nulled honestly
-    // by computeRelativeVolumeAtEntry when a holiday-heavy stretch or a thin
-    // backfill leaves fewer bars than that.
-    const { relativeVolume: entryRelativeVolume } = computeRelativeVolumeAtEntry(
-      bars.map((b) => ({ date: b.date, volume: b.volume })),
-      trade.enteredAt.toISOString().slice(0, 10),
-    );
-
-    // A TRAILING level's concrete price needs the high-water mark since
-    // entry (see resolveStopPrice/computeFavorablePrice) — bounded to the
-    // trade's own life, not the padded chart window either side of it, and
-    // including today's live price for a still-open trade (the backfill is
-    // manual, so today's bar may not exist yet).
-    const entryDate = trade.enteredAt.toISOString().slice(0, 10);
-    const exitDate = trade.exitedAt ? trade.exitedAt.toISOString().slice(0, 10) : null;
-    const barsSinceEntry = bars.filter(
-      (b) => b.date >= entryDate && (exitDate === null || b.date <= exitDate),
-    );
-    const currentPriceForTrail = trade.isOpen
-      ? ((await this.marketData.getQuotes([trade.symbol], false)).get(trade.symbol)
-          ?.price ?? null)
-      : null;
-    const highWaterPrice = computeFavorablePrice(
-      barsSinceEntry.map((b) => ({ high: b.high ?? b.close, low: b.low ?? b.close })),
-      trade.direction,
-      currentPriceForTrail,
-    );
-    const hasUnresolvedTrailing = currentStops.some(
-      (l) =>
-        l.kind === 'TRAILING' && l.trailPercent !== null && l.trailPercent > 0,
-    ) && highWaterPrice === null;
-
-    return {
-      trade: { ...summary, entryRelativeVolume },
-      fills,
-      // The chart draws the stop that is live now, not the one at entry —
-      // see DerivedTrade.currentStops. The JSON key stays `stopLevels`,
-      // which is what the frontend chart already expects. Deliberately NOT
-      // capped or cleared here even for a closed trade: this is the chart's
-      // historical record of what was recorded during the trade's life, not
-      // a live risk figure — see `stopPlanStatus` below for that.
-      //
-      // Each level also carries `resolvedPrice` — the concrete price it
-      // currently sits at, for both FIXED and TRAILING (null for a
-      // TRAILING level with no resolvable high-water price) — so the chart
-      // can draw a trailing stop's live line without re-deriving risk.ts's
-      // math itself.
-      stopLevels: currentStops.map((l) => ({
-        ...l,
-        resolvedPrice: resolveStopPrice(l, trade.direction, highWaterPrice),
-      })),
-      // Whether the recorded plan still matches the position RIGHT NOW —
-      // same check the Stops page and At-risk box use (evaluateStopPlan).
-      // Additive, so a closed trade's history above is never altered by it;
-      // this only tells the caller whether that history is still current.
-      stopPlanStatus: evaluateStopPlan({
-        heldQuantity: trade.remainingQuantity,
-        recordedDirection: trade.direction,
-        levels: currentStops,
-        hasUnresolvedTrailing,
-      }),
-      // Volume is surfaced but there is no volume pane in the chart yet —
-      // deliberately out of scope, see the volume/P/E work's plan.
-      bars: bars.map((b) => ({
-        date: b.date,
-        open: b.open,
-        high: b.high,
-        low: b.low,
-        close: b.close,
-        volume: b.volume,
-      })),
-      // The chart says what it actually has rather than implying the window
-      // is complete: the backfill is manual, so bars can end before the trade
-      // does.
-      lastBarDate: bars.at(-1)?.date ?? null,
-    };
-  }
-
-  /**
-   * Appends a new stop revision against the OPENING transaction of the trade
-   * `tradeId` identifies — used when reducing a position prompts the owner
-   * to revise its stop plan without re-editing the journal entry that opened
-   * it (see journal.service.ts's `reviseStopLevels`, the only thing this
-   * calls: it is still the single write path for `stop_levels`, and a
-   * revision, once written, is never edited or deleted).
-   */
-  async reviseTradeStops(tradeId: string, levels: StopLevelSpec[]) {
-    const parsed = parseTradeId(tradeId);
-    if (!parsed) throw new NotFoundException('Unknown trade');
-
-    const user = await this.users.ensureDefaultUser();
-    const instrument = await this.instruments.findOne({
-      where: { symbol: parsed.symbol },
-    });
-    if (!instrument) throw new NotFoundException('Unknown trade');
-
-    // Same matching approach as getTrade(): a trade has no db id of its own,
-    // so its opening transaction is found by exact executedAt match against
-    // the timestamp baked into the trade id.
-    const candidates = await this.txns.find({
-      where: { userId: user.id, instrumentId: instrument.id },
-    });
-    const openingTxn = candidates.find(
-      (t) => t.executedAt.toISOString() === parsed.enteredAt,
-    );
-    if (!openingTxn) throw new NotFoundException('Unknown trade');
-
-    // An empty plan cannot be recorded. `stop_levels` is append-only and a
-    // revision IS its rows, so "no stops" has no representation - writing
-    // zero rows leaves revisionSeq unadvanced and selectCurrentStops keeps
-    // returning the PREVIOUS revision. The save would appear to succeed while
-    // the tier stayed live and stayed priced into the at-risk figure the
-    // owner acts on. Rejecting loudly beats lying quietly; removing every
-    // stop goes through the journal entry, which CLAUDE.md already names as
-    // the one correction path.
-    if (levels.length === 0) {
-      const existing = await this.stopLevels.find({
-        where: { transactionId: openingTxn.id },
-      });
-      if (existing.length > 0) {
-        throw new BadRequestException(
-          'A stop plan cannot be emptied here. Edit the journal entry that opened this trade to remove its stops.',
-        );
-      }
-    }
-
-    await this.journal.reviseStopLevels(openingTxn.id, levels);
-    return this.getTrade(tradeId);
-  }
 }
 
 function round(n: number): number {

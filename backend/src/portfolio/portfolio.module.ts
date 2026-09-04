@@ -10,6 +10,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { PortfolioService } from './portfolio.service.js';
 import { SeedService } from './seed.service.js';
+import { TradesService } from './trades.service.js';
 import { PortfolioController } from './portfolio.controller.js';
 import { InstrumentsModule } from '../instruments/instruments.module.js';
 import { MarketDataModule } from '../market-data/market-data.module.js';
@@ -33,8 +34,8 @@ import { JournalModule } from '../journal/journal.module.js';
     UsersModule,
     JournalModule,
   ],
-  providers: [PortfolioService, SeedService],
+  providers: [PortfolioService, SeedService, TradesService],
   controllers: [PortfolioController],
-  exports: [PortfolioService, SeedService],
+  exports: [PortfolioService, SeedService, TradesService],
 })
 export class PortfolioModule {}

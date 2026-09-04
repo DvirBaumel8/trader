@@ -3,6 +3,7 @@ import { LlmService } from './llm.service.js';
 import { LlmFailure, type LlmClient } from './llm.client.js';
 import type { AiSummaryService } from './ai-summary.service.js';
 import type { PortfolioService } from '../portfolio/portfolio.service.js';
+import type { TradesService } from '../portfolio/trades.service.js';
 import type { PerformanceService } from '../performance/performance.service.js';
 
 function fakePortfolioService(): PortfolioService {
@@ -28,6 +29,16 @@ function fakePortfolioService(): PortfolioService {
       hasStalePrices: false,
       atRisk: { amount: 800, positionsWithoutStop: { count: 0, symbols: [] } },
     }),
+    // Unused by LlmService — present only so the fake satisfies the type.
+  } as unknown as PortfolioService;
+}
+
+/**
+ * The trade-shaped answers moved to TradesService when round trips were split
+ * out of PortfolioService; the fakes follow.
+ */
+function fakeTradesService(): TradesService {
+  return {
     getStats: vi.fn().mockResolvedValue({
       closedCount: 10,
       openCount: 1,
@@ -46,8 +57,7 @@ function fakePortfolioService(): PortfolioService {
     getOpenTradeEntryVolume: vi.fn().mockResolvedValue(
       new Map([['AAPL', 1.8]]),
     ),
-    // Unused by LlmService — present only so the fake satisfies the type.
-  } as unknown as PortfolioService;
+  } as unknown as TradesService;
 }
 
 function fakePerformanceService(): PerformanceService {
@@ -81,7 +91,7 @@ describe('LlmService.portfolioSummary', () => {
     const portfolio = fakePortfolioService();
     const performance = fakePerformanceService();
     const summaries = fakeSummaries();
-    const service = new LlmService(client, portfolio, performance, summaries);
+    const service = new LlmService(client, portfolio, fakeTradesService(), performance, summaries);
 
     const result = await service.portfolioSummary();
 
@@ -118,7 +128,7 @@ describe('LlmService.portfolioSummary', () => {
     const portfolio = fakePortfolioService();
     const performance = fakePerformanceService();
     const summaries = fakeSummaries();
-    const service = new LlmService(client, portfolio, performance, summaries);
+    const service = new LlmService(client, portfolio, fakeTradesService(), performance, summaries);
 
     const result = await service.portfolioSummary();
 
@@ -160,6 +170,7 @@ describe('LlmService.portfolioSummary', () => {
     const service = new LlmService(
       client,
       fakePortfolioService(),
+      fakeTradesService(),
       fakePerformanceService(),
       fakeSummaries(),
     );
@@ -179,7 +190,7 @@ describe('LlmService.portfolioSummary', () => {
     const portfolio = fakePortfolioService();
     const performance = fakePerformanceService();
     const summaries = fakeSummaries();
-    const service = new LlmService(client, portfolio, performance, summaries);
+    const service = new LlmService(client, portfolio, fakeTradesService(), performance, summaries);
 
     const result = await service.portfolioSummary();
 
@@ -212,6 +223,7 @@ describe('LlmService.portfolioSummary', () => {
       const service = new LlmService(
         client,
         fakePortfolioService(),
+        fakeTradesService(),
         fakePerformanceService(),
         fakeSummaries(),
       );
@@ -234,6 +246,7 @@ describe('LlmService.portfolioSummary', () => {
     const service = new LlmService(
       client,
       fakePortfolioService(),
+      fakeTradesService(),
       fakePerformanceService(),
       fakeSummaries(),
     );
@@ -255,6 +268,7 @@ describe('LlmService.portfolioSummary', () => {
     const service = new LlmService(
       client,
       fakePortfolioService(),
+      fakeTradesService(),
       fakePerformanceService(),
       summaries,
     );
@@ -277,6 +291,7 @@ describe('LlmService.portfolioSummary', () => {
     const service = new LlmService(
       client,
       fakePortfolioService(),
+      fakeTradesService(),
       fakePerformanceService(),
       fakeSummaries(),
     );

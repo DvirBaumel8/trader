@@ -22,6 +22,7 @@ import {
 import { Type } from 'class-transformer';
 import { PortfolioService } from './portfolio.service.js';
 import { SeedService } from './seed.service.js';
+import { TradesService } from './trades.service.js';
 import { StopLevelDto } from '../journal/journal.dto.js';
 import { computeRisk } from './risk.js';
 import type { FeePeriod } from './fee-buckets.js';
@@ -84,6 +85,7 @@ export class PortfolioController {
   constructor(
     private readonly portfolio: PortfolioService,
     private readonly seeding: SeedService,
+    private readonly trades: TradesService,
   ) {}
 
   @Get()
@@ -96,7 +98,7 @@ export class PortfolioController {
 
   @Get('stats')
   stats() {
-    return this.portfolio.getStats();
+    return this.trades.getStats();
   }
 
   /**
@@ -105,7 +107,7 @@ export class PortfolioController {
    */
   @Get('trades/:id')
   getTrade(@Param('id') id: string) {
-    return this.portfolio.getTrade(id);
+    return this.trades.getTrade(id);
   }
 
   /**
@@ -116,7 +118,7 @@ export class PortfolioController {
    */
   @Patch('trades/:id/stops')
   reviseStops(@Param('id') id: string, @Body() body: ReviseStopsDto) {
-    return this.portfolio.reviseTradeStops(id, body.levels);
+    return this.trades.reviseTradeStops(id, body.levels);
   }
 
   /**
