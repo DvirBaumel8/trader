@@ -25,7 +25,7 @@
     "test:cov:all": "rm -rf .vitest-reports && vitest run --coverage --reporter=blob --outputFile=.vitest-reports/unit.json && vitest run --config ./vitest.config.e2e.ts --coverage --reporter=blob --outputFile=.vitest-reports/e2e.json && vitest --merge-reports .vitest-reports --coverage"
   },
   "dependencies": {
-    "@google/genai": "^2.20.0",
+    "@google/genai": "^2.21.0",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.0.0",
     "@nestjs/core": "^12.0.1",
@@ -39,7 +39,7 @@
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "typeorm": "^1.1.0",
+    "typeorm": "^1.1.1",
     "yahoo-finance2": "^4.0.2"
   },
   "devDependencies": {
@@ -52,7 +52,7 @@
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.0.0",
     "@vitest/coverage-v8": "^4.1.2",
-    "oxlint": "^1.58.0",
+    "oxlint": "^1.81.0",
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
