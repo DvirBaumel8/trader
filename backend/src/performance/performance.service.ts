@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThanOrEqual, Repository } from 'typeorm';
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
@@ -34,18 +34,33 @@ export class PerformanceService {
 
   async getSeries(range: Range = 'ALL') {
     const user = await this.users.ensureDefaultUser();
-    const [txnRows, flowRows, divRows, instrumentRows, closeRows] =
-      await Promise.all([
-        this.txns.find({ where: { userId: user.id } }),
-        this.flows.find({ where: { userId: user.id } }),
-        this.dividends.find({ where: { userId: user.id } }),
-        this.instruments.find(),
-        this.closes.find(),
-      ]);
+    const [txnRows, flowRows, divRows, instrumentRows] = await Promise.all([
+      this.txns.find({ where: { userId: user.id } }),
+      this.flows.find({ where: { userId: user.id } }),
+      this.dividends.find({ where: { userId: user.id } }),
+      this.instruments.find(),
+    ]);
 
     if (txnRows.length === 0 && flowRows.length === 0) {
       return { range, points: [], deltas: null, unpricedSymbols: [] };
     }
+
+    // The series can never start before the first trade, so neither can the
+    // bars it needs. This used to load `daily_closes` unfiltered — every bar
+    // of every instrument on every dashboard load — which is ~1,200 rows
+    // today and grows by roughly 7,500 a year. Bounding it by date bounds it
+    // on the axis that actually grows.
+    const firstActivity = [
+      ...txnRows.map((t) => t.executedAt),
+      ...flowRows.map((f) => f.occurredAt),
+    ]
+      .sort((a, b) => a.getTime() - b.getTime())[0]
+      ?.toISOString()
+      .slice(0, 10);
+
+    const closeRows = await this.closes.find(
+      firstActivity ? { where: { date: MoreThanOrEqual(firstActivity) } } : {},
+    );
 
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
 
@@ -67,13 +82,6 @@ export class PerformanceService {
     const spy = adjusted.get('SPY') ?? new Map<string, number>();
     let dates = [...spy.keys()].sort();
 
-    const firstActivity = [
-      ...txnRows.map((t) => t.executedAt),
-      ...flowRows.map((f) => f.occurredAt),
-    ]
-      .sort((a, b) => a.getTime() - b.getTime())[0]
-      ?.toISOString()
-      .slice(0, 10);
     if (firstActivity) dates = dates.filter((d) => d >= firstActivity);
     dates = dates.filter((d) => d >= startOf(range, dates));
 

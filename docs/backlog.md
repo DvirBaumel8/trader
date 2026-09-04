@@ -112,7 +112,17 @@ Raised as a block; each needs its own slice.
 - [ ] Break up oversized methods and classes. `portfolio.service.ts` is ~9k
   tokens and the obvious first candidate.
 - [ ] Loosen tight coupling.
-- [ ] Add database indexes where they are needed.
+- [x] Add database indexes where they are needed. **Measured 2026-09-04:
+  none are.** The largest table is `daily_closes` at 1,176 rows / 488 kB; the
+  hot lookup (`instrumentId` + `date >=`) runs in 0.107ms on the existing
+  unique index, and Postgres correctly sequential-scans the rest because at
+  this size that is faster than an index. Adding any today would be
+  cargo-cult. **Re-measure when a table passes roughly 100k rows** — on
+  current growth `daily_closes` reaches that in about a decade, so the
+  trigger is more instruments or intraday bars, not time.
+
+  The measurement did find a real problem, fixed separately: the performance
+  series loaded `daily_closes` unfiltered on every request.
 - [ ] Documentation and `.md` files aimed at agent integration.
 - [ ] Review sync vs async boundaries.
 - [ ] **The frontend is for display. Calculation and business logic belong in
