@@ -137,6 +137,11 @@ export interface ListFilters {
   symbol?: string;
   kind?: EntryKindInput;
   tagId?: string;
+  /** Free text: matches a ticker or anything in the note. */
+  search?: string;
+  /** Inclusive calendar bounds, YYYY-MM-DD. */
+  from?: string;
+  to?: string;
 }
 
 @Injectable()
@@ -297,6 +302,25 @@ export class JournalService {
       }
       if (filters.tagId && !v.tags.some((t) => t.id === filters.tagId)) {
         return false;
+      }
+      // Compared as calendar dates rather than instants, and bounds are
+      // inclusive: "to 2026-09-04" means everything that happened on the 4th,
+      // not everything before midnight starting it. `occurredAt` is stored as
+      // local noon, so its first ten characters are the date he chose.
+      const day = v.occurredAt.slice(0, 10);
+      if (filters.from && day < filters.from) return false;
+      if (filters.to && day > filters.to) return false;
+
+      const needle = filters.search?.trim().toLowerCase();
+      if (needle) {
+        const symbol = (
+          v.trade?.symbol ??
+          v.dividend?.symbol ??
+          ''
+        ).toLowerCase();
+        if (!symbol.includes(needle) && !v.body.toLowerCase().includes(needle)) {
+          return false;
+        }
       }
       return true;
     });

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { useDebounced } from './useDebounced';
 import type { StopRow } from './stopRow';
 
 export interface StopRisk {
@@ -66,20 +66,6 @@ function toRequest(
     direction: side === 'BUY' ? 'LONG' : 'SHORT',
     levels,
   };
-}
-
-/**
- * Waits for a pause in typing before asking. Without it every keystroke is a
- * request, and the figure flickers through the values of a half-typed number
- * — "9", "95", "950" — which is worse than showing nothing.
- */
-function useDebounced<T>(value: T, ms: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return settled;
 }
 
 const DEBOUNCE_MS = 250;

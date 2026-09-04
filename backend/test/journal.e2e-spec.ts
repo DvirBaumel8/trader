@@ -874,4 +874,42 @@ describe('Journal (e2e)', () => {
     expect(portfolio.body.positions).toEqual([]);
     expect(portfolio.body.cash).toBe(0);
   });
+  it('filters by search text and an inclusive date range, server-side', async () => {
+    const trade = async (symbol: string, day: string, body: string) =>
+      http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body,
+          occurredAt: `${day}T12:00:00.000Z`,
+          trade: { symbol, quantity: 1, price: 10, fee: 0 },
+        })
+        .expect(201);
+
+    await trade('NVDA', '2026-03-01', 'breakout entry');
+    await trade('AAPL', '2026-05-10', 'pullback buy');
+
+    // Matches a ticker...
+    const bySymbol = await http(app, token).get('/journal?search=nvd').expect(200);
+    expect(bySymbol.body.map((e: { trade: { symbol: string } }) => e.trade.symbol)).toEqual([
+      'NVDA',
+    ]);
+
+    // ...and anything in the note.
+    const byBody = await http(app, token).get('/journal?search=pullback').expect(200);
+    expect(byBody.body).toHaveLength(1);
+    expect(byBody.body[0].trade.symbol).toBe('AAPL');
+
+    // Bounds include their own day: "to 2026-03-01" keeps the 1st.
+    const ranged = await http(app, token)
+      .get('/journal?from=2026-03-01&to=2026-03-01')
+      .expect(200);
+    expect(ranged.body).toHaveLength(1);
+    expect(ranged.body[0].trade.symbol).toBe('NVDA');
+
+    const none = await http(app, token)
+      .get('/journal?from=2026-06-01&to=2026-06-30')
+      .expect(200);
+    expect(none.body).toEqual([]);
+  });
 });

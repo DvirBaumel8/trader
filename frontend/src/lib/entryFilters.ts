@@ -40,19 +40,6 @@ export interface FilterableEntry {
   dividend: { symbol: string } | null;
 }
 
-export function filterEntries<T extends FilterableEntry>(
-  entries: T[],
-  f: Filters,
-): T[] {
-  const needle = f.search.trim().toLowerCase();
-  return entries.filter((e) => {
-    if (!withinRange(e.occurredAt, f.from, f.to)) return false;
-    if (needle === '') return true;
-    const symbol = (e.trade?.symbol ?? e.dividend?.symbol ?? '').toLowerCase();
-    return symbol.includes(needle) || e.body.toLowerCase().includes(needle);
-  });
-}
-
 export type EntrySort = 'NEWEST' | 'OLDEST' | 'LARGEST' | 'SMALLEST';
 
 export interface SortableEntry extends FilterableEntry {
@@ -129,4 +116,20 @@ export function sortTrades<T extends FilterableTrade>(
     case 'SMALLEST':
       return copy.sort((a, b) => pnl(a) - pnl(b));
   }
+}
+
+/**
+ * Filters as query-string parameters for `GET /journal`.
+ *
+ * Selecting which entries match is the server's job — this only says what was
+ * asked for. Empty fields are omitted rather than sent blank, so the query key
+ * for an unfiltered list is stable and cache-shared with other callers.
+ */
+export function journalQuery(f: Filters): string {
+  const params = new URLSearchParams({ kind: 'TRADE' });
+  const search = f.search.trim();
+  if (search) params.set('search', search);
+  if (f.from) params.set('from', f.from);
+  if (f.to) params.set('to', f.to);
+  return params.toString();
 }

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   emptyFilters,
   entryValue,
-  filterEntries,
   filterTrades,
   hasActiveFilters,
   sortEntries,
@@ -38,81 +37,6 @@ describe('hasActiveFilters', () => {
   });
   it('is true with a date bound', () => {
     expect(hasActiveFilters({ ...emptyFilters, from: '2026-08-01' })).toBe(true);
-  });
-});
-
-describe('filterEntries', () => {
-  const entries = [
-    buy('NVDA', 10, 200, '10'),
-    buy('AAPL', 5, 300, '20'),
-    entry({
-      occurredAt: '2026-08-25T14:30:00.000Z',
-      body: 'took profit into strength',
-      trade: { symbol: 'PLTR', quantity: 1, price: 100 },
-    }),
-  ];
-
-  it('returns everything with empty filters', () => {
-    expect(filterEntries(entries, emptyFilters)).toHaveLength(3);
-  });
-
-  it('matches a ticker, case-insensitively', () => {
-    const r = filterEntries(entries, { ...emptyFilters, search: 'nvda' });
-    expect(r).toHaveLength(1);
-    expect(r[0].trade?.symbol).toBe('NVDA');
-  });
-
-  it('matches a partial ticker', () => {
-    expect(filterEntries(entries, { ...emptyFilters, search: 'AAP' })).toHaveLength(1);
-  });
-
-  it('matches note text as well as tickers', () => {
-    const r = filterEntries(entries, { ...emptyFilters, search: 'profit' });
-    expect(r).toHaveLength(1);
-    expect(r[0].trade?.symbol).toBe('PLTR');
-  });
-
-  it('filters from a date inclusively', () => {
-    expect(
-      filterEntries(entries, { ...emptyFilters, from: '2026-08-20' }),
-    ).toHaveLength(2);
-  });
-
-  it('filters to a date inclusively', () => {
-    // The 20th itself must be included, or "up to the 20th" loses a day.
-    expect(
-      filterEntries(entries, { ...emptyFilters, to: '2026-08-20' }),
-    ).toHaveLength(2);
-  });
-
-  it('applies both bounds together', () => {
-    const r = filterEntries(entries, {
-      ...emptyFilters,
-      from: '2026-08-20',
-      to: '2026-08-20',
-    });
-    expect(r).toHaveLength(1);
-    expect(r[0].trade?.symbol).toBe('AAPL');
-  });
-
-  it('combines search with a date range', () => {
-    expect(
-      filterEntries(entries, {
-        search: 'NVDA',
-        from: '2026-08-20',
-        to: '',
-      }),
-    ).toHaveLength(0);
-  });
-
-  it('matches a dividend by its ticker', () => {
-    const divs = [
-      entry({
-        occurredAt: '2026-08-11T14:30:00.000Z',
-        dividend: { symbol: 'AAPL', amount: 120 },
-      }),
-    ];
-    expect(filterEntries(divs, { ...emptyFilters, search: 'aapl' })).toHaveLength(1);
   });
 });
 

@@ -12,12 +12,14 @@ import type { FeesResponse, Period } from '../lib/feeTypes';
 import { FilterBar, type SortValue } from '../components/FilterBar';
 import {
   emptyFilters,
-  filterEntries,
   filterTrades,
+  hasActiveFilters,
+  journalQuery,
   sortEntries,
   sortTrades,
   type Filters,
 } from '../lib/entryFilters';
+import { useDebounced } from '../lib/useDebounced';
 
 function PencilIcon() {
   return (
@@ -159,18 +161,33 @@ function ActivitiesTab({
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [sort, setSort] = useState<SortValue>('NEWEST');
 
+  // The server does the selecting; this waits for a pause in typing so a
+  // search is one request rather than one per keystroke.
+  const settled = useDebounced(filters);
+  const active = hasActiveFilters(settled);
+
   const { data, isLoading } = useQuery({
-    queryKey: ['journal', 'TRADE'],
+    queryKey: ['journal', 'TRADE', settled],
+    queryFn: () => api<Entry[]>(`/journal?${journalQuery(settled)}`),
+    placeholderData: keepPreviousData,
+  });
+
+  // Only when filtering, and only to say "12 of 40" — the unfiltered list is
+  // otherwise exactly the list above, so asking twice would be waste.
+  const { data: allData } = useQuery({
+    queryKey: ['journal', 'TRADE', emptyFilters],
     queryFn: () => api<Entry[]>('/journal?kind=TRADE'),
+    enabled: active,
   });
 
   if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
   const entries = data ?? [];
-  if (entries.length === 0) {
+  if (entries.length === 0 && !active) {
     return <p className="text-sm text-muted">No buys or sells logged yet.</p>;
   }
 
-  const shown = sortEntries(filterEntries(entries, filters), sort);
+  const totalCount = active ? (allData?.length ?? entries.length) : entries.length;
+  const shown = sortEntries(entries, sort);
   const byId = new Map(shown.map((e) => [e.id, e]));
   // Day headings only make sense while the list is in date order. Sorted by
   // money, they would break the list into meaningless one-row groups.
@@ -191,7 +208,7 @@ function ActivitiesTab({
         sort={sort}
         onSortChange={setSort}
         resultCount={shown.length}
-        totalCount={entries.length}
+        totalCount={totalCount}
       />
       {shown.length === 0 ? (
         <p className="text-sm text-muted">Nothing matches those filters.</p>

@@ -51,8 +51,11 @@ export class JournalController {
     @Query('symbol') symbol?: string,
     @Query('kind') kind?: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND',
     @Query('tagId') tagId?: string,
+    @Query('search') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    return this.journal.list({ symbol, kind, tagId });
+    return this.journal.list({ symbol, kind, tagId, search, from, to });
   }
 
   @Post()
