@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { backfillIndexForPrice, indexForDate, type Bar } from './candleScale';
+import {
+  backfillIndexForPrice,
+  indexForDate,
+  placementFor,
+  type Bar,
+} from './candleScale';
 
 describe('indexForDate', () => {
   const window: Bar[] = [
@@ -61,5 +66,33 @@ describe('backfillIndexForPrice', () => {
     // the function itself is agnostic: searching from index 0 has no
     // earlier bars to search at all.
     expect(backfillIndexForPrice(bars, 0, 13.3)).toBe(-1);
+  });
+});
+
+describe('placementFor', () => {
+  const bars: Bar[] = [
+    { date: '2026-09-02', open: 578, high: 600.38, low: 577, close: 592 },
+    { date: '2026-09-04', open: 612, high: 616, low: 605, close: 605 },
+  ];
+
+  it('is exact when the fill has a bar of its own', () => {
+    expect(placementFor(bars, '2026-09-02T09:00:00.000Z')).toBe('exact');
+  });
+
+  it('calls a gap inside the window a non-trading day', () => {
+    // 2026-09-03 sits between two bars we hold, so the market was shut.
+    expect(placementFor(bars, '2026-09-03T09:00:00.000Z')).toBe('non-trading-day');
+  });
+
+  it('calls a fill newer than the last bar a data gap, not a holiday', () => {
+    // The real case: bars ended 2026-09-02 while the market had traded on the
+    // 3rd, so a fill at $612.73 was drawn on a candle topping out at $600.38.
+    expect(placementFor(bars, '2026-09-05T09:00:00.000Z')).toBe('beyond-data');
+  });
+
+  it('treats a fill older than every bar as a non-trading day', () => {
+    // Nothing to fetch — it predates the window, which snapping already
+    // handles by falling back to the first bar.
+    expect(placementFor(bars, '2026-08-01T09:00:00.000Z')).toBe('non-trading-day');
   });
 });

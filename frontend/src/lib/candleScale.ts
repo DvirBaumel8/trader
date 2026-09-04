@@ -71,3 +71,26 @@ export function backfillIndexForPrice(
   }
   return -1;
 }
+
+/**
+ * Why a fill did not land on a bar of its own date.
+ *
+ * `non-trading-day` is the legitimate case the snapping exists for: a
+ * weekend or holiday fill, drawn on the session that was open at the time.
+ *
+ * `beyond-data` is a different thing wearing the same shape — the fill is
+ * newer than the newest bar held, so the market DID trade and the bar simply
+ * has not been fetched. Snapping backward then draws the marker on an older
+ * candle at a price that day never reached: a Sep 3 fill at $612.73 landed on
+ * Sep 2, whose high was $600.38, which reads as the chart showing wrong
+ * prices. Naming it separately keeps the explanation truthful, and points at
+ * stale market data rather than at a trade recorded on a Sunday.
+ */
+export type FillPlacement = 'exact' | 'non-trading-day' | 'beyond-data';
+
+export function placementFor(bars: Bar[], fillIso: string): FillPlacement {
+  const day = fillIso.slice(0, 10);
+  if (bars.some((b) => b.date === day)) return 'exact';
+  const last = bars.at(-1)?.date;
+  return last !== undefined && day > last ? 'beyond-data' : 'non-trading-day';
+}

@@ -16,6 +16,7 @@ import {
 import {
   backfillIndexForPrice,
   indexForDate,
+  placementFor,
   type Bar,
 } from '../lib/candleScale';
 import { replayFrame } from '../lib/tradeReplay';
@@ -134,7 +135,11 @@ function placeFills(bars: Bar[], fills: Fill[]) {
         }
       }
 
-      return { fill: f, bar, markerBar, snapped, outOfRange, relocated };
+      // Why it did not land on its own day — see placementFor. A fill newer
+      // than the newest bar is a data gap, not a weekend.
+      const beyondData = placementFor(candleBars, f.executedAt) === 'beyond-data';
+
+      return { fill: f, bar, markerBar, snapped, beyondData, outOfRange, relocated };
     })
     .filter((p): p is NonNullable<typeof p> => p !== null);
   return { candleBars, placed };
@@ -161,7 +166,12 @@ export function TradeChart({
   // chart doesn't get rebuilt every render just because this derivation
   // produced a fresh array reference.
   const { candleBars, placed: placedFills } = placeFills(bars, fills);
-  const snappedCount = placedFills.filter((p) => p.snapped).length;
+  const beyondDataCount = placedFills.filter((p) => p.beyondData).length;
+  // Genuine non-trading-day fills only; the rest are a data gap, said
+  // separately below.
+  const snappedCount = placedFills.filter(
+    (p) => p.snapped && !p.beyondData,
+  ).length;
   const anyOutOfRange = placedFills.some((p) => p.outOfRange);
   const anyRelocated = placedFills.some((p) => p.relocated);
   const totalBars = candleBars.length;
@@ -500,6 +510,14 @@ export function TradeChart({
           {snappedCount === 1
             ? '1 fill fell on a non-trading day and is shown on the nearest session.'
             : `${snappedCount} fills fell on non-trading days and are shown on the nearest session.`}
+        </p>
+      )}
+      {beyondDataCount > 0 && (
+        <p className="text-[11px] text-down">
+          {beyondDataCount === 1
+            ? 'One fill is newer than the latest price bar, so its marker sits on the last day with data.'
+            : `${beyondDataCount} fills are newer than the latest price bar, so their markers sit on the last day with data.`}{' '}
+          The chart catches up once the bars refresh.
         </p>
       )}
       {anyOutOfRange && (
