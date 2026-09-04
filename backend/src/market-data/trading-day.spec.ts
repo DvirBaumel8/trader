@@ -49,6 +49,18 @@ describe('isHistoryBehind', () => {
     expect(isHistoryBehind(null, at('2026-09-04T14:30:00Z'))).toBe(true);
   });
 
+  it('handles a Date, which is what the database driver actually returns', () => {
+    // The bug that made the first version of this a no-op: node-postgres
+    // parses DATE columns into JS dates, so a raw MAX(date) is not a string.
+    // Compared as strings that reads "Wed Sep 02 2026…" < "2026-09-04",
+    // which is false, so the history never refreshed.
+    const stored = new Date('2026-09-02T04:00:00Z'); // midnight in New York
+    expect(isHistoryBehind(stored, at('2026-09-04T14:30:00Z'))).toBe(true);
+    expect(
+      isHistoryBehind(new Date('2026-09-04T04:00:00Z'), at('2026-09-04T14:30:00Z')),
+    ).toBe(false);
+  });
+
   it('is not behind on a Sunday holding Friday data', () => {
     expect(isHistoryBehind('2026-09-04', at('2026-09-06T16:00:00Z'))).toBe(false);
   });

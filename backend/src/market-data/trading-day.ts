@@ -60,8 +60,22 @@ export function lastExpectedSession(now: Date): string {
   return date;
 }
 
-/** True when the newest stored bar is older than the last expected session. */
-export function isHistoryBehind(latestStored: string | null, now: Date): boolean {
+/**
+ * True when the newest stored bar is older than the last expected session.
+ *
+ * Accepts a `Date` as well as a string, and that is not politeness: the first
+ * version of this took a string, and a raw `MAX(date)` query handed it a
+ * `Date`, because node-postgres parses DATE columns into JS dates. The
+ * comparison then read `"Wed Sep 02 2026…" < "2026-09-04"` — always false, so
+ * the history silently never refreshed and the bug this was written to fix
+ * stayed fixed only in the tests.
+ */
+export function isHistoryBehind(
+  latestStored: string | Date | null,
+  now: Date,
+): boolean {
   if (latestStored === null) return true;
-  return latestStored < lastExpectedSession(now);
+  const latest =
+    latestStored instanceof Date ? marketDate(latestStored) : latestStored;
+  return latest < lastExpectedSession(now);
 }

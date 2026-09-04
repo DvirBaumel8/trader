@@ -146,12 +146,16 @@ export class HistoryService {
     if (now.getTime() - this.lastFreshenAt < FRESHEN_INTERVAL_MS) return;
 
     try {
-      const latest = (await this.closes
-        .createQueryBuilder('c')
-        .select('MAX(c.date)', 'max')
-        .getRawOne<{ max: string | null }>()) ?? { max: null };
+      // Read through the entity rather than a raw MAX(): TypeORM maps a
+      // `date` column back to a YYYY-MM-DD string, where a raw query hands
+      // back whatever node-postgres parsed it into (a JS Date), which is how
+      // this check silently became a no-op the first time.
+      const [newest] = await this.closes.find({
+        order: { date: 'DESC' },
+        take: 1,
+      });
 
-      if (!isHistoryBehind(latest.max, now)) {
+      if (!isHistoryBehind(newest?.date ?? null, now)) {
         // Up to date: hold the debounce so a quiet market is not re-checked
         // on every single request.
         this.lastFreshenAt = now.getTime();
