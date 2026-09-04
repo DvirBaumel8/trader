@@ -45,6 +45,23 @@ export function buildTradeIdeaPrompt(
     `- History available: ${i.barsAvailable} daily bars`,
   ];
 
+  // How it has actually traded, not just where it sits. "Up 8% today off the
+  // low" and "flat all week" are different trades at the same distance from
+  // the 20-day average, and the indicators above cannot tell them apart.
+  const a = facts.priceAction;
+  if (a) {
+    lines.push(
+      `- Today (${a.today.date}): ${pct(a.today.changePercent)} vs the previous close, open ${level(a.today.open)}, high ${level(a.today.high)}, low ${level(a.today.low)}`,
+      `- Past ${a.week.sessions} sessions: ${pct(a.week.changePercent)}, ranging ${level(a.week.low)} to ${level(a.week.high)}`,
+      '',
+      'Last 10 sessions (oldest first) — date, open, high, low, close, volume:',
+      ...a.recent.map(
+        (b) =>
+          `  ${b.date}  ${level(b.open)}  ${level(b.high)}  ${level(b.low)}  ${price(b.close)}  ${b.volume === null ? 'n/a' : b.volume.toLocaleString('en-US')}`,
+      ),
+    );
+  }
+
   if (usualRisk !== null) {
     lines.push(
       `- For context, my average risk per trade across my own closed history is ${price(usualRisk)}. Do NOT size the position — the app does that from your stop.`,
