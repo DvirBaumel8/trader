@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { EntryCard, type Entry } from '../components/EntryCard';
 import { TradeCard, type Trade } from '../components/TradeCard';
@@ -8,7 +8,7 @@ import { StatsHeader } from '../components/StatsHeader';
 import { EntrySheet } from '../components/EntrySheet';
 import { loadUiState, saveUiState } from '../lib/uiState';
 import { FeesChart } from '../components/FeesChart';
-import { bucketFees, totalFees, type Period } from '../lib/feeBuckets';
+import type { FeesResponse, Period } from '../lib/feeTypes';
 import { FilterBar, type SortValue } from '../components/FilterBar';
 import {
   emptyFilters,
@@ -291,22 +291,22 @@ function BalanceTab({
 function FeesTab() {
   const [period, setPeriod] = useState<Period>('MONTH');
 
-  // Reuses the Activities query, so switching tabs costs no extra request.
+  // The backend buckets and totals; this only draws the result. It used to
+  // fetch every trade entry and aggregate them here — see invariant 5.
   const { data, isLoading } = useQuery({
-    queryKey: ['journal', 'TRADE'],
-    queryFn: () => api<Entry[]>('/journal?kind=TRADE'),
+    queryKey: ['portfolio', 'fees', period],
+    queryFn: () => api<FeesResponse>(`/portfolio/fees?period=${period}`),
+    // Changing period changes the key; without this the chart empties for a
+    // frame before redrawing, the same flash the benchmark chart had.
+    placeholderData: keepPreviousData,
   });
 
   if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
 
-  const events = (data ?? [])
-    .filter((e) => e.trade !== null)
-    .map((e) => ({ occurredAt: e.occurredAt, fee: e.trade!.fee }));
-
   return (
     <FeesChart
-      buckets={bucketFees(events, period)}
-      total={totalFees(events)}
+      buckets={data?.buckets ?? []}
+      total={data?.total ?? 0}
       period={period}
       onPeriodChange={setPeriod}
     />

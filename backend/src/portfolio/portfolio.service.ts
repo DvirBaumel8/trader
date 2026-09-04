@@ -43,6 +43,7 @@ import {
 } from './risk.js';
 import { computeRelativeVolumeAtEntry } from './relative-volume.js';
 import { computeStopDistances } from './stop-distance.js';
+import { bucketFees, totalFees, type FeePeriod } from './fee-buckets.js';
 import type { StopLevelSpec } from '../journal/journal.service.js';
 
 export interface SeedHolding {
@@ -556,6 +557,31 @@ export class PortfolioService {
     );
 
     return out;
+  }
+
+  /**
+   * Fees grouped into periods, for the journal's fees tab.
+   *
+   * Read from `transactions` rather than from journal entries: a fee is
+   * charged on a fill, and transactions are the record of fills. The frontend
+   * used to fetch every trade entry and total them itself.
+   */
+  async getFees(period: FeePeriod) {
+    const user = await this.users.ensureDefaultUser();
+    const rows = await this.txns.find({
+      where: { userId: user.id },
+      select: { executedAt: true, fee: true },
+    });
+    const events = rows.map((t) => ({ occurredAt: t.executedAt, fee: t.fee }));
+
+    return {
+      period,
+      buckets: bucketFees(events, period),
+      // The total is over EVERY fee ever paid, not just the buckets shown:
+      // the window is a display limit, and a "total fees" that silently
+      // excluded older trades would be wrong rather than merely partial.
+      total: totalFees(events),
+    };
   }
 
   async getStats() {

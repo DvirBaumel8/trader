@@ -23,6 +23,7 @@ import { Type } from 'class-transformer';
 import { PortfolioService } from './portfolio.service.js';
 import { StopLevelDto } from '../journal/journal.dto.js';
 import { computeRisk } from './risk.js';
+import type { FeePeriod } from './fee-buckets.js';
 
 /** A plan being typed, not one being saved — see the `stop-risk` route. */
 class StopRiskDto {
@@ -141,6 +142,15 @@ export class PortfolioController {
         quantity: l.quantity,
       })),
     });
+  }
+
+  @Get('fees')
+  fees(@Query('period') period?: string) {
+    const allowed: FeePeriod[] = ['DAY', 'WEEK', 'MONTH', 'YEAR'];
+    const chosen = allowed.includes(period as FeePeriod)
+      ? (period as FeePeriod)
+      : 'MONTH';
+    return this.portfolio.getFees(chosen);
   }
 
   @Get('status')

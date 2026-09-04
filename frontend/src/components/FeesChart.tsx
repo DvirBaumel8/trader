@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Money } from './Money';
 import { formatMoney } from './format';
-import type { Bucket, Period } from '../lib/feeBuckets';
+import type { Bucket, Period } from '../lib/feeTypes';
 
 /**
  * Bar colour, chosen by running the palette validator against the dark chart

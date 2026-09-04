@@ -423,6 +423,26 @@ describe('Portfolio (e2e)', () => {
       .expect(400);
   });
 
+  it('buckets fees server-side, defaulting an unknown period to months', async () => {
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'entry',
+        occurredAt: '2026-01-05T12:00:00.000Z',
+        trade: { symbol: 'NVDA', quantity: 10, price: 100, fee: 7 },
+      })
+      .expect(201);
+
+    const res = await http(app, token).get('/portfolio/fees?period=MONTH').expect(200);
+    expect(res.body.total).toBeCloseTo(7, 6);
+    expect(res.body.buckets).toEqual([{ key: '2026-01', label: 'Jan', total: 7 }]);
+
+    // A junk period must not 500 or return an empty chart.
+    const fallback = await http(app, token).get('/portfolio/fees?period=DECADE').expect(200);
+    expect(fallback.body.period).toBe('MONTH');
+  });
+
   describe('stop-risk', () => {
     // The stop editor's live figure. Stateless and writes nothing: it prices
     // a plan the owner is still typing, which may never be saved. It exists
