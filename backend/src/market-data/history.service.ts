@@ -20,6 +20,13 @@ const FRESHEN_INTERVAL_MS = 10 * 60 * 1000;
 /** Days of overlap re-fetched, so a revised recent bar is corrected. */
 const OVERLAP_DAYS = 7;
 
+/**
+ * How long a read may wait for the top-up before giving up on it. A stale
+ * price for one more request is a far smaller problem than a dashboard that
+ * hangs, and the work continues regardless.
+ */
+const FRESHEN_BUDGET_MS = 1500;
+
 @Injectable()
 export class HistoryService {
   private readonly log = new Logger(HistoryService.name);
@@ -173,9 +180,25 @@ export class HistoryService {
       from.setDate(from.getDate() - OVERLAP_DAYS);
 
       const instrumentRows = await this.instruments.find();
-      for (const instrument of instrumentRows) {
-        await this.fetchAndStore(instrument, instrument.symbol, from);
-      }
+
+      // Fetched in parallel, and never allowed to hold up the response.
+      // Sequentially this took four seconds against thirty instruments —
+      // on the portfolio read path, which meant the dashboard simply hung
+      // every time the history had fallen behind.
+      const work = Promise.all(
+        instrumentRows.map((instrument) =>
+          this.fetchAndStore(instrument, instrument.symbol, from),
+        ),
+      );
+
+      // Whatever has not finished by the deadline keeps writing in the
+      // background; the request stops waiting for it. Bars are upserted
+      // per (instrument, date), so a partial refresh is not a broken one —
+      // it is simply a smaller one, finished by the next call.
+      await Promise.race([
+        work,
+        new Promise((resolve) => setTimeout(resolve, FRESHEN_BUDGET_MS)),
+      ]);
     } catch (err) {
       this.log.warn(`could not refresh daily history: ${String(err)}`);
     }
