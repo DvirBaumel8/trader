@@ -439,6 +439,7 @@ export function Journal() {
         onClose={close}
         defaultFee={settings?.defaultFee ?? 4}
         editing={editing}
+        resuming={restored.current?.composing ?? false}
       />
     </div>
   );

@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EntrySheet } from './EntrySheet';
 import type { Entry } from './EntryCard';
 import { stubLocalStorage } from '../test/memoryLocalStorage';
+import { emptyDraft } from '../lib/entryDraft';
 
 vi.mock('../api/client', () => ({
   api: vi.fn(),
@@ -79,5 +80,49 @@ describe('EntrySheet, composing two new entries in a row', () => {
 
     expect(symbol2).toHaveValue('');
     expect(screen.getByPlaceholderText('qty')).toHaveValue(null);
+  });
+
+  it('is blank on a new entry even when a draft was abandoned, not saved', async () => {
+    // The owner's rule, in his words: a new activity screen is empty ALWAYS —
+    // not empty once a timer expires. Abandoning a half-typed entry and
+    // opening a new one must not bring the old text back, however recently it
+    // was typed.
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'TSLA');
+
+    // Dismiss without saving.
+    await user.click(screen.getByLabelText('Close'));
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText('NVDA')).not.toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByText('New entry'));
+    expect(await screen.findByPlaceholderText('NVDA')).toHaveValue('');
+  });
+
+  it('brings the draft back when the app was discarded mid-entry', async () => {
+    // The exception, and the reason the draft exists at all: iOS reclaiming
+    // the tab is the same form returning, not a new one being opened. Without
+    // this, switching to the broker app to read a fill loses what was typed.
+    window.localStorage.setItem(
+      'trader.entryDraft.v1',
+      JSON.stringify({
+        v: { ...emptyDraft(4), symbol: 'MSTR', quantity: '25' },
+        savedAt: Date.now(),
+      }),
+    );
+
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <EntrySheet open onClose={() => {}} defaultFee={4} editing={null} resuming />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByPlaceholderText('NVDA')).toHaveValue('MSTR');
+    expect(screen.getByPlaceholderText('qty')).toHaveValue(25);
   });
 });
