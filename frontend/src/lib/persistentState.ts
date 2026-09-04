@@ -29,6 +29,17 @@ interface Envelope<T> {
   savedAt: number;
 }
 
+export function readPersisted<T>(
+  key: string,
+  ttlMs: number = RESTORE_WINDOW_MS,
+): T | undefined {
+  return read<T>(key, ttlMs, Date.now());
+}
+
+export function writePersisted<T>(key: string, value: T): void {
+  write(key, value);
+}
+
 function read<T>(key: string, ttlMs: number, now: number): T | undefined {
   try {
     const raw = window.localStorage.getItem(key);

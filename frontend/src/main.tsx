@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { RestoreLocation } from './components/RestoreLocation';
+import { RestoreScroll } from './components/RestoreScroll';
 import { Dashboard } from './routes/Dashboard';
 import { Stops } from './routes/Stops';
 import { TickerProbe } from './routes/TickerProbe';
@@ -21,6 +22,7 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <RestoreLocation />
+        <RestoreScroll />
         <Routes>
           <Route path="login" element={<Login />} />
           <Route element={<AppShell />}>

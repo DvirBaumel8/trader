@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { clearDraft, loadDraft, saveDraft } from '../lib/draftStorage';
+import { clearDraft } from '../lib/draftStorage';
+import { readPersisted, writePersisted } from '../lib/persistentState';
 import {
   dateToIso,
   emptyDraft,
@@ -67,8 +68,12 @@ export function EntrySheet({
   defaultFee: number;
   editing?: Entry | null;
 }) {
-  const [draft, setDraft] = useState<EntryDraft>(() =>
-    loadDraft(DRAFT_KEY, emptyDraft(defaultFee)),
+  // The draft expires. Its purpose is surviving a switch to the broker app,
+  // not outliving the session: without a window, an abandoned draft was
+  // restored forever and every "new entry" opened pre-populated with
+  // something typed days ago.
+  const [draft, setDraft] = useState<EntryDraft>(
+    () => readPersisted<EntryDraft>(DRAFT_KEY) ?? emptyDraft(defaultFee),
   );
   const queryClient = useQueryClient();
 
@@ -87,7 +92,7 @@ export function EntrySheet({
   }, [open, editing, defaultFee]);
 
   useEffect(() => {
-    if (!editing) saveDraft(DRAFT_KEY, draft);
+    if (!editing) writePersisted(DRAFT_KEY, draft);
   }, [draft, editing]);
 
   const set = (patch: Partial<EntryDraft>) =>
