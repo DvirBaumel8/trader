@@ -18,6 +18,7 @@ import {
 import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { AiSummary } from '../components/AiSummary';
 import { SessionBadge } from '../components/SessionBadge';
+import { RefreshButton } from '../components/RefreshButton';
 import {
   BenchmarkChart,
   RANGES,
@@ -265,12 +266,9 @@ export function Dashboard() {
   const [sort, setSort] = useState<SortPref>(() =>
     loadDraft(SORT_KEY, defaultSort),
   );
-  const [refreshing, setRefreshing] = useState(false);
   const [range, setRange] = useState<Range>(() =>
     sanitizeRange(loadDraft(RANGE_KEY, { range: DEFAULT_RANGE }).range),
   );
-  const queryClient = useQueryClient();
-
   const { data: performance } = useQuery({
     queryKey: ['performance', range],
     queryFn: () => api<Performance>(`/performance?range=${range}`),
@@ -291,22 +289,6 @@ export function Dashboard() {
   const changeSort = (s: SortPref) => {
     setSort(s);
     saveDraft(SORT_KEY, s);
-  };
-
-  /**
-   * Forces the server past its 60s quote cache. Without `refresh=1` this would
-   * re-serve the same numbers and look like a broken button.
-   */
-  const refreshNow = async () => {
-    setRefreshing(true);
-    try {
-      const fresh = await api<Portfolio>('/portfolio?refresh=1');
-      queryClient.setQueryData(['portfolio'], fresh);
-    } catch {
-      // Leave the existing numbers on screen; the stale markers already warn.
-    } finally {
-      setRefreshing(false);
-    }
   };
 
   if (isLoading) {
@@ -358,17 +340,7 @@ export function Dashboard() {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={refreshNow}
-            disabled={refreshing}
-            aria-label="Refresh prices now"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-surface-1 text-base text-muted active:bg-surface-2 disabled:opacity-50"
-          >
-            <span className={refreshing ? 'inline-block animate-spin' : ''}>
-              ↻
-            </span>
-          </button>
+          <RefreshButton />
         </div>
       </section>
 

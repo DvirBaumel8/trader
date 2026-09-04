@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import { Money } from '../components/Money';
 import { formatQuantity } from '../components/format';
 import { SessionBadge } from '../components/SessionBadge';
+import { RefreshButton } from '../components/RefreshButton';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { sortStopTiers, type StopSortDir } from '../lib/sortStopTiers';
 
@@ -300,33 +301,61 @@ export function Stops() {
 
   return (
     <div className="space-y-6">
-      <section>
-        <div className="flex items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-muted">Stops</span>
-          {/*
-            Said once, here. Every row carried the same session badge, which
-            turned a fact about the market into visual noise repeated twenty
-            times. Staleness stays per row: that one genuinely differs by
-            symbol, and a stale price must never pass for a fresh one.
-          */}
-          {sessionForPage && (
-            <SessionBadge
-              session={sessionForPage.session}
-              extended={sessionForPage.extended}
-            />
-          )}
+      <section className="space-y-3">
+        {/*
+          A header row, then the headline number, then the supporting figures
+          as tiles — the same shape the Portfolio tab already uses for Cash and
+          Deployed. Previously this was a label, a large number and a run-on
+          sentence carrying two unrelated figures, which read as a caption
+          rather than as a summary.
+        */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs tracking-wide text-muted uppercase">
+                Stops
+              </span>
+              {/*
+                Said once, here. Every row carried the same session badge,
+                which turned a fact about the market into noise repeated
+                twenty times. Staleness stays per row: that one genuinely
+                differs by symbol, and a stale price must never pass for a
+                fresh one.
+              */}
+              {sessionForPage && (
+                <SessionBadge
+                  session={sessionForPage.session}
+                  extended={sessionForPage.extended}
+                />
+              )}
+            </div>
+            <div className="mt-1 text-4xl font-semibold">
+              <Money value={data.atRisk.amount} />
+            </div>
+            <div className="mt-1 text-sm text-muted">
+              at risk from current stops
+            </div>
+          </div>
+          <RefreshButton label="Refresh stop prices now" />
         </div>
-        <div className="mt-1 text-4xl font-semibold">
-          <Money value={data.atRisk.amount} />
-        </div>
-        <div className="mt-1 text-sm text-muted">
-          at risk from current stops
-          {avgRiskPerPosition !== null && (
-            <>
-              {' · '}
-              <Money value={avgRiskPerPosition} /> average per position
-            </>
-          )}
+
+        <div className="flex flex-wrap gap-3">
+          <div className="min-w-[140px] flex-1 rounded-xl border border-border bg-surface-1 p-3">
+            <div className="text-xs text-muted">Average per position</div>
+            <div className="mt-0.5 text-lg font-medium">
+              <Money value={avgRiskPerPosition} />
+            </div>
+          </div>
+          <div className="min-w-[140px] flex-1 rounded-xl border border-border bg-surface-1 p-3">
+            <div className="text-xs text-muted">Positions with a stop</div>
+            <div
+              className={`mt-0.5 text-lg font-medium ${
+                unstoppedPositions.length > 0 ? 'text-down' : ''
+              }`}
+            >
+              {stoppedCount} of {data.positions.length}
+            </div>
+          </div>
         </div>
       </section>
 

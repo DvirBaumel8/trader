@@ -77,19 +77,14 @@ export function usePersistentState<T>(
     return stored === undefined ? initial : stored;
   });
 
-  // Held in a ref so `clear` and the persisting effect never need `key` in
-  // their dependency lists as a changing value mid-edit.
-  const keyRef = useRef(key);
-  keyRef.current = key;
-
   // Deliberately not writing on mount: doing so would refresh `savedAt` for a
   // value nobody touched, so merely opening the app would keep a stale draft
   // alive indefinitely.
   const touched = useRef(false);
   useEffect(() => {
     if (!touched.current) return;
-    write(keyRef.current, value);
-  }, [value]);
+    write(key, value);
+  }, [key, value]);
 
   // Accepts the functional form too, so this is a drop-in for `useState` —
   // anything less makes `setOpen((v) => !v)` a silent type error at the call
@@ -102,11 +97,11 @@ export function usePersistentState<T>(
   const clear = useCallback(() => {
     touched.current = false;
     try {
-      window.localStorage.removeItem(keyRef.current);
+      window.localStorage.removeItem(key);
     } catch {
       // A stale draft is harmless.
     }
-  }, []);
+  }, [key]);
 
   return [value, set, clear];
 }

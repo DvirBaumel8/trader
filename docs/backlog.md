@@ -38,11 +38,19 @@ this says what is outstanding.
   `STALE` stays per row. `19525ed`
 - [x] **Average risk in dollars on the Stops page** — averaged over positions
   that actually have a stop. `19525ed`
-- [ ] **Refresh button for current prices on the Stops page** — and consider
-  hiding it outside regular, pre- and after-hours sessions.
-- [ ] **The top of the Stops page looks bad.** Redesign it.
-- [ ] **Dates on the benchmark chart while dragging a finger across it** — the
-  value under the finger should say which day it is.
+- [x] **Refresh button on the Stops page** — shared with the Dashboard's, so
+  the two cannot disagree about what "refreshed" means. **Not** hidden outside
+  market hours: an extended-hours price is exactly when a refresh is most
+  worth having, and the session badge already says which session it is. Say
+  if you wanted it hidden anyway.
+- [x] **Stops header redesign** — header row, headline number, then figures as
+  tiles matching the Portfolio tab, plus "positions with a stop", red when any
+  are uncovered. **Unverified visually** — it needs a login to view.
+- [x] **Dates on the benchmark chart under the finger**, with the range's own
+  span shown when nothing is held.
+- [ ] **19 frontend lint warnings**, mostly `react(refs)` in `Journal.tsx`
+  from reading a ref during render, plus a few `set-state-in-effect`. Nearly
+  all pre-existing. The backend is at zero; the frontend has never been swept.
 - [ ] **Filter trades by ticker** (possibly multiple tickers at once).
 - [ ] **The trade-idea result buries its numbers** under ~400 words of prose.
   A compact verdict strip above the writing, prose collapsible below.

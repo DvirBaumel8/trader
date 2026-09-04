@@ -353,6 +353,11 @@ export function Journal() {
 
   // Only fetched when there is an entry to reopen, and only once.
   const pendingEntryId = restored.current?.editingEntryId ?? null;
+  // Captured once, at mount. `restored.current` is nulled by the effect below,
+  // so reading it during render would flip this to false on the next pass —
+  // it only works today because EntrySheet reads its draft in a useState
+  // initializer, which is too subtle a thing to depend on.
+  const [resumedCompose] = useState(() => restored.current?.composing ?? false);
   const { data: allEntries } = useQuery({
     queryKey: ['journal', 'ALL'],
     queryFn: () => api<Entry[]>('/journal'),
@@ -456,7 +461,7 @@ export function Journal() {
         onClose={close}
         defaultFee={settings?.defaultFee ?? 4}
         editing={editing}
-        resuming={restored.current?.composing ?? false}
+        resuming={resumedCompose}
       />
     </div>
   );

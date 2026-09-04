@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { formatPercent, signClass } from './format';
+import { longDay, shortDay } from '../lib/chartDates';
 
 /**
  * Validated with the dataviz palette validator against the dark chart surface
@@ -169,6 +170,23 @@ export function BenchmarkChart({
               );
             })}
           </svg>
+
+          {/*
+            Which day is being read. The chart tracked a point under the
+            finger but never named it, so the numbers in the legend belonged
+            to a date the reader had to guess at. Falls back to the range's
+            own span when nothing is held, so the axis reads without touching.
+          */}
+          <div className="flex justify-between text-[10px] tracking-wide text-muted">
+            {active !== null && hover !== null ? (
+              <span className="text-text">{longDay(active.date)}</span>
+            ) : (
+              <>
+                <span>{shortDay(points[0]?.date)}</span>
+                <span>{shortDay(points.at(-1)?.date)}</span>
+              </>
+            )}
+          </div>
 
           <div className="flex justify-between gap-2 text-[11px]">
             {SERIES.map((s) => (
