@@ -110,7 +110,6 @@ function StopTierRowView({
               SHORT
             </span>
           )}
-          <SessionBadge session={row.session} extended={row.extended} />
           {row.stale && (
             <span className="text-[9px] tracking-wide text-down">STALE</span>
           )}
@@ -209,7 +208,6 @@ function UnstoppedPositions({
                       SHORT
                     </span>
                   )}
-                  <SessionBadge session={p.session} extended={p.extended} />
                   {p.stale && (
                     <span className="text-[9px] tracking-wide text-down">
                       STALE
@@ -287,14 +285,49 @@ export function Stops() {
   );
   const sortedTiers = sortStopTiers(data.stopTiers, dir);
 
+  // Every position is priced in the same market session, so the badge is a
+  // property of the page rather than of a row.
+  const sessionForPage = data.positions[0] ?? null;
+
+  // Averaged over the positions that actually have a stop: dividing the total
+  // by every holding would quietly report a smaller average simply because
+  // some positions are unprotected, which is the opposite of the truth.
+  const stoppedCount = data.positions.length - unstoppedPositions.length;
+  const avgRiskPerPosition =
+    data.atRisk.amount !== null && stoppedCount > 0
+      ? data.atRisk.amount / stoppedCount
+      : null;
+
   return (
     <div className="space-y-6">
       <section>
-        <span className="text-xs uppercase tracking-wide text-muted">Stops</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-muted">Stops</span>
+          {/*
+            Said once, here. Every row carried the same session badge, which
+            turned a fact about the market into visual noise repeated twenty
+            times. Staleness stays per row: that one genuinely differs by
+            symbol, and a stale price must never pass for a fresh one.
+          */}
+          {sessionForPage && (
+            <SessionBadge
+              session={sessionForPage.session}
+              extended={sessionForPage.extended}
+            />
+          )}
+        </div>
         <div className="mt-1 text-4xl font-semibold">
           <Money value={data.atRisk.amount} />
         </div>
-        <div className="mt-1 text-sm text-muted">at risk from current stops</div>
+        <div className="mt-1 text-sm text-muted">
+          at risk from current stops
+          {avgRiskPerPosition !== null && (
+            <>
+              {' · '}
+              <Money value={avgRiskPerPosition} /> average per position
+            </>
+          )}
+        </div>
       </section>
 
       <UnstoppedPositions

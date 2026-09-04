@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { Money } from '../components/Money';
@@ -269,6 +274,12 @@ export function Dashboard() {
   const { data: performance } = useQuery({
     queryKey: ['performance', range],
     queryFn: () => api<Performance>(`/performance?range=${range}`),
+    // Changing the range changes the query key, so without this the data is
+    // momentarily undefined and the chart collapses to "No history yet"
+    // before redrawing — a flash that reads as a bug every time a range is
+    // tapped. Keeping the previous range's points on screen while the new
+    // ones load means the chart only ever redraws to real data.
+    placeholderData: keepPreviousData,
   });
 
   const { data, isLoading, error } = useQuery({

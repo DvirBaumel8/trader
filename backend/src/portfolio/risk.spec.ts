@@ -196,16 +196,35 @@ describe('computeRisk', () => {
     expect(r.amount).toBe(300); // 300 * 0.10 * 10
   });
 
-  it('ignores a fixed level on the wrong side of the entry', () => {
-    // A "stop" above entry on a long is a typo, not a stop. Counting it would
-    // report negative risk, which is nonsense.
+  it('counts a stop beyond entry as covered, at zero risk', () => {
+    // A stop above entry on a long locks in a gain. It is a real stop, so it
+    // covers its shares — but it contributes no risk, and must never net
+    // against real risk elsewhere and shrink it.
     const r = computeRisk({
       avgEntry: 217,
       quantity: 100,
       levels: [fixed(230, 100)],
     });
-    expect(r.amount).toBeNull();
-    expect(r.invalidLevels).toBe(1);
+    expect(r.amount).toBe(0);
+    expect(r.coveredQuantity).toBe(100);
+    expect(r.fullyCovered).toBe(true);
+    expect(r.invalidLevels).toBe(0);
+  });
+
+  it('reports full coverage for a winner half-stopped at a gain', () => {
+    // The real META plan that exposed this: 46 shares in at 593.49, one tier
+    // of 20 at 572.68 and one of 26 at 602.93. Every share has a stop, and
+    // the risk is only what the losing tier can cost.
+    const r = computeRisk({
+      avgEntry: 593.49,
+      quantity: 46,
+      levels: [fixed(572.68, 20), fixed(602.93, 26)],
+    });
+    expect(r.coveredQuantity).toBe(46);
+    expect(r.fullyCovered).toBe(true);
+    expect(r.invalidLevels).toBe(0);
+    // (593.49 - 572.68) * 20, with the profit-locking tier adding nothing.
+    expect(r.amount).toBeCloseTo(416.2, 6);
   });
 
   it('ignores a level with no usable price or percent', () => {
@@ -356,17 +375,19 @@ describe('computeRiskFromCurrentPrice', () => {
     expect(r.amount).toBe(-1000);
   });
 
-  it('does not skip a stop above current price the way computeRisk skips one above entry', () => {
-    // Same inputs computeRisk would call invalid (stop on the "wrong" side of
-    // entry) are valid and countable here, because the reference is the
-    // current price, not the entry.
+  it('lets its figure go negative where computeRisk floors the same level at zero', () => {
+    // Both now COUNT a stop beyond entry; they differ in what they let it do
+    // to the dollar figure. Risk at entry is floored at zero so a profit lock
+    // cannot shrink the number R is measured against; risk from here is
+    // allowed to go negative, because "this position can no longer lose" is
+    // exactly what that question is asking.
     const atEntry = computeRisk({
       avgEntry: 217,
       quantity: 100,
       levels: [fixed(230, 100)],
     });
-    expect(atEntry.amount).toBeNull();
-    expect(atEntry.invalidLevels).toBe(1);
+    expect(atEntry.amount).toBe(0);
+    expect(atEntry.invalidLevels).toBe(0);
 
     const fromHere = computeRiskFromCurrentPrice({
       avgEntry: 217,

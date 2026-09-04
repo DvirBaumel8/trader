@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { YahooClient } from './yahoo.client.js';
 import { computeIndicators, type IndicatorSet } from './indicators.js';
+import { computePriceAction, type PriceAction } from './price-action.js';
 
 /** How much history to ask for: enough for a 200-day average with room to spare. */
 const LOOKBACK_DAYS = 500;
@@ -19,6 +20,8 @@ export interface TickerFacts {
   extended: boolean;
   peRatio: number | null;
   indicators: IndicatorSet;
+  /** How it has actually traded today and this week. Null with no bars. */
+  priceAction: PriceAction | null;
 }
 
 /**
@@ -83,6 +86,8 @@ export class TickerFactsService {
       extended: quote.extended,
       peRatio: quote.peRatio,
       indicators: computeIndicators(bars, quote.price),
+      // From the bars already fetched above — no extra provider call.
+      priceAction: computePriceAction(bars),
     };
   }
 }

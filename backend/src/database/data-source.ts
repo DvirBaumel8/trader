@@ -8,6 +8,7 @@ import { AddStopLevelRevisions1788393600000 } from './migrations/1788393600000-A
 import { AddAiSummaries1788480000000 } from './migrations/1788480000000-AddAiSummaries.js';
 import { AddDailyCloseVolume1788566400000 } from './migrations/1788566400000-AddDailyCloseVolume.js';
 import { AddStopExecutions1788652800000 } from './migrations/1788652800000-AddStopExecutions.js';
+import { AddTradeIdeas1788739200000 } from './migrations/1788739200000-AddTradeIdeas.js';
 
 // Migrations are imported explicitly rather than via a glob string. A glob
 // silently matched zero files under some execution contexts in a sibling
@@ -23,6 +24,7 @@ const dataSource = new DataSource({
     AddAiSummaries1788480000000,
     AddDailyCloseVolume1788566400000,
     AddStopExecutions1788652800000,
+    AddTradeIdeas1788739200000,
   ],
   synchronize: false,
 });

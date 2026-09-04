@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { clearDraft, loadDraft, saveDraft } from '../lib/draftStorage';
+import { clearDraft } from '../lib/draftStorage';
+import { readPersisted, writePersisted } from '../lib/persistentState';
 import {
   dateToIso,
   emptyDraft,
@@ -61,15 +62,39 @@ export function EntrySheet({
   onClose,
   defaultFee,
   editing,
+  resuming = false,
 }: {
   open: boolean;
   onClose: () => void;
   defaultFee: number;
   editing?: Entry | null;
+  /**
+   * True only when the composer is reopening because the app was discarded
+   * with it open — not when the user opens a new entry. The single case where
+   * a saved draft is restored.
+   */
+  resuming?: boolean;
 }) {
+  /**
+   * Opening a new entry ALWAYS gives an empty form — never a draft from
+   * earlier, and not "empty after an hour" either. That was the owner's
+   * explicit call.
+   *
+   * The draft still exists, for the one case it was built for: iOS discarding
+   * the app while the composer is open. That is not "opening a form", it is
+   * the same form coming back, and `resuming` is true only then — the Journal
+   * restores `composing` from the saved UI state on a cold start. So the rule
+   * is about WHY the sheet is open, not about how long ago anything happened.
+   */
   const [draft, setDraft] = useState<EntryDraft>(() =>
-    loadDraft(DRAFT_KEY, emptyDraft(defaultFee)),
+    resuming
+      ? // No expiry on this read: the window that matters already applied to
+        // the decision to resume at all.
+        (readPersisted<EntryDraft>(DRAFT_KEY, Number.POSITIVE_INFINITY) ??
+        emptyDraft(defaultFee))
+      : emptyDraft(defaultFee),
   );
+  const resumeHandled = useRef(false);
   const queryClient = useQueryClient();
 
   // When opened on an existing entry the draft mirrors it. Editing must never
@@ -80,14 +105,22 @@ export function EntrySheet({
       setDraft(draftFromEntry(editing, defaultFee));
       return;
     }
-    // A new entry always opens on today. The draft survives across days, so a
-    // restored one would otherwise arrive carrying the date it was started on
-    // — and with the field defaulted rather than blank, that is easy to miss.
-    setDraft((d) => ({ ...d, occurredAt: localDate() }));
-  }, [open, editing, defaultFee]);
+    // The one exception to starting blank: this same form coming back after
+    // iOS discarded the app mid-typing. Handled once, so a later reopen is a
+    // genuine new entry and gets the empty form.
+    if (resuming && !resumeHandled.current) {
+      resumeHandled.current = true;
+      return;
+    }
+
+    // Every other open is a NEW entry, and starts empty. The stored draft goes
+    // with it, so nothing can resurface later.
+    setDraft(emptyDraft(defaultFee));
+    clearDraft(DRAFT_KEY);
+  }, [open, editing, defaultFee, resuming]);
 
   useEffect(() => {
-    if (!editing) saveDraft(DRAFT_KEY, draft);
+    if (!editing) writePersisted(DRAFT_KEY, draft);
   }, [draft, editing]);
 
   const set = (patch: Partial<EntryDraft>) =>

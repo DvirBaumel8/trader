@@ -30,6 +30,13 @@ export interface TradeRiskResult {
   /** Shares that would risk exactly `usualRisk` with this stop. Null without one. */
   sharesAtUsualRisk: number | null;
   positionValueAtUsualRisk: number | null;
+  /**
+   * Echoed back so a caller can name the figure it sized against. It cannot
+   * be recovered from the numbers above: `sharesAtUsualRisk` is rounded down,
+   * so `riskPerShare * shares` is a little UNDER the real average risk, and
+   * printing that as "your usual risk" would be a plausible wrong number.
+   */
+  usualRisk: number | null;
 }
 
 const EPSILON = 1e-9;
@@ -64,6 +71,7 @@ export function computeTradeRisk(input: TradeRiskInput): TradeRiskResult | null 
     riskReward: round(rewardPerShare / riskPerShare),
     sharesAtUsualRisk: shares,
     positionValueAtUsualRisk: shares !== null ? round(shares * entryPrice) : null,
+    usualRisk: shares !== null ? round(usualRisk as number) : null,
   };
 }
 

@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import request from 'supertest';
 import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
@@ -41,6 +42,9 @@ const yahooStub = {
 describe('Trade idea (e2e)', () => {
   let app: INestApplication;
   let token: string;
+  let dataSource: DataSource;
+  /** Every prompt the model was actually handed, so the wiring is testable. */
+  const prompts: string[] = [];
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -50,16 +54,27 @@ describe('Trade idea (e2e)', () => {
       .useValue({
         isConfigured: () => true,
         modelName: () => 'stub-model',
-        complete: async ({ user }: { user: string }) =>
-          user.includes('NOLEVELS')
+        complete: async ({ user }: { user: string }) => {
+          prompts.push(user);
+          if (user.includes('BOOM')) throw new Error('provider exploded');
+          return user.includes('NOLEVELS')
             ? 'Prose with no block at all.'
-            : 'Real prose about the trade.\n\nLEVELS\nstop: 99\ntarget: 130',
+            : 'Real prose about the trade.\n\nLEVELS\nstop: 99\ntarget: 130';
+        },
       })
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
     token = await login(app);
+    dataSource = app.get(DataSource);
+  });
+
+  // Every test in this file asks for an opinion, and asking now persists one.
+  // Without this, a test counting rows counts the ones its neighbours left
+  // behind — and passes or fails depending on what ran before it.
+  beforeEach(async () => {
+    await dataSource.query('TRUNCATE trade_ideas RESTART IDENTITY CASCADE');
   });
 
   afterAll(async () => {
@@ -118,6 +133,122 @@ describe('Trade idea (e2e)', () => {
       .post('/ai/trade-idea')
       .send({ symbol: 'not a ticker!' })
       .expect(400);
+  });
+
+  it('hands the model the book, the record and the recent sessions', async () => {
+    prompts.length = 0;
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+
+    const [prompt] = prompts;
+    expect(prompt).toBeDefined();
+    // Formatting is unit-tested; what this proves is that the sections are
+    // actually reaching the model rather than being built and dropped.
+    expect(prompt).toContain('MY BOOK RIGHT NOW');
+    expect(prompt).toContain('MY RECORD');
+    expect(prompt).toContain('Last 10 sessions');
+    // With an empty test book, it must say so rather than stay silent — the
+    // model needs to know this is a new position, not merely be left guessing.
+    expect(prompt).toContain('I do NOT currently hold NVDA');
+  });
+
+  it('persists the idea, including one whose levels could not be read', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NOLEVELS' }).expect(201);
+
+    const rows = (await dataSource.query(
+      `SELECT symbol, "entryPrice", stop, target, "riskReward", opinion, "factsSnapshot", model
+         FROM trade_ideas ORDER BY symbol`,
+    )) as Array<{
+      symbol: string;
+      entryPrice: string;
+      stop: string | null;
+      target: string | null;
+      riskReward: string | null;
+      opinion: string;
+      factsSnapshot: string;
+      model: string;
+    }>;
+    expect(rows).toHaveLength(2);
+
+    const noLevels = rows.find((r) => r.symbol === 'NOLEVELS')!;
+    expect(noLevels.stop).toBeNull();
+    expect(noLevels.target).toBeNull();
+    expect(noLevels.riskReward).toBeNull();
+    // The prose is kept even when the numbers were refused — that is the
+    // whole reason those three columns are nullable.
+    expect(noLevels.opinion).toContain('Prose with no block');
+
+    const nvda = rows.find((r) => r.symbol === 'NVDA')!;
+    expect(Number(nvda.stop)).toBeCloseTo(99, 6);
+    expect(Number(nvda.target)).toBeCloseTo(130, 6);
+    expect(Number(nvda.entryPrice)).toBeCloseTo(110, 6);
+    // Entry 110, stop 99, target 130 -> 20/11. Stored as the app computed it.
+    expect(Number(nvda.riskReward)).toBeCloseTo(20 / 11, 6);
+    expect(nvda.model).toBe('stub-model');
+    // The LEVELS block is stripped from what the owner reads, but the facts
+    // the model was given are kept verbatim, or the opinion can't be judged.
+    expect(nvda.opinion).not.toContain('LEVELS');
+    expect(nvda.factsSnapshot).toContain('NVDA');
+  });
+
+  it('lists ideas newest first, without the bulky facts snapshot', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'AAPL' }).expect(201);
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+
+    // Two requests can land in the same millisecond, and `ORDER BY createdAt`
+    // is then a coin flip — a test that asserts an order must not depend on
+    // one it did not set. Backdating AAPL makes "newest first" a real claim
+    // about the query rather than an accident of timing.
+    await dataSource.query(
+      `UPDATE trade_ideas SET "createdAt" = "createdAt" - interval '1 hour' WHERE symbol = 'AAPL'`,
+    );
+
+    const res = await http(app, token).get('/ai/trade-ideas').expect(200);
+
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0].symbol).toBe('NVDA'); // newest first
+    expect(res.body[1].symbol).toBe('AAPL');
+    // A list row carries what makes it worth opening — the symbol, the
+    // numbers, and a taste of the prose — but never the multi-KB snapshot.
+    expect(res.body[0].factsSnapshot).toBeUndefined();
+    expect(res.body[0].preview).toContain('Real prose');
+    expect(res.body[0].riskReward).toBeCloseTo(20 / 11, 6);
+  });
+
+  it('serves one idea in full, and 404s an id that is not there', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+    const [row] = (await http(app, token).get('/ai/trade-ideas').expect(200)).body;
+
+    const res = await http(app, token).get(`/ai/trade-ideas/${row.id}`).expect(200);
+    expect(res.body.symbol).toBe('NVDA');
+    expect(res.body.opinion).toContain('Real prose');
+    // The full record is the one place the snapshot comes back.
+    expect(res.body.factsSnapshot).toContain('NVDA');
+
+    await http(app, token)
+      .get('/ai/trade-ideas/00000000-0000-4000-8000-000000000000')
+      .expect(404);
+  });
+
+  it('deletes an idea, and 404s an id that is not there', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'NVDA' }).expect(201);
+    const [row] = (await http(app, token).get('/ai/trade-ideas').expect(200)).body;
+
+    await http(app, token).delete(`/ai/trade-ideas/${row.id}`).expect(200);
+    expect((await http(app, token).get('/ai/trade-ideas').expect(200)).body).toHaveLength(0);
+
+    await http(app, token)
+      .delete('/ai/trade-ideas/00000000-0000-4000-8000-000000000000')
+      .expect(404);
+  });
+
+  it('saves nothing when the model call fails', async () => {
+    await http(app, token).post('/ai/trade-idea').send({ symbol: 'BOOM' }).expect(201);
+
+    const rows = (await dataSource.query(
+      `SELECT id FROM trade_ideas`,
+    )) as Array<{ id: string }>;
+    expect(rows).toHaveLength(0);
   });
 });
 

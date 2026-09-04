@@ -11,6 +11,7 @@ import { IsString, Length, Matches } from 'class-validator';
 import { LlmService } from './llm.service.js';
 import { AiSummaryService } from './ai-summary.service.js';
 import { TradeIdeaService } from './trade-idea.service.js';
+import { TradeIdeaHistoryService } from './trade-idea-history.service.js';
 
 class TradeIdeaDto {
   @IsString()
@@ -28,11 +29,28 @@ export class LlmController {
     private readonly llm: LlmService,
     private readonly summaries: AiSummaryService,
     private readonly tradeIdeas: TradeIdeaService,
+    private readonly tradeIdeaHistory: TradeIdeaHistoryService,
   ) {}
 
   @Post('trade-idea')
   tradeIdea(@Body() body: TradeIdeaDto) {
     return this.tradeIdeas.analyse(body.symbol);
+  }
+
+  @Get('trade-ideas')
+  listTradeIdeas() {
+    return this.tradeIdeaHistory.list();
+  }
+
+  @Get('trade-ideas/:id')
+  findTradeIdea(@Param('id', ParseUUIDPipe) id: string) {
+    return this.tradeIdeaHistory.findOne(id);
+  }
+
+  @Delete('trade-ideas/:id')
+  async removeTradeIdea(@Param('id', ParseUUIDPipe) id: string) {
+    await this.tradeIdeaHistory.remove(id);
+    return { ok: true };
   }
 
   @Post('portfolio-summary')

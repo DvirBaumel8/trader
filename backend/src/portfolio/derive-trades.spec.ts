@@ -594,6 +594,25 @@ describe('summariseTrades', () => {
     expect(s.closedCount).toBe(1);
   });
 
+  it('keeps a zero-risk plan out of average risk', () => {
+    // A plan whose every tier locks in a gain risks nothing. Averaging that
+    // zero in would shrink the figure used to size the next position — and
+    // several real positions have this shape, because a trailed-up plan is
+    // recorded against the entry.
+    const s = summariseTrades([
+      closed(300, 3, 100),
+      {
+        realizedPnl: null,
+        isOpen: true,
+        isWin: null,
+        rMultiple: null,
+        riskAmount: 0,
+      },
+    ]);
+    expect(s.avgRisk).toBe(100);
+    expect(s.riskTradeCount).toBe(1);
+  });
+
   it('leaves average risk null when no trade set a stop', () => {
     const s = summariseTrades([closed(300), closed(-100)]);
     expect(s.avgRisk).toBeNull();

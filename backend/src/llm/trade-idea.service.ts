@@ -1,8 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { LlmClient, LlmFailure, type LlmFailureKind } from './llm.client.js';
+import { TradeIdea } from './trade-idea.entity.js';
+import { UsersService } from '../users/users.service.js';
 import { ERROR_COPY } from './llm.service.js';
 import { buildSystemPrompt } from './prompts.js';
 import { buildTradeIdeaPrompt } from './trade-idea-prompt.js';
+import { buildBookSection, buildRecordSection } from './trade-idea-context.js';
 import { parseProposedLevels, stripLevelsBlock } from './trade-idea-parse.js';
 import {
   TickerFactsService,
@@ -52,6 +57,9 @@ export class TradeIdeaService {
     private readonly llm: LlmClient,
     private readonly tickerFacts: TickerFactsService,
     private readonly portfolio: PortfolioService,
+    @InjectRepository(TradeIdea)
+    private readonly ideas: Repository<TradeIdea>,
+    private readonly users: UsersService,
   ) {}
 
   async analyse(symbol: string): Promise<TradeIdeaResult> {
@@ -79,10 +87,21 @@ export class TradeIdeaService {
     // from "the model could not answer", and flattening them into this
     // result shape would hide which one happened.
     const facts = await this.tickerFacts.get(upper);
-    const usualRisk = (await this.portfolio.getStats()).avgRisk ?? null;
+
+    // The book and the record, not just the chart. Without them the model
+    // answered "should I open this?" when he already held 4,600 shares of the
+    // name — see trade-idea-context.ts.
+    const [stats, book] = await Promise.all([
+      this.portfolio.getStats(),
+      this.portfolio.getPortfolio(),
+    ]);
+    const usualRisk = stats.avgRisk ?? null;
 
     const system = buildSystemPrompt(await this.readProfile());
-    const user = buildTradeIdeaPrompt(facts, usualRisk);
+    const user = buildTradeIdeaPrompt(facts, usualRisk, {
+      book: buildBookSection(book, upper),
+      record: buildRecordSection(stats, upper),
+    });
 
     let raw: string;
     try {
@@ -120,6 +139,28 @@ export class TradeIdeaService {
           usualRisk,
         })
       : null;
+
+    // Saved on the success path only, mirroring LlmService: an unconfigured
+    // provider or a failed call has already returned above, so a history of
+    // ideas never fills up with rows recording that nothing was said. An
+    // unreadable-levels answer IS saved — it is a real opinion, minus numbers.
+    const owner = await this.users.ensureDefaultUser();
+    await this.ideas.save(
+      this.ideas.create({
+        userId: owner.id,
+        symbol: upper,
+        entryPrice: facts.price,
+        priceStale: facts.stale,
+        stop: levels?.stop ?? null,
+        target: levels?.target ?? null,
+        riskReward: risk?.riskReward ?? null,
+        opinion,
+        // The prompt the model actually read, verbatim — the same reason
+        // ai_summaries keeps its facts block.
+        factsSnapshot: user,
+        model: this.llm.modelName(),
+      }),
+    );
 
     return {
       configured: true,

@@ -39,3 +39,21 @@ body {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
+
+/*
+ * iOS zooms the page in when a control whose text is under 16px takes focus,
+ * and it never zooms back out — which is why the app came back magnified
+ * after a trip to the broker app to copy a fill. 16px on touch devices is the
+ * documented way to prevent it. `user-scalable=no` in the viewport meta would
+ * also work and is the wrong trade: it takes pinch-zoom away from a screen
+ * full of small numbers.
+ *
+ * Desktop keeps the tighter sizes — a mouse pointer never triggers the zoom.
+ */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

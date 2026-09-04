@@ -17,6 +17,7 @@ import type { TickerFacts } from '../market-data/ticker-facts.service.js';
 export function buildTradeIdeaPrompt(
   facts: TickerFacts,
   usualRisk: number | null,
+  context?: { book: string; record: string },
 ): string {
   const i = facts.indicators;
   const price = (n: number) =>
@@ -45,6 +46,23 @@ export function buildTradeIdeaPrompt(
     `- History available: ${i.barsAvailable} daily bars`,
   ];
 
+  // How it has actually traded, not just where it sits. "Up 8% today off the
+  // low" and "flat all week" are different trades at the same distance from
+  // the 20-day average, and the indicators above cannot tell them apart.
+  const a = facts.priceAction;
+  if (a) {
+    lines.push(
+      `- Today (${a.today.date}): ${pct(a.today.changePercent)} vs the previous close, open ${level(a.today.open)}, high ${level(a.today.high)}, low ${level(a.today.low)}`,
+      `- Past ${a.week.sessions} sessions: ${pct(a.week.changePercent)}, ranging ${level(a.week.low)} to ${level(a.week.high)}`,
+      '',
+      'Last 10 sessions (oldest first) — date, open, high, low, close, volume:',
+      ...a.recent.map(
+        (b) =>
+          `  ${b.date}  ${level(b.open)}  ${level(b.high)}  ${level(b.low)}  ${price(b.close)}  ${b.volume === null ? 'n/a' : b.volume.toLocaleString('en-US')}`,
+      ),
+    );
+  }
+
   if (usualRisk !== null) {
     lines.push(
       `- For context, my average risk per trade across my own closed history is ${price(usualRisk)}. Do NOT size the position — the app does that from your stop.`,
@@ -55,7 +73,10 @@ export function buildTradeIdeaPrompt(
 
 Answer three things, in this order:
 1. Does this fit the way I trade? Use my profile above — my setups, my rules,
-   my stated weaknesses — not generic good practice.
+   my stated weaknesses — AND my book and my record below. If I already hold
+   this name, the question is whether to add, hold or trim, not whether to
+   open it. Judge it against what I am already carrying, including anything
+   in the same theme.
 2. Is this stock worth buying right now? Trend, momentum, where price sits,
    and the business itself.
 3. Is the risk/reward worth taking?
@@ -76,5 +97,6 @@ LEVELS
 stop: <price>
 target: <price>
 
-${lines.join('\n')}`;
+${lines.join('\n')}
+${context ? `\n${context.book}\n\n${context.record}\n` : ''}`;
 }

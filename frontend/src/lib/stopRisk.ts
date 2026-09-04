@@ -48,7 +48,10 @@ export function draftRisk(
       const price = num(row.price);
       if (price !== null && price > 0) {
         const distance = side === 'BUY' ? entry - price : price - entry;
-        if (distance > 0) perShare = distance;
+        // A stop beyond entry in the favourable direction is a profit lock,
+        // not a misentry: it covers its shares and contributes no risk.
+        // Mirrors computeRisk in backend/src/portfolio/risk.ts.
+        perShare = Math.max(0, distance);
       }
     } else {
       const pct = num(row.trailPercent);

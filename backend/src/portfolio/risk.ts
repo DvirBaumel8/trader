@@ -104,9 +104,19 @@ export function computeFavorablePrice(
  * moves with the price. That is what lets a percentage trail coexist with
  * immutable, honest R.
  *
- * Levels on the wrong side of the entry are skipped rather than counted: a
- * "stop" above entry on a long is a typo, and counting it would report
- * negative risk.
+ * A level beyond the entry in the FAVOURABLE direction — a stop above entry on
+ * a long — is a profit lock, not a typo, and it covers its shares like any
+ * other stop. This was originally read the other way (skipped as a
+ * misentry), which told the owner that a winning position's protected shares
+ * were unprotected: a real META plan with a tier at 602.93 against a 593.49
+ * entry reported "covers 20 of 46 sh" in red.
+ *
+ * Its contribution to the dollar figure is floored at zero rather than
+ * allowed to go negative. Risk at entry is what R is measured against, and a
+ * tier that can only produce a gain must not net against real risk elsewhere
+ * and quietly shrink it. Erring toward overstating risk is the one safe
+ * direction. `computeRiskFromCurrentPrice` answers a different question and
+ * deliberately does let its figure go negative — see its doc comment.
  */
 export function computeRisk(input: RiskInput): RiskResult {
   const direction = input.direction ?? 'LONG';
@@ -129,7 +139,9 @@ export function computeRisk(input: RiskInput): RiskResult {
       const distance = long
         ? input.avgEntry - level.price
         : level.price - input.avgEntry;
-      perShare = distance > EPSILON ? distance : null;
+      // Floored, not rejected: a profit-locking tier still covers its shares,
+      // but contributes no risk. See the doc comment.
+      perShare = Math.max(0, distance);
     } else if (
       level.kind === 'TRAILING' &&
       level.trailPercent !== null &&

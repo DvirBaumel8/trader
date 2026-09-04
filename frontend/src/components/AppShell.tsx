@@ -53,11 +53,14 @@ export function AppShell() {
         <NavLink to="/" className={linkClass} end>
           Portfolio
         </NavLink>
+        <NavLink to="/journal" className={linkClass}>
+          Journal
+        </NavLink>
         <NavLink to="/stops" className={linkClass}>
           Stops
         </NavLink>
-        <NavLink to="/journal" className={linkClass}>
-          Journal
+        <NavLink to="/ideas" className={linkClass}>
+          Ideas
         </NavLink>
       </nav>
 

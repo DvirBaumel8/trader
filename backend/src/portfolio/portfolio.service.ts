@@ -16,6 +16,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { MarketDataService } from '../market-data/market-data.service.js';
+import { HistoryService } from '../market-data/history.service.js';
 import { UsersService } from '../users/users.service.js';
 import { JournalService } from '../journal/journal.service.js';
 import {
@@ -77,12 +78,19 @@ export class PortfolioService {
     private readonly closes: Repository<DailyClose>,
     private readonly instrumentsService: InstrumentsService,
     private readonly marketData: MarketDataService,
+    private readonly history: HistoryService,
     private readonly users: UsersService,
     private readonly journal: JournalService,
     private readonly dataSource: DataSource,
   ) {}
 
   async getPortfolio(opts: { refresh?: boolean } = {}) {
+    // Trailing stops resolve from the high-water mark since entry, which is
+    // read out of `daily_closes` — so stale bars mean a stop price that is
+    // quietly below the broker's. Debounced and swallowing its own failures;
+    // see HistoryService.ensureFresh.
+    await this.history.ensureFresh();
+
     const user = await this.users.ensureDefaultUser();
     const [txnRows, flowRows, divRows, instrumentRows, entryRows] =
       await Promise.all([

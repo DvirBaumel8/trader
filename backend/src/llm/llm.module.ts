@@ -5,9 +5,11 @@ import { LlmService } from './llm.service.js';
 import { LlmController } from './llm.controller.js';
 import { AiSummary } from './ai-summary.entity.js';
 import { AiSummaryService } from './ai-summary.service.js';
+import { TradeIdea } from './trade-idea.entity.js';
 import { PortfolioModule } from '../portfolio/portfolio.module.js';
 import { MarketDataModule } from '../market-data/market-data.module.js';
 import { TradeIdeaService } from './trade-idea.service.js';
+import { TradeIdeaHistoryService } from './trade-idea-history.service.js';
 import { PerformanceModule } from '../performance/performance.module.js';
 import { UsersModule } from '../users/users.module.js';
 
@@ -17,13 +19,14 @@ import { UsersModule } from '../users/users.module.js';
     PerformanceModule,
     MarketDataModule,
     UsersModule,
-    TypeOrmModule.forFeature([AiSummary]),
+    TypeOrmModule.forFeature([AiSummary, TradeIdea]),
   ],
   providers: [
     { provide: LlmClient, useClass: GeminiClient },
     LlmService,
     AiSummaryService,
     TradeIdeaService,
+    TradeIdeaHistoryService,
   ],
   controllers: [LlmController],
 })
