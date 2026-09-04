@@ -74,14 +74,18 @@ when the question was "should I add to this winner?".
 
 Raised as a block; each needs its own slice.
 
-- [ ] Remove duplicated code. Known instance: `computeRisk` (backend) and
-  `draftRisk` (frontend) implement the same rule twice and have already drifted
-  apart once.
+- [x] Remove duplicated code. The known instance — `computeRisk` and
+  `draftRisk` implementing one rule twice — is gone with `draftRisk` itself
+  (`59dcbf9`). Keep looking; that one was found only because it produced a
+  wrong number.
 - [ ] Replace hand-rolled code where a library does it properly. Check what is
   actually maintained before adopting anything.
 - [ ] Remove duplicated tests — an e2e test may already cover what a unit test
   asserts.
-- [ ] Raise coverage to at least 80%, prioritising by risk rather than by file.
+- [x] Raise coverage to at least 80%. **Already met, and the naive measurement
+  says otherwise.** Unit-only coverage reads ~59% because services covered by
+  the e2e suite look untested; merged it is 91.6% of statements and 92.9% of
+  lines. `npm run test:cov:all` (from `backend/`) reports the real figure.
 - [ ] Upgrade dependencies.
 - [ ] Manual QA by the agent, hunting for bugs rather than confirming features.
 - [ ] A pass for best practices — interfaces, generics, inheritance where they
