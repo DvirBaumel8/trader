@@ -43,6 +43,8 @@ export type TradeTxn = DerivedTxn & {
   executions?: Array<{ stopLevelId: string; quantity: number }>;
   /** From `transactions.exitKind` — see `ReducingFill.exitKind`. */
   exitKind?: 'STOP' | 'DISCRETIONARY' | null;
+  /** The journal entry this fill was written through — see `TradeFill.entryId`. */
+  entryId?: string;
 };
 
 function stripRevisionMeta(l: StopRevisionInput): StopLevelInput {
@@ -307,6 +309,13 @@ export interface TradeFill {
   price: number;
   quantity: number;
   fee: number;
+  /**
+   * The journal entry this fill was written through. Carried so a caller can
+   * reach the entry's tags — the setups and mistakes the owner labelled the
+   * trade with — without re-deriving which entries belong to which trade.
+   * Optional because it is only needed by callers that want tags.
+   */
+  entryId?: string;
   /** Carried from `TradeTxn.executions` — see `ReducingFill.executions`. */
   executions?: Array<{ stopLevelId: string; quantity: number }>;
   /** Carried from `TradeTxn.exitKind` — see `ReducingFill.exitKind`. */
@@ -439,6 +448,7 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
           fee: t.fee,
           executions: t.executions,
           exitKind: t.exitKind,
+          entryId: t.entryId,
         });
         continue;
       }
@@ -451,6 +461,7 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
         fee: t.fee,
         executions: t.executions,
         exitKind: t.exitKind,
+        entryId: t.entryId,
       });
       open.fees += t.fee;
       const adding = Math.sign(signed) === Math.sign(open.position);

@@ -71,10 +71,11 @@ profile, while he held 4,600 shares of it. It answered "should I open this?"
 when the question was "should I add to this winner?".
 
 - [x] **Full book in the prompt** — `1e9168b`
-- [x] **Trading record** — `1e9168b`, except: **setup/mistake tags are still
-  missing.** Derived trades do not carry them, so it needs a join from trades
-  back to their journal entries. That is the part that would let the model say
-  "this is the setup you lose on".
+- [x] **Trading record**, tags included. Fills now carry their `entryId`, so
+  a trade's tags are the union of the labels on every entry that composed it —
+  a setup named at entry, a mistake often only named at the exit, both
+  belonging to the same trade. Mistakes are prefixed `!` in the prompt so the
+  model cannot read "chased" as a setup used on purpose.
 - [x] **Recent price action** — `8103b46`
 - [x] **Treat an existing holding as an add/trim decision** — `1e9168b`
 - [ ] **Check the enlarged prompt actually improved the answer.** It is

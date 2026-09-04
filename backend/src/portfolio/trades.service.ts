@@ -5,6 +5,8 @@ import { Transaction } from '../transactions/transaction.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
+import { Tag } from '../journal/tag.entity.js';
+import { EntryTag } from '../journal/entry-tag.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { MarketDataService } from '../market-data/market-data.service.js';
@@ -45,6 +47,10 @@ export class TradesService {
     private readonly stopExecutions: Repository<StopExecution>,
     @InjectRepository(JournalEntry)
     private readonly entries: Repository<JournalEntry>,
+    @InjectRepository(Tag)
+    private readonly tags: Repository<Tag>,
+    @InjectRepository(EntryTag)
+    private readonly entryTags: Repository<EntryTag>,
     @InjectRepository(Instrument)
     private readonly instruments: Repository<Instrument>,
     @InjectRepository(DailyClose)
@@ -109,6 +115,7 @@ export class TradesService {
         price: t.price,
         fee: t.fee,
         executedAt: t.executedAt,
+        entryId: t.entryId,
         // Every revision ever recorded, not just the live one — deriveTrades
         // picks the entry (earliest) and current (latest) revision itself.
         stopLevels: (levelsByTxn.get(t.id) ?? [])
@@ -187,12 +194,53 @@ export class TradesService {
 
   async getStats() {
     const trades = await this.deriveAllTrades();
+    const tagsByEntry = await this.tagsByEntryId();
+
     return {
       ...summariseTrades(trades),
       // Fills are for the detail screen; sending them for every trade would
-      // bloat a response the list view re-fetches often.
-      trades: trades.map(({ fills: _fills, currentStops: _stops, ...rest }) => rest),
+      // bloat a response the list view re-fetches often. Their tags are kept,
+      // collapsed onto the trade: what the owner called the setup, and what he
+      // called the mistake, are the only part of a fill the list wants.
+      trades: trades.map(({ fills, currentStops: _stops, ...rest }) => {
+        const setups = new Set<string>();
+        const mistakes = new Set<string>();
+        for (const f of fills) {
+          const found = f.entryId ? tagsByEntry.get(f.entryId) : undefined;
+          for (const t of found?.setups ?? []) setups.add(t);
+          for (const t of found?.mistakes ?? []) mistakes.add(t);
+        }
+        return { ...rest, setups: [...setups], mistakes: [...mistakes] };
+      }),
     };
+  }
+
+  /**
+   * entryId -> the labels on that journal entry.
+   *
+   * A trade's tags are the union of the tags on every entry that composed it:
+   * a setup is named when the position is opened, a mistake often only when
+   * it is closed, and both belong to the same trade.
+   */
+  private async tagsByEntryId(): Promise<
+    Map<string, { setups: string[]; mistakes: string[] }>
+  > {
+    const user = await this.users.ensureDefaultUser();
+    const [tags, joins] = await Promise.all([
+      this.tags.find({ where: { userId: user.id } }),
+      this.entryTags.find(),
+    ]);
+    const byId = new Map(tags.map((t) => [t.id, t]));
+
+    const out = new Map<string, { setups: string[]; mistakes: string[] }>();
+    for (const join of joins) {
+      const tag = byId.get(join.tagId);
+      if (!tag) continue;
+      const bucket = out.get(join.entryId) ?? { setups: [], mistakes: [] };
+      (tag.type === 'MISTAKE' ? bucket.mistakes : bucket.setups).push(tag.label);
+      out.set(join.entryId, bucket);
+    }
+    return out;
   }
 
   /**

@@ -6,6 +6,8 @@ import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
+import { Tag } from '../journal/tag.entity.js';
+import { EntryTag } from '../journal/entry-tag.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { PortfolioService } from './portfolio.service.js';
@@ -26,6 +28,8 @@ import { JournalModule } from '../journal/journal.module.js';
       StopLevel,
       StopExecution,
       JournalEntry,
+      Tag,
+      EntryTag,
       Instrument,
       DailyClose,
     ]),

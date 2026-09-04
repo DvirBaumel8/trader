@@ -33,6 +33,9 @@ export interface RecordTrade {
   rMultiple: number | null;
   enteredAt: Date | string;
   exitedAt: Date | string | null;
+  /** What he called the setup, and what he called the mistake. */
+  setups?: string[];
+  mistakes?: string[];
 }
 
 export interface RecordInput {
@@ -58,6 +61,20 @@ const money = (n: number | null | undefined): string =>
 
 const pct = (n: number | null): string =>
   n === null ? 'n/a' : `${(n * 100).toFixed(0)}%`;
+
+/**
+ * His own labels on the trade. These are the difference between a model
+ * reasoning from his self-description and one reasoning from his record: the
+ * profile says what he believes his weaknesses are, the tags say which setups
+ * actually lost money.
+ */
+const labels = (t: RecordTrade): string => {
+  const parts = [
+    ...(t.setups ?? []).map((s) => s),
+    ...(t.mistakes ?? []).map((m) => `!${m}`),
+  ];
+  return parts.length === 0 ? '' : `  [${parts.join(', ')}]`;
+};
 
 const day = (d: Date | string | null): string =>
   d === null ? '' : new Date(d).toISOString().slice(0, 10);
@@ -154,7 +171,7 @@ export function buildRecordSection(rec: RecordInput, symbol: string): string {
           ? `  ${day(t.enteredAt)}  ${t.direction}  still open`
           : `  ${day(t.enteredAt)}→${day(t.exitedAt)}  ${t.direction}  ${money(t.realizedPnl)}${
               t.rMultiple === null ? '' : `  ${t.rMultiple.toFixed(2)}R`
-            }`,
+            }${labels(t)}`,
       );
     }
   } else {
@@ -168,7 +185,7 @@ export function buildRecordSection(rec: RecordInput, symbol: string): string {
       lines.push(
         `  ${day(t.exitedAt)}  ${t.symbol}  ${t.direction}  ${money(t.realizedPnl)}${
           t.rMultiple === null ? '' : `  ${t.rMultiple.toFixed(2)}R`
-        }`,
+        }${labels(t)}`,
       );
     }
   }

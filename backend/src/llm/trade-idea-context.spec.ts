@@ -113,6 +113,37 @@ describe('buildRecordSection', () => {
     expect(out).toContain('My last 2 closed trades');
   });
 
+  it('shows his own labels, marking mistakes distinctly from setups', () => {
+    // The point of the tags: the profile says what he BELIEVES his weaknesses
+    // are; these say which setups actually lost money. A mistake is prefixed
+    // so the model cannot read "chased" as a setup he uses on purpose.
+    const out = buildRecordSection(
+      {
+        ...record,
+        trades: [
+          {
+            symbol: 'NVDA',
+            direction: 'LONG',
+            isOpen: false,
+            realizedPnl: -400,
+            rMultiple: -1,
+            enteredAt: '2026-07-01',
+            exitedAt: '2026-07-20',
+            setups: ['breakout'],
+            mistakes: ['chased'],
+          },
+        ],
+      },
+      'NVDA',
+    );
+    expect(out).toContain('[breakout, !chased]');
+  });
+
+  it('omits the brackets entirely when a trade carries no labels', () => {
+    // An empty "[]" would read as a label the owner chose to leave blank.
+    expect(buildRecordSection(record, 'NVDA')).not.toContain('[]');
+  });
+
   it('carries the figures that size the next position', () => {
     const out = buildRecordSection(record, 'X');
     expect(out).toContain('55%');
