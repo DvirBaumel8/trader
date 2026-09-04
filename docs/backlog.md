@@ -87,6 +87,24 @@ Raised as a block; each needs its own slice.
   the e2e suite look untested; merged it is 91.6% of statements and 92.9% of
   lines. `npm run test:cov:all` (from `backend/`) reports the real figure.
 - [ ] Upgrade dependencies.
+- [ ] **Major dependency upgrades.** Wanted, but deliberately not bundled with
+  the security patch in `0e2cb55` — a green suite after six majors at once
+  proves nothing about any one of them. Take them in separate commits, in
+  roughly this order, easiest to hairiest:
+
+  | Upgrade | From → to | What to watch |
+  |---|---|---|
+  | `@types/node` | 24 → 26 | Types only. Should be noise; if it is not, that is informative. |
+  | `@testing-library/jest-dom` | 6 → 7 | Matcher signatures. Test-only. |
+  | `jsdom` | 27 → 30 | The DOM tests lean on it (`EntrySheet`, `Journal`, `persistentState`). Watch `localStorage` and timer behaviour. |
+  | `vite-tsconfig-paths` | 5 → 6 | Path alias resolution; both vitest configs load it. Vite 8 may resolve paths natively now — the plugin already prints a deprecation notice, so this may be a deletion rather than an upgrade. |
+  | `vitest` + `@vitest/coverage-v8` | 4 → 5 | Must move together. The blob-report merge behind `test:cov:all` is the fragile part, along with `--merge-reports`. |
+  | `typescript` | 6 → 7 | Last and alone. New inference and stricter checks reach every file, and both packages compile with different strictness. |
+
+  Do not run `nest build` while `npm run dev` is running while doing this —
+  it wipes `dist` under the watcher and looks like an upgrade breaking the app
+  when it is not.
+
 - [ ] Manual QA by the agent, hunting for bugs rather than confirming features.
 - [ ] A pass for best practices — interfaces, generics, inheritance where they
   genuinely earn their place.
