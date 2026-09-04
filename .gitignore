@@ -12,3 +12,6 @@ dist/
 
 # Dev server output, teed so it can be read after the fact
 logs/
+
+# Merged coverage run (npm run test:cov:all, from backend/)
+backend/.vitest-reports/

@@ -87,7 +87,6 @@ export function computeStopDistances(
       if (!(level.quantity > EPSILON)) continue;
       const stopPrice = resolveStopPrice(
         level,
-        p.avgEntry,
         p.direction,
         p.highWaterPrice,
       );

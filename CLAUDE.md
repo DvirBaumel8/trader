@@ -102,6 +102,12 @@ unaffected; `main` deploys automatically on push.
   `ZZZZ`, which is what keeps the unknown-ticker 404s honest, and serves bars
   only when asked (`yahooStub({ withBars: true })`), so specs that insert their
   own `daily_closes` rows are not overwritten by volunteered history.
+- **Measure coverage across BOTH suites, never one.** `npm run test:cov:all`
+  (from `backend/`) runs unit and e2e, then merges the reports. Unit coverage
+  alone reads ~59% and is misleading: `portfolio.service.ts` shows 0.5% while
+  being exercised heavily by the e2e suite. Merged, the real figure is ~92% of
+  lines. Chasing the unit-only number means writing duplicate tests for code
+  that is already covered.
 - **e2e tests run against `trader_test`**, never `trader`. When verifying by hand
   with curl, use the test database or read-only calls — do not run seed/reset
   against the database the user's real portfolio lives in.

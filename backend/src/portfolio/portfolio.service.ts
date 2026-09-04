@@ -652,7 +652,7 @@ export class PortfolioService {
       // math itself.
       stopLevels: currentStops.map((l) => ({
         ...l,
-        resolvedPrice: resolveStopPrice(l, trade.avgEntry, trade.direction, highWaterPrice),
+        resolvedPrice: resolveStopPrice(l, trade.direction, highWaterPrice),
       })),
       // Whether the recorded plan still matches the position RIGHT NOW —
       // same check the Stops page and At-risk box use (evaluateStopPlan).

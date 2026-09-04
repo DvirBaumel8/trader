@@ -21,7 +21,8 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "migration:run": "tsx src/database/migrate.ts",
-    "migration:revert": "tsx src/database/revert.ts"
+    "migration:revert": "tsx src/database/revert.ts",
+    "test:cov:all": "rm -rf .vitest-reports && vitest run --coverage --reporter=blob --outputFile=.vitest-reports/unit.json && vitest run --config ./vitest.config.e2e.ts --coverage --reporter=blob --outputFile=.vitest-reports/e2e.json && vitest --merge-reports .vitest-reports --coverage"
   },
   "dependencies": {
     "@google/genai": "^2.20.0",

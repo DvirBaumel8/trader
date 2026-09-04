@@ -46,10 +46,14 @@ const EPSILON = 1e-9;
  * is worse than an absent one. Shared by `computeRiskFromCurrentPrice` and
  * the stops page's per-tier distance so the two never disagree about what a
  * tier's price is.
+ *
+ * Takes no entry price, and that is the point: a trail resolves from the
+ * high-water mark, a fixed stop from its own level, so entry never enters
+ * into it. It was a parameter once, passed by every caller and read by none,
+ * which implied the opposite of what the function does.
  */
 export function resolveStopPrice(
   level: StopLevelInput,
-  avgEntry: number,
   direction: 'LONG' | 'SHORT',
   highWaterPrice: number | null,
 ): number | null {
@@ -243,7 +247,6 @@ export function computeRiskFromCurrentPrice(
 
     const stopPrice = resolveStopPrice(
       level,
-      input.avgEntry,
       direction,
       input.highWaterPrice ?? null,
     );

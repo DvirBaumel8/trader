@@ -83,7 +83,7 @@ describe('resolveStopPrice', () => {
   it('resolves a long trail from the high-water price, ratcheted up since entry', () => {
     // Entry 90, price ran to 110: 8% trail sits at 110*0.92 = 101.2, not
     // 90*0.92 = 82.8.
-    const price = resolveStopPrice(trailing(8), 90, 'LONG', 110);
+    const price = resolveStopPrice(trailing(8), 'LONG', 110);
     expect(price).toBeCloseTo(101.2);
   });
 
@@ -91,7 +91,7 @@ describe('resolveStopPrice', () => {
     // The high-water price itself already reflects "holds at the peak" (see
     // computeFavorablePrice) — resolveStopPrice just applies the percentage
     // to whatever it is handed.
-    const price = resolveStopPrice(trailing(8), 90, 'LONG', 110);
+    const price = resolveStopPrice(trailing(8), 'LONG', 110);
     expect(price).toBeCloseTo(101.2);
     expect(price).toBeGreaterThan(90 * 0.92); // never the entry-anchored level
   });
@@ -99,12 +99,12 @@ describe('resolveStopPrice', () => {
   it('resolves a short trail from the low-water price, ratcheted down since entry', () => {
     // Entry 60, price fell to 50: 10% trail sits at 50*1.10 = 55, not
     // 60*1.10 = 66.
-    const price = resolveStopPrice(trailing(10), 60, 'SHORT', 50);
+    const price = resolveStopPrice(trailing(10), 'SHORT', 50);
     expect(price).toBeCloseTo(55);
   });
 
   it('returns null for a trailing level with no high-water price available', () => {
-    expect(resolveStopPrice(trailing(8), 90, 'LONG', null)).toBeNull();
+    expect(resolveStopPrice(trailing(8), 'LONG', null)).toBeNull();
   });
 
   it('does not need a high-water price for a FIXED level', () => {
@@ -114,7 +114,7 @@ describe('resolveStopPrice', () => {
       trailPercent: null,
       quantity: 10,
     };
-    expect(resolveStopPrice(fixed, 90, 'LONG', null)).toBe(82.8);
+    expect(resolveStopPrice(fixed, 'LONG', null)).toBe(82.8);
   });
 });
 

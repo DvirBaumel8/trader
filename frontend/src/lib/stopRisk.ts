@@ -64,8 +64,17 @@ export function draftRisk(
   }
 
   const cappedCover = Math.min(covered, size || covered);
+  // Scaled by the same ratio as the share count when tiers overshoot the
+  // position, exactly as computeRisk does. Capping the shares but not the
+  // dollars reported $1,200 at risk on a plan the backend correctly valued at
+  // $750 — a stop cannot put more at risk than the position is worth. Found
+  // by stopRisk.parity.spec.ts, which exists to catch precisely this drift.
+  const cappedAmount =
+    covered > cappedCover && covered > 0
+      ? amount * (cappedCover / covered)
+      : amount;
   return {
-    amount: covered > 0 ? Math.round(amount * 100) / 100 : null,
+    amount: covered > 0 ? Math.round(cappedAmount * 100) / 100 : null,
     covered: cappedCover,
     fullyCovered: covered > 0 && size > 0 && cappedCover >= size,
   };
