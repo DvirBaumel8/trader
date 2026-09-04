@@ -6,12 +6,24 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { YahooClient } from './yahoo.client.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
+import { isHistoryBehind } from './trading-day.js';
 
 export const BENCHMARKS = ['SPY', 'QQQ'] as const;
+
+/**
+ * How often a read may trigger a top-up. Short enough that a trailing stop
+ * picks up a new intraday high while he is watching it; long enough that a
+ * page polling every 60s does not hit Yahoo every time.
+ */
+const FRESHEN_INTERVAL_MS = 10 * 60 * 1000;
+
+/** Days of overlap re-fetched, so a revised recent bar is corrected. */
+const OVERLAP_DAYS = 7;
 
 @Injectable()
 export class HistoryService {
   private readonly log = new Logger(HistoryService.name);
+  private lastFreshenAt = 0;
 
   constructor(
     @InjectRepository(DailyClose)
@@ -110,6 +122,58 @@ export class HistoryService {
       await this.fetchAndStore(instrument, symbol, from);
     } catch (err) {
       this.log.warn(`could not price ${symbol} on first use: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Tops up daily bars when the stored history has fallen behind the market.
+   *
+   * Nothing else does this. `backfill()` waits to be called by hand and
+   * `ensurePriced()` only fires for an instrument with no rows at all, so
+   * every symbol froze on the day of the last manual run — which put the
+   * app's BITX trailing stop at 17.17 against the broker's 17.32, because
+   * the high-water mark it trails from was missing two days of highs, and
+   * left the benchmark chart comparing a live portfolio against a stale S&P.
+   *
+   * Read-triggered rather than scheduled: the API sleeps on its free tier, so
+   * a cron would not reliably fire, and this way freshness is a property of
+   * asking rather than of a background job having run.
+   *
+   * Never throws, and never blocks on a provider that is down: the caller is
+   * on the portfolio read path.
+   */
+  async ensureFresh(now: Date = new Date()): Promise<void> {
+    if (now.getTime() - this.lastFreshenAt < FRESHEN_INTERVAL_MS) return;
+
+    try {
+      const latest = (await this.closes
+        .createQueryBuilder('c')
+        .select('MAX(c.date)', 'max')
+        .getRawOne<{ max: string | null }>()) ?? { max: null };
+
+      if (!isHistoryBehind(latest.max, now)) {
+        // Up to date: hold the debounce so a quiet market is not re-checked
+        // on every single request.
+        this.lastFreshenAt = now.getTime();
+        return;
+      }
+
+      // Set before the work, not after: a slow or failing provider must not
+      // let concurrent requests all start their own top-up.
+      this.lastFreshenAt = now.getTime();
+
+      // A few days of overlap rather than only the missing ones. Yahoo revises
+      // recent bars (a split, a late print), and re-fetching a handful is
+      // free — upsert is keyed on (instrument, date).
+      const from = new Date(now);
+      from.setDate(from.getDate() - OVERLAP_DAYS);
+
+      const instrumentRows = await this.instruments.find();
+      for (const instrument of instrumentRows) {
+        await this.fetchAndStore(instrument, instrument.symbol, from);
+      }
+    } catch (err) {
+      this.log.warn(`could not refresh daily history: ${String(err)}`);
     }
   }
 
