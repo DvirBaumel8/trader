@@ -12,7 +12,9 @@ import {
   ArrayMaxSize,
   IsArray,
   IsISO8601,
+  IsIn,
   IsNumber,
+  IsOptional,
   IsString,
   Length,
   ValidateNested,
@@ -20,6 +22,26 @@ import {
 import { Type } from 'class-transformer';
 import { PortfolioService } from './portfolio.service.js';
 import { StopLevelDto } from '../journal/journal.dto.js';
+import { computeRisk } from './risk.js';
+
+/** A plan being typed, not one being saved — see the `stop-risk` route. */
+class StopRiskDto {
+  @IsNumber()
+  avgEntry: number;
+
+  @IsNumber()
+  quantity: number;
+
+  @IsOptional()
+  @IsIn(['LONG', 'SHORT'])
+  direction?: 'LONG' | 'SHORT';
+
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => StopLevelDto)
+  levels: StopLevelDto[];
+}
 
 class SeedHoldingDto {
   @IsString()
@@ -90,6 +112,35 @@ export class PortfolioController {
   @Patch('trades/:id/stops')
   reviseStops(@Param('id') id: string, @Body() body: ReviseStopsDto) {
     return this.portfolio.reviseTradeStops(id, body.levels);
+  }
+
+  /**
+   * Prices a stop plan the owner is still typing. Stateless — it reads
+   * nothing and writes nothing.
+   *
+   * It exists so the risk arithmetic has exactly one implementation. The
+   * frontend used to carry its own copy for this, which drifted from the
+   * real rule twice: once treating a profit-locking tier as no coverage, and
+   * once reporting $1,200 at risk on a plan actually worth $750. The
+   * frontend's job is to display the number, not to work it out.
+   *
+   * POST rather than GET because a plan is a list of tiers, not a query
+   * string — and because a URL full of position sizes is not something to
+   * leave in logs and history.
+   */
+  @Post('stop-risk')
+  stopRisk(@Body() body: StopRiskDto) {
+    return computeRisk({
+      avgEntry: body.avgEntry,
+      quantity: body.quantity,
+      direction: body.direction ?? 'LONG',
+      levels: body.levels.map((l) => ({
+        kind: l.kind,
+        price: l.price ?? null,
+        trailPercent: l.trailPercent ?? null,
+        quantity: l.quantity,
+      })),
+    });
   }
 
   @Get('status')

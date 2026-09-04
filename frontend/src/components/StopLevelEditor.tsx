@@ -1,4 +1,5 @@
-import { draftRisk, type StopRow } from '../lib/stopRisk';
+import { useStopRisk } from '../lib/useStopRisk';
+import type { StopRow } from '../lib/stopRow';
 import { formatMoney, formatQuantity } from './format';
 
 const inputClass =
@@ -23,7 +24,7 @@ export function StopLevelEditor({
   quantity: string;
   side: 'BUY' | 'SELL';
 }) {
-  const risk = draftRisk(entryPrice, quantity, rows, side);
+  const risk = useStopRisk(entryPrice, quantity, rows, side);
   const size = Math.abs(parseFloat(quantity || '0'));
 
   const update = (i: number, patch: Partial<StopRow>) =>
@@ -116,7 +117,7 @@ export function StopLevelEditor({
 
       {rows.length > 0 && (
         <p className="text-[11px] text-muted">
-          {risk.amount === null ? (
+          {risk === null || risk.amount === null ? (
             'Risk appears once a level is complete.'
           ) : (
             <>
@@ -126,7 +127,7 @@ export function StopLevelEditor({
                 <>
                   {' · '}
                   <span className={risk.fullyCovered ? '' : 'text-down'}>
-                    covers {formatQuantity(risk.covered)} of{' '}
+                    covers {formatQuantity(risk.coveredQuantity)} of{' '}
                     {formatQuantity(size)} sh
                   </span>
                 </>

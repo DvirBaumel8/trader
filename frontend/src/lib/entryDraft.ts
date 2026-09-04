@@ -1,4 +1,4 @@
-import type { StopRow } from './stopRisk';
+import type { StopRow } from './stopRow';
 
 export type EntryKind = 'TRADE' | 'CASH' | 'DIVIDEND' | 'NOTE';
 export type TradeSide = 'BUY' | 'SELL';

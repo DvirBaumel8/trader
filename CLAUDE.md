@@ -70,11 +70,20 @@ unaffected; `main` deploys automatically on push.
    never register as a gain.
 4. **Cash may be negative.** That is margin, a legitimate state. Never block it,
    never warn about it.
-5. **`yahoo.client.ts` is the only file allowed to import `yahoo-finance2`.**
+5. **The frontend displays; the backend computes.** No business logic or
+   money arithmetic in `frontend/`. Parsing input text, ordering rows for
+   display, chart geometry and browser storage are display concerns and stay;
+   anything that decides what a number *means* is the backend's. This is not
+   theoretical: the frontend kept its own copy of the risk rule, it drifted
+   from the real one twice, and the second drift reported $1,200 at risk on a
+   plan actually worth $750. A stateless endpoint (`POST /portfolio/stop-risk`)
+   serves the live figure instead. `docs/backlog.md` lists what has not moved
+   yet.
+6. **`yahoo.client.ts` is the only file allowed to import `yahoo-finance2`.**
    Swapping data providers should touch one file.
-6. **Never show a stale price as if it were fresh.** On provider failure, serve
+7. **Never show a stale price as if it were fresh.** On provider failure, serve
    the cached quote flagged `stale` and surface that in the UI.
-7. **Price by session.** `select-price.ts` chooses pre-market, regular or
+8. **Price by session.** `select-price.ts` chooses pre-market, regular or
    after-hours based on Yahoo's `marketState`, so the portfolio is current
    outside regular hours. Extended-hours prints are thinner and can gap, so
    they are always labelled in the UI, never passed off as the close.

@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import request from 'supertest';
 import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
 import { YahooClient } from '../src/market-data/yahoo.client.js';
@@ -420,5 +421,75 @@ describe('Portfolio (e2e)', () => {
       .post('/portfolio/seed')
       .send({ asOf: 'not-a-date', startingCash: 'lots', holdings: 'nope' })
       .expect(400);
+  });
+
+  describe('stop-risk', () => {
+    // The stop editor's live figure. Stateless and writes nothing: it prices
+    // a plan the owner is still typing, which may never be saved. It exists
+    // so the risk arithmetic has ONE implementation — the frontend used to
+    // carry its own copy, which drifted and overstated risk.
+    it('prices a draft plan without saving anything', async () => {
+      const res = await http(app, token)
+        .post('/portfolio/stop-risk')
+        .send({
+          avgEntry: 100,
+          quantity: 100,
+          direction: 'LONG',
+          levels: [{ kind: 'FIXED', price: 90, quantity: 100 }],
+        })
+        .expect(201);
+
+      expect(res.body.amount).toBeCloseTo(1000, 6);
+      expect(res.body.coveredQuantity).toBeCloseTo(100, 6);
+      expect(res.body.fullyCovered).toBe(true);
+    });
+
+    it('caps the dollar figure when tiers overshoot the position', async () => {
+      // The exact case the frontend copy got wrong: it reported 1200.
+      const res = await http(app, token)
+        .post('/portfolio/stop-risk')
+        .send({
+          avgEntry: 100,
+          quantity: 100,
+          direction: 'LONG',
+          levels: [
+            { kind: 'FIXED', price: 90, quantity: 80 },
+            { kind: 'FIXED', price: 95, quantity: 80 },
+          ],
+        })
+        .expect(201);
+
+      expect(res.body.amount).toBeCloseTo(750, 6);
+      expect(res.body.overCovered).toBe(true);
+    });
+
+    it('counts a stop that locks in a gain as covered, at zero risk', async () => {
+      const res = await http(app, token)
+        .post('/portfolio/stop-risk')
+        .send({
+          avgEntry: 100,
+          quantity: 100,
+          direction: 'LONG',
+          levels: [{ kind: 'FIXED', price: 120, quantity: 100 }],
+        })
+        .expect(201);
+
+      expect(res.body.amount).toBeCloseTo(0, 6);
+      expect(res.body.fullyCovered).toBe(true);
+    });
+
+    it('requires a token', async () => {
+      await request(app.getHttpServer())
+        .post('/portfolio/stop-risk')
+        .send({ avgEntry: 100, quantity: 100, levels: [] })
+        .expect(401);
+    });
+
+    it('rejects a malformed plan', async () => {
+      await http(app, token)
+        .post('/portfolio/stop-risk')
+        .send({ avgEntry: 'lots', quantity: 100, levels: 'nope' })
+        .expect(400);
+    });
   });
 });

@@ -11,7 +11,7 @@ import {
   type EntryDraft,
   type EntryKind,
 } from '../lib/entryDraft';
-import type { StopRow } from '../lib/stopRisk';
+import type { StopRow } from '../lib/stopRow';
 import { StopLevelEditor } from './StopLevelEditor';
 import type { Entry } from './EntryCard';
 

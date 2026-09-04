@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { StopLevelEditor } from './StopLevelEditor';
 import { usePersistentState } from '../lib/persistentState';
-import type { StopRow } from '../lib/stopRisk';
+import type { StopRow } from '../lib/stopRow';
 
 interface Tier {
   kind: 'FIXED' | 'TRAILING';
