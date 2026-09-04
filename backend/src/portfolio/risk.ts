@@ -93,9 +93,20 @@ export function computeFavorablePrice(
   bars: Array<{ high: number; low: number }>,
   direction: 'LONG' | 'SHORT',
   currentPrice: number | null,
+  /**
+   * The extreme reached in extended hours, when known. Daily bars carry the
+   * regular session only, so without this a trail ignores pre-market and
+   * after-hours entirely — which put the app's BITX stop at $17.33 against
+   * the broker's $17.63. The owner's broker ratchets on extended prints, and
+   * a stop that disagrees with his broker is worse than one not shown.
+   */
+  extendedExtreme: number | null = null,
 ): number | null {
   const values = bars.map((b) => (direction === 'LONG' ? b.high : b.low));
   if (currentPrice !== null && currentPrice > 0) values.push(currentPrice);
+  if (extendedExtreme !== null && extendedExtreme > 0) {
+    values.push(extendedExtreme);
+  }
   if (values.length === 0) return null;
   return direction === 'LONG' ? Math.max(...values) : Math.min(...values);
 }

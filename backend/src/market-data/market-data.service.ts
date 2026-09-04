@@ -25,15 +25,65 @@ interface CacheEntry {
 
 const DEFAULT_TTL_MS = 60_000;
 
+/**
+ * Longer than a quote's TTL on purpose. A high-water mark since entry only
+ * ever ratchets, and never by much in a minute — while the dashboard polls
+ * every 60s, so tying this to the quote TTL would put an extra provider
+ * round trip per trailing position on almost every poll.
+ */
+const EXTREMES_TTL_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class MarketDataService {
   private readonly cache = new Map<string, CacheEntry>();
+  /** symbol -> extremes since a position's entry, with pre/post included. */
+  private readonly extremesCache = new Map<
+    string,
+    { fetchedAt: number; high: number | null; low: number | null }
+  >();
   private readonly yahoo: YahooClient;
   private readonly ttlMs: number;
 
   constructor(yahoo: YahooClient, ttlMs: number = DEFAULT_TTL_MS) {
     this.yahoo = yahoo;
     this.ttlMs = ttlMs;
+  }
+
+  /**
+   * The highest and lowest traded price since `from`, pre-market and
+   * after-hours included.
+   *
+   * A trailing stop ratchets from the most favourable price REACHED, and the
+   * owner's broker counts extended prints. Daily bars do not: BITX peaked
+   * near $19.58 outside regular hours while its daily high was $19.21, which
+   * put the app's trail at $17.33 against the broker's $17.63. A stop that
+   * disagrees with the broker is worse than no stop shown at all.
+   *
+   * Cached like a quote, and for the same reason: this sits on the portfolio
+   * read path, which must not spend a network round trip per trailing
+   * position on every load.
+   */
+  async getExtendedExtremes(
+    symbol: string,
+    from: Date,
+    force = false,
+  ): Promise<{ high: number | null; low: number | null }> {
+    const key = `${symbol.toUpperCase()}:${from.toISOString().slice(0, 10)}`;
+    const cached = this.extremesCache.get(key);
+    if (!force && cached && Date.now() - cached.fetchedAt < EXTREMES_TTL_MS) {
+      return { high: cached.high, low: cached.low };
+    }
+    try {
+      const found = await this.yahoo.extremesIncludingExtended(symbol, from);
+      this.extremesCache.set(key, { ...found, fetchedAt: Date.now() });
+      return found;
+    } catch {
+      // A failure here must never take down the portfolio: the caller falls
+      // back to daily bars, which is the behaviour that existed before this.
+      return cached
+        ? { high: cached.high, low: cached.low }
+        : { high: null, low: null };
+    }
   }
 
   /**

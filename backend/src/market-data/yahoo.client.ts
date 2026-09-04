@@ -72,6 +72,49 @@ export class YahooClient {
   }
 
   /**
+   * The highest and lowest price traded since `from`, INCLUDING pre-market
+   * and after-hours.
+   *
+   * Daily bars carry the regular session only, so a trailing stop resolved
+   * from them ignores extended prints entirely: BITX peaked around $19.55
+   * outside regular hours on 2026-09-03, the daily high was $19.21, and the
+   * app's trail sat $0.30 below the broker's as a result.
+   *
+   * Hourly rather than minute bars: minute data is capped at a few days,
+   * hourly reaches back far enough for a position held for months, and an
+   * hour's high is still a real traded price. The cost of the coarser
+   * interval is that a spike inside an hour is captured by that hour's high
+   * anyway — highs do not average out.
+   */
+  async extremesIncludingExtended(
+    symbol: string,
+    from: Date,
+  ): Promise<{ high: number | null; low: number | null }> {
+    const result = await this.yf.chart(symbol, {
+      period1: from,
+      period2: new Date(),
+      interval: '1h',
+      includePrePost: true,
+    });
+    const quotes = (result?.quotes ?? []) as {
+      high?: number | null;
+      low?: number | null;
+    }[];
+
+    let high: number | null = null;
+    let low: number | null = null;
+    for (const q of quotes) {
+      if (typeof q.high === 'number' && Number.isFinite(q.high)) {
+        high = high === null ? q.high : Math.max(high, q.high);
+      }
+      if (typeof q.low === 'number' && Number.isFinite(q.low)) {
+        low = low === null ? q.low : Math.min(low, q.low);
+      }
+    }
+    return { high, low };
+  }
+
+  /**
    * Daily bars from `from` to today. Yahoo's chart endpoint takes ONE symbol
    * per call — arrays are rejected — so callers loop.
    */

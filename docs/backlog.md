@@ -40,7 +40,9 @@ this says what is outstanding.
   that actually have a stop. `19525ed`
 - [ ] **Refresh button for current prices on the Stops page** — and consider
   hiding it outside regular, pre- and after-hours sessions.
-- [ ] **Put dates on the benchmark comparison chart.**
+- [ ] **The top of the Stops page looks bad.** Redesign it.
+- [ ] **Dates on the benchmark chart while dragging a finger across it** — the
+  value under the finger should say which day it is.
 - [ ] **Filter trades by ticker** (possibly multiple tickers at once).
 - [ ] **The trade-idea result buries its numbers** under ~400 words of prose.
   A compact verdict strip above the writing, prose collapsible below.

@@ -152,6 +152,14 @@ export class PortfolioService {
           },
         });
         const currentPrice = quotes.get(t.symbol)?.price ?? null;
+        // Daily bars are the regular session only, so without this the trail
+        // never sees a pre-market or after-hours print. Cached in
+        // MarketDataService, and it falls back to null (i.e. bars alone) if
+        // the provider fails, which is the behaviour that existed before.
+        const extended = await this.marketData.getExtendedExtremes(
+          t.symbol,
+          t.enteredAt,
+        );
         highWaterPriceBySymbol.set(
           t.symbol,
           computeFavorablePrice(
@@ -161,6 +169,7 @@ export class PortfolioService {
             bars.map((b) => ({ high: b.high ?? b.close, low: b.low ?? b.close })),
             t.direction,
             currentPrice,
+            t.direction === 'LONG' ? extended.high : extended.low,
           ),
         );
       }),

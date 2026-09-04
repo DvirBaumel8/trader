@@ -541,3 +541,28 @@ describe('evaluateStopPlan', () => {
     expect(status.issue).toBe('OVER_COVERED');
   });
 });
+
+describe('computeFavorablePrice with extended hours', () => {
+  const bars = [{ high: 19.21, low: 17.0 }];
+
+  it('ratchets a long trail up to an extended-hours high', () => {
+    // The real BITX case: the regular session topped at 19.21 while the stock
+    // printed 19.58 outside hours. Trailing 9.8% from 19.21 gives 17.33; from
+    // 19.58 it gives 17.66, which is what his broker showed.
+    expect(computeFavorablePrice(bars, 'LONG', 18.24, 19.58)).toBeCloseTo(19.58, 6);
+  });
+
+  it('ignores an extended print that is worse than the session high', () => {
+    expect(computeFavorablePrice(bars, 'LONG', 18.24, 18.9)).toBeCloseTo(19.21, 6);
+  });
+
+  it('takes the extended LOW for a short', () => {
+    expect(computeFavorablePrice(bars, 'SHORT', 18.0, 16.4)).toBeCloseTo(16.4, 6);
+  });
+
+  it('is unchanged when nothing extended is known', () => {
+    // Null, not zero: an unknown extreme must not drag a short's trail to 0.
+    expect(computeFavorablePrice(bars, 'LONG', 18.24, null)).toBeCloseTo(19.21, 6);
+    expect(computeFavorablePrice(bars, 'SHORT', 18.0, null)).toBeCloseTo(17.0, 6);
+  });
+});
