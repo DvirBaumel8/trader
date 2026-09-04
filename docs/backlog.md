@@ -8,35 +8,36 @@ this says what is outstanding.
 
 ## Bugs — correctness
 
-- [ ] **Trailing stop on BITX reads 17.17, the broker says 17.32.** A stop the
-  owner acts on must match his broker or the app is worse than useless. Suspect
-  the high-water mark: `computeFavorablePrice` takes the max of daily bar highs
-  since entry plus the current price, so an extended-hours high that Yahoo puts
-  in the daily bar (or omits from it) moves the trail. Reproduce against the
-  real position before changing anything.
-- [ ] **"+8% today but still behind the Nasdaq."** Either the benchmark series
-  or the time-weighted return is wrong, or the comparison window is not the one
-  the owner thinks he is reading. `performance/series.ts` is pure — reproduce
-  with a fixture first.
+- [x] **Trailing stop on BITX read 17.17 against the broker's 17.32.** Root
+  cause: `daily_closes` had stopped refreshing entirely, so the high-water mark
+  was two days stale. `HistoryService.ensureFresh` now tops up on the portfolio
+  read path. Fixed in `5f56434`.
+- [ ] **"+8% today but still behind the Nasdaq."** Probably the same stale
+  bars — the benchmark was comparing a live portfolio against a two-day-old
+  S&P — but that is a hypothesis, not a confirmed fix. **Re-check now the
+  history refreshes itself**, and if it still reads wrong, reproduce against
+  `performance/series.ts` with a fixture.
 - [ ] **Trade chart shows prices that are visibly wrong.** Called out as a basic
   feature that must be right. Needs its own investigation; do not patch symptoms.
+  Worth re-checking after the freshness fix, for the same reason.
 
 ## Bugs — behaviour on the phone
 
-- [ ] **Scroll position is lost when returning to the app.** Wanted everywhere,
-  not just one screen. `usePersistentState` now exists and is the obvious tool.
-- [ ] **The app is zoomed in on return.** Almost certainly iOS auto-zoom on
-  focusing an input under 16px — the app's inputs are `text-sm` (14px). Check
-  the viewport meta and the input font sizes together.
-- [ ] **A new activity/journal entry opens pre-populated.** It must always start
-  empty. The `EntrySheet` draft has no expiry, so an abandoned draft is
-  restored forever; `usePersistentState` already applies a one-hour window.
+- [x] **Scroll position lost on return** — `RestoreScroll`, per path, flushed on
+  backgrounding. `19525ed`.
+- [x] **Zoomed in on return** — iOS auto-zoom on sub-16px inputs. `19525ed`.
+- [x] **New journal entry opened pre-populated** — the draft had no expiry.
+  `19525ed`. **Read as "do not resurrect a stale draft" rather than "never
+  restore one"**, since removing draft persistence would reintroduce the data
+  loss it exists to prevent. Confirm that reading is what was meant.
 
 ## UI
 
-- [ ] **Swap the Stops and Journal tabs.**
-- [ ] **"After hours" is repeated on every row of the Stops page.** Say it once.
-- [ ] **Show average risk in dollars on the Stops page.**
+- [x] **Swap the Stops and Journal tabs.** `19525ed`
+- [x] **"After hours" repeated on every Stops row** — said once in the header;
+  `STALE` stays per row. `19525ed`
+- [x] **Average risk in dollars on the Stops page** — averaged over positions
+  that actually have a stop. `19525ed`
 - [ ] **Refresh button for current prices on the Stops page** — and consider
   hiding it outside regular, pre- and after-hours sessions.
 - [ ] **Put dates on the benchmark comparison chart.**
@@ -56,17 +57,16 @@ opinion on buying BITX that lectured the owner about having no crypto in his
 profile, while he held 4,600 shares of it. It answered "should I open this?"
 when the question was "should I add to this winner?".
 
-- [ ] **Full book in the prompt** — every position (symbol, shares, avg entry,
-  current, unrealised, % of account), cash/margin, and total dollars at risk.
-- [ ] **Trading record** — win rate, avg win/loss, expectancy in R, avg risk;
-  every past round-trip in the ticker being asked about; the last ~15 closed
-  trades with their setup/mistake tags.
-- [ ] **Recent price action** — today's change against the previous close,
-  today's open/high/low, the 5-day change and range, then the last 10 daily
-  bars as a compact table. `TickerFactsService` already holds these bars, so
-  this costs no extra Yahoo call.
-- [ ] **Tell the model to treat an existing holding as an add/trim decision.**
-  This is the actual fix for the BITX answer.
+- [x] **Full book in the prompt** — `1e9168b`
+- [x] **Trading record** — `1e9168b`, except: **setup/mistake tags are still
+  missing.** Derived trades do not carry them, so it needs a join from trades
+  back to their journal entries. That is the part that would let the model say
+  "this is the setup you lose on".
+- [x] **Recent price action** — `8103b46`
+- [x] **Treat an existing holding as an add/trim decision** — `1e9168b`
+- [ ] **Check the enlarged prompt actually improved the answer.** It is
+  materially longer now; re-ask BITX and confirm it reads as an add/trim
+  decision, and that the extra context sharpened rather than diluted it.
 - [ ] **Ideas answers are slow.** Look at streaming, a smaller model for the
   first pass, or cutting prompt size.
 
