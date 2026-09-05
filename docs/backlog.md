@@ -9,31 +9,25 @@ this says what is outstanding.
 
 ## Bugs — correctness
 
-- [ ] **Trade chart shows prices that are visibly wrong.** Called out as a basic
-  feature that must be right. **Needs a concrete example — investigated once
-  and nothing reproduced.** Ruled out so far, against the real database:
+- [ ] **Trade chart: fill markers float away from the price traded.** Root
+  cause found from the owner's screenshots, and half-fixed. The markers are
+  anchored to the *bar*, not the price (`belowBar` for buys, `aboveBar` for
+  sells), so an arrow lands just outside the candle rather than at the fill:
+  PLTR sold at 167.15 drew its arrow near 185, BITX's sells at 17.46/17.07
+  floated near 20-21, META's buy at 578.69 read as ~565. Nothing is wrong
+  with the data — the bars, the summary text and the numbers in the header
+  were all correct throughout.
 
-  - The stored bars are sound: 1,176 rows, zero null `open`/`high`/`low`,
-    OHLC internally coherent, `adjClose` equal to `close` (so no split or
-    dividend adjustment is skewing anything), and fresh through the last
-    trading day.
-  - No trade predates its own price history — earliest fill 2026-08-28
-    against bars from 2026-07-14 — so the 45-day runway is doing its job
-    and no chart is missing the context around its entry.
-  - The chart passes `date` to `lightweight-charts` as a business-day
-    string, so there is no timezone conversion to shift a bar by a day.
-  - Null OHLC cannot reach the candle series: `hasRange` filters those bars
-    out before `setData` (deliberately omitting a candle rather than
-    inventing a flat one).
+  **Done:** a solid line at each price actually traded (green for buys, red
+  for sells, `fillPriceLines`), drawn beside the dashed stop lines and
+  revealed with its own fill during replay. The real level is now on the
+  plot without covering the candle.
 
-  **The most likely candidate left is placement, not price.** A *seeded*
-  opening fill is stamped with the seed date and the owner's average cost
-  rather than a real historical print, so `placeFills` relocates its marker
-  to an earlier bar whose range actually contains that price. That is
-  working as designed and is honest about it, but a marker sitting on a day
-  he did not trade, at a price that is an average rather than a print, is
-  exactly the kind of thing that reads as "wrong" on the phone. **Ask which
-  symbol and what looked off before changing anything here.**
+  **Open:** the arrows themselves still float. Moving them onto the price
+  (`atPriceMiddle`) was tried before and rejected because the marker then
+  covers the candle it annotates — a real cost, but a smaller one than an
+  arrow sitting at a price that was never traded. Needs the owner's eye on
+  the line-only version first before deciding whether the arrows move too.
 
 ## UI
 

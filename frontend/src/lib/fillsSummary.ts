@@ -47,3 +47,34 @@ export function formatFillsSummary(fills: FillSummaryInput[]): string {
     )
     .join(' · ');
 }
+
+export interface FillPriceLine {
+  price: number;
+  side: 'BUY' | 'SELL';
+}
+
+/**
+ * One horizontal line per price actually traded, for drawing beside the
+ * fill markers.
+ *
+ * The markers themselves are anchored to the bar, not the price
+ * (`belowBar`/`aboveBar` — see TradeChart), because putting them on the
+ * price covers the candle they annotate. The cost of that is a marker
+ * floating at a level the owner never traded at: a PLTR sell at 167.15
+ * drew an arrow up near 185, which reads as the chart being wrong about
+ * the price. The line puts the real number back on the chart without
+ * covering anything, and the arrow keeps saying which day and which way.
+ *
+ * Deduplicated by price: scaling in at one level is several fills but one
+ * line, and stacking identical lines only thickens it.
+ */
+export function fillPriceLines(fills: FillSummaryInput[]): FillPriceLine[] {
+  const bySide = new Map<number, 'BUY' | 'SELL'>();
+  for (const f of fills) {
+    if (!Number.isFinite(f.price) || f.price <= 0) continue;
+    bySide.set(f.price, f.side);
+  }
+  return [...bySide.entries()]
+    .map(([price, side]) => ({ price, side }))
+    .sort((a, b) => a.price - b.price);
+}

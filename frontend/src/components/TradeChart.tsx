@@ -20,7 +20,7 @@ import {
   type Bar,
 } from '../lib/candleScale';
 import { replayFrame } from '../lib/tradeReplay';
-import { formatFillsSummary } from '../lib/fillsSummary';
+import { fillPriceLines, formatFillsSummary } from '../lib/fillsSummary';
 import { resolvedStopLines } from '../lib/stopSummary';
 
 export interface Fill {
@@ -429,7 +429,7 @@ export function TradeChart({
     for (const line of priceLinesRef.current) {
       series.removePriceLine(line);
     }
-    priceLinesRef.current = frame.stopLinesVisible
+    const stopLines = frame.stopLinesVisible
       ? drawableStops.map((s) =>
           series.createPriceLine({
             price: s.price,
@@ -441,6 +441,26 @@ export function TradeChart({
           }),
         )
       : [];
+
+    // A line at each price actually traded. The markers above are anchored
+    // to the bar rather than the price (see their note), so a fill's arrow
+    // can float well away from the number in the summary beneath the chart
+    // — a PLTR sell at 167.15 drew its arrow up near 185. These put the real
+    // level back on the plot without covering the candle, and appear as
+    // their own fill does during replay, so nothing is revealed early.
+    const revealedFills = frame.visibleFillIndices.map((i) => placed[i].fill);
+    const fillLines = fillPriceLines(revealedFills).map((l) =>
+      series.createPriceLine({
+        price: l.price,
+        color: l.side === 'BUY' ? UP : DOWN,
+        lineWidth: 1,
+        lineStyle: LineStyle.Solid,
+        axisLabelVisible: false,
+        title: '',
+      }),
+    );
+
+    priceLinesRef.current = [...stopLines, ...fillLines];
   }, [step, bars, fills, stopLevels]);
 
   if (candleBars.length === 0) {
