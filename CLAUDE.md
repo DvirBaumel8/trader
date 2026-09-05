@@ -209,6 +209,7 @@ Which file answers which question, and whether it loads on its own:
 | `docs/superpowers/specs/2026-09-03-stop-executions-design.md` | Why stop executions are recorded rather than inferred, the entry-anchored signed at-risk change, and the one-off historical backfill | On demand |
 | `docs/superpowers/specs/2026-09-03-trade-idea-design.md` | The pre-trade opinion: what the app computes vs what the model may judge, and why proposing a stop is allowed where inventing a number is not | On demand |
 | `docs/DEPLOYMENT.md` | How to deploy, and the account setup behind it | On demand |
+| `docs/api.md` | What the running app exposes, and how to authenticate against it — the route map, which routes are public, and which ones write | On demand |
 
 The spec and plan documents above are deliberately **not** imported: they are
 long, mostly historical, and only relevant when revisiting a decision or
@@ -244,3 +245,14 @@ demand. A document nobody is pointed at will not be read.
   shipped full edit and delete on journal entries, which recomputes the
   derived portfolio. Do not build a separate position-editing UI — editing a
   journal entry is the one correction path.
+- **`InstrumentsModule` and `MarketDataModule` are circular, and that is
+  accepted.** Four `forwardRef`s hold it together. The cycle is thin and
+  domain-real: an instrument is named from a quote
+  (`InstrumentsService.findOrCreate` → `MarketDataService.getQuote`), and
+  `HistoryService.backfill` needs `findOrCreate` for exactly one reason —
+  creating the SPY/QQQ rows on a first run, since every other symbol it
+  backfills already exists as an instrument. Breaking it was considered and
+  rejected: a second instrument-creation path would duplicate logic this
+  repo has been bitten by duplicating before, and the alternatives cost a
+  module restructure or a benchmark row with no name. Leave the
+  `forwardRef`s; do not add new edges to the cycle.

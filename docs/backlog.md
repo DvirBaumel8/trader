@@ -64,37 +64,60 @@ when the question was "should I add to this winner?".
 
 Raised as a block; each needs its own slice.
 
-- [ ] Replace hand-rolled code where a library does it properly. Check what is
-  actually maintained before adopting anything.
-- [ ] Remove duplicated tests — an e2e test may already cover what a unit test
-  asserts.
-- [ ] **Major dependency upgrades.** Wanted, but deliberately not bundled with
-  the security patch in `0e2cb55` — a green suite after six majors at once
-  proves nothing about any one of them. Take them in separate commits, in
-  roughly this order, easiest to hairiest:
+- [ ] **TypeScript 7 is blocked — everything else on the upgrade list is
+  done.** `@types/node` 24→26, `@testing-library/jest-dom` 6→7, `jsdom` 27→30
+  and `vitest` + `@vitest/coverage-v8` 4→5 all landed clean (merged coverage
+  unchanged at 91.63% statements / 92.97% lines, so the blob-report merge
+  survived). `vite-tsconfig-paths` was **deleted, not upgraded**: the backend
+  declares no `paths` and no `baseUrl` and imports no aliases, so the plugin
+  resolved nothing — removing it also silenced the deprecation notice that
+  printed on every test run.
 
-  | Upgrade | From → to | What to watch |
-  |---|---|---|
-  | `@types/node` | 24 → 26 | Types only. Should be noise; if it is not, that is informative. |
-  | `@testing-library/jest-dom` | 6 → 7 | Matcher signatures. Test-only. |
-  | `jsdom` | 27 → 30 | The DOM tests lean on it (`EntrySheet`, `Journal`, `persistentState`). Watch `localStorage` and timer behaviour. |
-  | `vite-tsconfig-paths` | 5 → 6 | Path alias resolution; both vitest configs load it. Vite 8 may resolve paths natively now — the plugin already prints a deprecation notice, so this may be a deletion rather than an upgrade. |
-  | `vitest` + `@vitest/coverage-v8` | 4 → 5 | Must move together. The blob-report merge behind `test:cov:all` is the fragile part, along with `--merge-reports`. |
-  | `typescript` | 6 → 7 | Last and alone. New inference and stricter checks reach every file, and both packages compile with different strictness. |
+  **TypeScript 7 was tried and reverted.** It is the native (Go) compiler and
+  ships no `lib.*.d.ts` files at all — they live inside the binary. `tsc
+  --noEmit` and the whole test suite pass on it (vitest transpiles with
+  esbuild/rolldown, not tsc), which makes it look fine, but the NestJS CLI
+  watcher builds its own program through the JS API and cannot find the
+  default libs: `npm run dev` dies with 11 × "Cannot find global type
+  'Array'" and `TS6053: lib.es2023.full.d.ts not found`. Both packages are
+  back on 6.x. **Recheck when `@nestjs/cli` states TS7 support** — verifying
+  with `tsc --noEmit` alone is not enough, the acceptance test is a clean
+  `npm run dev` recompile.
 
-  Do not run `nest build` while `npm run dev` is running while doing this —
-  it wipes `dist` under the watcher and looks like an upgrade breaking the app
-  when it is not.
+- [ ] **Concurrent edits to the same journal entry: probed, not fixed.**
+  Confirmed by firing two overlapping `PATCH /journal/:id` requests: no
+  corruption (Postgres's own row locking keeps exactly one transaction row,
+  never zero or duplicated), but no conflict detection either — both
+  requests get a 200, and whichever's write commits last silently overwrites
+  the other with no signal to the loser that its save did not stick.
 
-- [ ] **Still unprobed**: date-range validation (`?from=hello` returns 200 and
-  silently filters everything out rather than 400), and concurrent edits to
-  the same journal entry.
-- [ ] A pass for best practices — interfaces, generics, inheritance where they
-  genuinely earn their place.
-- [ ] `getPortfolio` (`portfolio.service.ts`) is still ~240 lines — it fetches,
-  derives, prices, resolves trailing stops and assembles a response in one
-  method. Next candidate for the same by-question split that produced
-  `TradesService` and `SeedService`.
-- [ ] Loosen tight coupling.
-- [ ] Documentation and `.md` files aimed at agent integration.
-- [ ] Review sync vs async boundaries.
+  **It is worse than lost data: the race also creates lock contention.** The
+  e2e test written to document this was itself intermittently hanging the
+  suite — roughly one run in six, a later spec's `POST /journal` would block
+  past the 5s timeout waiting on locks the racing pair left behind. The test
+  was removed for that reason (a flaky suite costs more than executable
+  documentation of a gap already written up here), but the behaviour it
+  exposed is the real argument for fixing this: two overlapping edits do not
+  just silently drop one, they can stall unrelated writes.
+
+  **Do not re-add a test that races two writes at the same row** without
+  solving that — it destabilises everything that runs after it.
+
+  A real fix means optimistic concurrency (a version/`updatedAt` check on
+  `PATCH`, 409 on mismatch, and a frontend conflict UI) — real complexity for
+  a single-user app mostly used from one device at a time. Worth a deliberate
+  decision on whether this earns it, not a default yes.
+- [ ] `getPortfolio` (`portfolio.service.ts`) is still ~227 lines — it fetches,
+  derives, prices, and assembles a response in one method. `computeAtRisk`
+  moved to `risk.ts` as a pure, unit-tested function; the trailing-stop
+  high-water-price resolution moved to `TradesService.resolveHighWaterPrice`,
+  shared with `getTrade()` — which turned up a real bug along the way:
+  `getTrade()` had never folded in extended-hours extremes at all, so a
+  trade's own detail page could resolve a TRAILING stop to a different price
+  than the Stops page for the same position. Fixed, with an e2e regression
+  test (`trades.e2e-spec.ts`, extended high above both the daily bar and the
+  live quote) — and `test/yahoo-stub.ts` gained an `extendedExtremes` option
+  since nothing could test this path before. What's left in `getPortfolio` is
+  now mostly fetch-and-assemble (positions array, at-risk, stop tiers) — real
+  further splitting would mean pulling pricing/assembly into its own method
+  or file, not obviously a win over reading it top to bottom as one story.
