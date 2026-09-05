@@ -244,6 +244,40 @@ export class TradesService {
   }
 
   /**
+   * The high-water price since entry for one trade — the concrete anchor a
+   * TRAILING stop resolves against (see `resolveStopPrice`/
+   * `computeFavorablePrice` in risk.ts). Bars are the caller's own — this
+   * trade's chart window here, all open positions' post-entry bars in
+   * `PortfolioService` — but the extended-hours lookup and the
+   * high/low-falls-back-to-close mapping live in exactly one place, so the
+   * Stops page and this trade's own detail can never resolve the same
+   * TRAILING stop to two different prices. That happened once: a trail
+   * ignoring extended prints put a resolved stop at $17.33 against a
+   * broker's real $17.63 after-hours print.
+   */
+  async resolveHighWaterPrice(
+    symbol: string,
+    enteredAt: Date,
+    direction: 'LONG' | 'SHORT',
+    barsSinceEntry: Array<{ high: number | null; low: number | null; close: number }>,
+    currentPrice: number | null,
+  ): Promise<number | null> {
+    // Cached in MarketDataService, and it falls back to null (i.e. bars
+    // alone) if the provider fails — the behaviour that existed before this
+    // lookup was added.
+    const extended = await this.marketData.getExtendedExtremes(symbol, enteredAt);
+    return computeFavorablePrice(
+      // high/low are null on bars written before that migration — close is
+      // never null, and a fallback to it is still a real traded price, just
+      // a less extreme one than the true high/low.
+      barsSinceEntry.map((b) => ({ high: b.high ?? b.close, low: b.low ?? b.close })),
+      direction,
+      currentPrice,
+      direction === 'LONG' ? extended.high : extended.low,
+    );
+  }
+
+  /**
    * One trade with everything the chart draws: its fills, the stop tiers
    * recorded at entry, and the daily bars either side of it.
    */
@@ -300,9 +334,11 @@ export class TradesService {
       ? ((await this.marketData.getQuotes([trade.symbol], false)).get(trade.symbol)
           ?.price ?? null)
       : null;
-    const highWaterPrice = computeFavorablePrice(
-      barsSinceEntry.map((b) => ({ high: b.high ?? b.close, low: b.low ?? b.close })),
+    const highWaterPrice = await this.resolveHighWaterPrice(
+      trade.symbol,
+      trade.enteredAt,
       trade.direction,
+      barsSinceEntry,
       currentPriceForTrail,
     );
     const hasUnresolvedTrailing = currentStops.some(

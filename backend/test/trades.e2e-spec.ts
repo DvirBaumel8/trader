@@ -16,9 +16,15 @@ describe('Trades (e2e)', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
-      // No test reaches the network. See test/yahoo-stub.ts.
+      // No test reaches the network. See test/yahoo-stub.ts. BITX's extended
+      // extreme is configured here (rather than per-test) because the stub
+      // is built once for the whole file. 21 is deliberately above both the
+      // daily bar's high and BITX's stub quote price (20, STUB_PRICES) used
+      // below, so only folding in the extended print can produce it.
       .overrideProvider(YahooClient)
-      .useValue(yahooStub())
+      .useValue(
+        yahooStub({ extendedExtremes: { BITX: { high: 21, low: null } } }),
+      )
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(
@@ -222,6 +228,46 @@ describe('Trades (e2e)', () => {
     // 1000 * (1 - 0.085) = 915, not the entry-anchored 7.36 * 0.915.
     expect(detail.body.stopLevels[0].resolvedPrice).toBeCloseTo(915, 6);
     expect(detail.body.stopPlanStatus.issue).not.toBe('UNRESOLVED_TRAILING');
+  });
+
+  it('resolves a TRAILING stop from an extended-hours high, not just daily bars and the live quote', async () => {
+    // The real incident this guards: a BITX-style symbol whose true
+    // high-water mark was set by a pre/post-market print (21, configured on
+    // the shared stub above), higher than both its daily bar (19.21) and its
+    // live regular-session quote (20, STUB_PRICES) — the trade detail must
+    // agree with the Stops page and price the trail from the true mark.
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'breakout entry',
+        occurredAt: '2026-01-03T14:30:00.000Z',
+        trade: {
+          symbol: 'BITX',
+          quantity: 100,
+          price: 18,
+          fee: 0,
+          stopLevels: [{ kind: 'TRAILING', trailPercent: 5, quantity: 100 }],
+        },
+      })
+      .expect(201);
+
+    const [{ id: instrumentId }] = (await dataSource.query(
+      `SELECT id FROM instruments WHERE symbol = 'BITX'`,
+    )) as Array<{ id: string }>;
+    await dataSource.query(
+      `INSERT INTO daily_closes (id, "instrumentId", date, close, "adjClose", open, high, low, volume)
+       VALUES (public.uuid_generate_v4(), $1, '2026-01-06', 19.0, 19.0, 18.8, 19.21, 18.7, 2000000)`,
+      [instrumentId],
+    );
+
+    const id = `BITX:2026-01-03T14:30:00.000Z`;
+    const detail = await http(app, token)
+      .get(`/portfolio/trades/${encodeURIComponent(id)}`)
+      .expect(200);
+
+    // 21 * (1 - 0.05) = 19.95, not the live-quote-only 20 * 0.95 = 19.
+    expect(detail.body.stopLevels[0].resolvedPrice).toBeCloseTo(19.95, 6);
   });
 
   it('leaves resolvedPrice null for a closed trade with no bar history at all', async () => {

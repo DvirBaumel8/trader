@@ -1,4 +1,5 @@
 import {
+  computeAtRisk,
   computeFavorablePrice,
   computeRisk,
   computeRiskFromCurrentPrice,
@@ -564,5 +565,107 @@ describe('computeFavorablePrice with extended hours', () => {
     // Null, not zero: an unknown extreme must not drag a short's trail to 0.
     expect(computeFavorablePrice(bars, 'LONG', 18.24, null)).toBeCloseTo(19.21, 6);
     expect(computeFavorablePrice(bars, 'SHORT', 18.0, null)).toBeCloseTo(17.0, 6);
+  });
+});
+
+describe('computeAtRisk', () => {
+  const plan = (overrides: {
+    direction?: 'LONG' | 'SHORT';
+    avgEntry?: number;
+    levels?: StopLevelInput[];
+    highWaterPrice?: number | null;
+  }) => ({
+    direction: overrides.direction ?? ('LONG' as const),
+    avgEntry: overrides.avgEntry ?? 100,
+    levels: overrides.levels ?? [fixed(90, 100)],
+    highWaterPrice: overrides.highWaterPrice ?? null,
+  });
+
+  it('sums give-back-from-here across positions, not risk-at-entry', () => {
+    const result = computeAtRisk(
+      [
+        { symbol: 'A', quantity: 100, price: 110 },
+        { symbol: 'B', quantity: 50, price: 40 },
+      ],
+      new Map([
+        ['A', plan({ avgEntry: 100, levels: [fixed(90, 100)] })],
+        ['B', plan({ avgEntry: 30, levels: [fixed(35, 50)] })],
+      ]),
+    );
+
+    // A: (110 - 90) * 100 = 2000. B: (40 - 35) * 50 = 250.
+    expect(result.amount).toBeCloseTo(2250, 6);
+    expect(result.positionsWithoutStop.symbols).toEqual([]);
+    expect(result.stopPlanNeedsUpdate.count).toBe(0);
+  });
+
+  it('lists a position with no recorded stop, contributing nothing to the sum', () => {
+    const result = computeAtRisk(
+      [{ symbol: 'A', quantity: 100, price: 110 }],
+      new Map(),
+    );
+
+    expect(result.amount).toBe(0);
+    expect(result.positionsWithoutStop).toEqual({ count: 1, symbols: ['A'] });
+  });
+
+  it('floors a profit-locking stop at zero rather than letting it net against real risk', () => {
+    const result = computeAtRisk(
+      [
+        { symbol: 'WINNER', quantity: 100, price: 150 },
+        { symbol: 'LOSER', quantity: 100, price: 100 },
+      ],
+      new Map([
+        // Stop raised ABOVE the current price: a locked-in gain from here,
+        // which computeRiskFromCurrentPrice prices negative (150 - 160).
+        ['WINNER', plan({ avgEntry: 100, levels: [fixed(160, 100)] })],
+        // Ordinary stop below current price: real risk (100 - 95).
+        ['LOSER', plan({ avgEntry: 100, levels: [fixed(95, 100)] })],
+      ]),
+    );
+
+    // If the winner's negative contribution were allowed to net out, this
+    // would read 0 (-1000 + 500 capped, or similar) instead of the loser's
+    // real 500.
+    expect(result.amount).toBeCloseTo(500, 6);
+  });
+
+  it('skips a position with no live price, counting it as neither stopped nor unstopped', () => {
+    const result = computeAtRisk(
+      [{ symbol: 'A', quantity: 100, price: null }],
+      new Map([['A', plan({})]]),
+    );
+
+    expect(result.amount).toBe(0);
+    expect(result.positionsWithoutStop.symbols).toEqual([]);
+  });
+
+  it('excludes a direction-mismatched plan from the sum and flags it instead', () => {
+    const result = computeAtRisk(
+      // Recorded LONG, now held SHORT.
+      [{ symbol: 'A', quantity: -100, price: 90 }],
+      new Map([['A', plan({ direction: 'LONG', levels: [fixed(90, 100)] })]]),
+    );
+
+    expect(result.amount).toBe(0);
+    expect(result.stopPlanNeedsUpdate.positions).toEqual([
+      expect.objectContaining({ symbol: 'A', issue: 'DIRECTION_MISMATCH' }),
+    ]);
+  });
+
+  it('still prices a partial-cover plan while flagging it as needing an update', () => {
+    const result = computeAtRisk(
+      [{ symbol: 'A', quantity: 100, price: 110 }],
+      new Map([
+        ['A', plan({ avgEntry: 100, levels: [fixed(90, 150)] })], // covers 150 of 100
+      ]),
+    );
+
+    // computeRiskFromCurrentPrice caps the dollar figure proportionally:
+    // (110 - 90) * 150 * (100/150) = 2000.
+    expect(result.amount).toBeCloseTo(2000, 6);
+    expect(result.stopPlanNeedsUpdate.positions).toEqual([
+      expect.objectContaining({ symbol: 'A', issue: 'OVER_COVERED' }),
+    ]);
   });
 });

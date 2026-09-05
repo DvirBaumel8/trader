@@ -416,6 +416,139 @@ export function evaluateStopPlan(input: {
   };
 }
 
+export interface AtRiskResult {
+  amount: number;
+  positionsWithoutStop: { count: number; symbols: string[] };
+  stopPlanNeedsUpdate: {
+    count: number;
+    positions: Array<{
+      symbol: string;
+      issue: StopPlanIssue;
+      recordedQuantity: number;
+      heldQuantity: number;
+    }>;
+  };
+}
+
+/**
+ * Total dollars lost if every recorded stop tier were hit right now, plus
+ * how many open positions carry no stop at all — an unbounded risk that
+ * must stay visible rather than being silently folded into "no risk".
+ *
+ * A position whose only stop is a trail raised above the current price (a
+ * profit lock) prices out negative — a gain, not a loss. That is correct
+ * per position, but it is deliberately NOT allowed to net against real risk
+ * elsewhere in the total: this box answers "how much could I lose", and
+ * letting a locked-in gain quietly cancel out someone else's real exposure
+ * would understate risk exactly when a big winner is carrying a small,
+ * dangerous position along with it. Each position's contribution to the sum
+ * is floored at zero; the unfloored, possibly-negative number is still the
+ * one attached to the position, it just is not summed as if it were risk.
+ *
+ * Coverage is also never allowed to exceed what is actually held (see
+ * `evaluateStopPlan`). A position whose tiers merely overshoot the held
+ * quantity still contributes — `computeRiskFromCurrentPrice` caps the
+ * dollar figure proportionally — but a position whose tiers make no sense
+ * for its CURRENT direction (a stop recorded while long, now held short)
+ * contributes nothing at all: pricing it would produce a number, just not
+ * a truthful one. Either kind of drift is reported separately in
+ * `stopPlanNeedsUpdate`, distinct from "no stop at all" — the owner has a
+ * plan on record, it just no longer matches the position.
+ */
+export function computeAtRisk(
+  positions: Array<{
+    symbol: string;
+    quantity: number;
+    price: number | null;
+  }>,
+  currentStopsBySymbol: Map<
+    string,
+    {
+      direction: 'LONG' | 'SHORT';
+      avgEntry: number;
+      levels: StopLevelInput[];
+      highWaterPrice: number | null;
+    }
+  >,
+): AtRiskResult {
+  let amount = 0;
+  const symbolsWithoutStop: string[] = [];
+  const needsUpdate: AtRiskResult['stopPlanNeedsUpdate']['positions'] = [];
+
+  for (const p of positions) {
+    const plan = currentStopsBySymbol.get(p.symbol);
+    if (!plan || plan.levels.length === 0) {
+      symbolsWithoutStop.push(p.symbol);
+      continue;
+    }
+    // A stop plan exists but there is no live price to measure it against
+    // (never successfully quoted). Rare, and not the same situation as
+    // having no stop at all, so it is left out of both the sum and the
+    // "without a stop" count rather than guessed at.
+    if (p.price === null) continue;
+
+    const hasUnresolvedTrailing = plan.levels.some(
+      (l) =>
+        l.kind === 'TRAILING' &&
+        l.trailPercent !== null &&
+        l.trailPercent > 0 &&
+        plan.highWaterPrice === null,
+    );
+    const status = evaluateStopPlan({
+      heldQuantity: p.quantity,
+      recordedDirection: plan.direction,
+      levels: plan.levels,
+      hasUnresolvedTrailing,
+    });
+
+    if (
+      status.issue === 'DIRECTION_MISMATCH' ||
+      status.issue === 'CLOSED_WITH_STOPS'
+    ) {
+      needsUpdate.push({
+        symbol: p.symbol,
+        issue: status.issue,
+        recordedQuantity: status.recordedQuantity,
+        heldQuantity: status.heldQuantity,
+      });
+      continue;
+    }
+
+    const risk = computeRiskFromCurrentPrice({
+      avgEntry: plan.avgEntry,
+      currentPrice: p.price,
+      quantity: Math.abs(p.quantity),
+      levels: plan.levels,
+      direction: plan.direction,
+      highWaterPrice: plan.highWaterPrice,
+    });
+    if (risk.amount !== null) {
+      amount += Math.max(0, risk.amount);
+    }
+
+    if (status.issue === 'OVER_COVERED' || status.issue === 'UNRESOLVED_TRAILING') {
+      needsUpdate.push({
+        symbol: p.symbol,
+        issue: status.issue,
+        recordedQuantity: status.recordedQuantity,
+        heldQuantity: status.heldQuantity,
+      });
+    }
+  }
+
+  return {
+    amount: round(amount),
+    positionsWithoutStop: {
+      count: symbolsWithoutStop.length,
+      symbols: symbolsWithoutStop,
+    },
+    stopPlanNeedsUpdate: {
+      count: needsUpdate.length,
+      positions: needsUpdate,
+    },
+  };
+}
+
 function round(n: number): number {
   return Math.round(n * 1e8) / 1e8;
 }

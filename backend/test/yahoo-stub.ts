@@ -94,8 +94,17 @@ function quoteFor(symbol: string) {
  * exercises them through the provider. Everywhere else, specs that need
  * history insert precise `daily_closes` rows themselves, and a stub
  * volunteering bars would collide with those inserts.
+ *
+ * `extendedExtremes` defaults to `{ high: null, low: null }` for every
+ * symbol — the same thing `MarketDataService.getExtendedExtremes` returns
+ * today when the real client throws, which is what always happened here
+ * before this existed (the stub had no such method at all). A spec that
+ * needs a specific extended-hours print for a symbol passes it explicitly.
  */
-export function yahooStub(options: { withBars?: boolean } = {}) {
+export function yahooStub(options: {
+  withBars?: boolean;
+  extendedExtremes?: Record<string, { high: number | null; low: number | null }>;
+} = {}) {
   return {
     quote: async (symbol: string) => quoteFor(symbol),
     quoteMany: async (symbols: string[]) =>
@@ -112,5 +121,10 @@ export function yahooStub(options: { withBars?: boolean } = {}) {
       if (upper.startsWith('ZZZZ')) return [] as StubBar[];
       return stubBars(STUB_PRICES[upper] ?? DEFAULT_PRICE);
     },
+    extremesIncludingExtended: async (symbol: string) =>
+      options.extendedExtremes?.[symbol.toUpperCase()] ?? {
+        high: null,
+        low: null,
+      },
   };
 }
