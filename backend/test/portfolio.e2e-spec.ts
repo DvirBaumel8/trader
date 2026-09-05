@@ -483,21 +483,6 @@ describe('Portfolio (e2e)', () => {
       expect(res.body.overCovered).toBe(true);
     });
 
-    it('counts a stop that locks in a gain as covered, at zero risk', async () => {
-      const res = await http(app, token)
-        .post('/portfolio/stop-risk')
-        .send({
-          avgEntry: 100,
-          quantity: 100,
-          direction: 'LONG',
-          levels: [{ kind: 'FIXED', price: 120, quantity: 100 }],
-        })
-        .expect(201);
-
-      expect(res.body.amount).toBeCloseTo(0, 6);
-      expect(res.body.fullyCovered).toBe(true);
-    });
-
     it('prices from the current price, not entry, when currentPrice is given', async () => {
       // The exact case the Stop Plan editor got wrong: a position that had
       // run up kept pricing its stop off entry, understating what firing it

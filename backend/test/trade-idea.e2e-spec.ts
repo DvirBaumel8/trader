@@ -73,8 +73,17 @@ describe('Trade idea (e2e)', () => {
   // Every test in this file asks for an opinion, and asking now persists one.
   // Without this, a test counting rows counts the ones its neighbours left
   // behind — and passes or fails depending on what ran before it.
+  //
+  // The book is cleared for the same reason, and it is not optional: the
+  // prompt is built from live positions, so a spec that ran earlier and left
+  // an open position behind (journal's own specs leave an open NVDA short)
+  // made "I do NOT currently hold NVDA" fail — an order-dependent failure
+  // that looked like a prompt bug and was not.
   beforeEach(async () => {
     await dataSource.query('TRUNCATE trade_ideas RESTART IDENTITY CASCADE');
+    await dataSource.query(
+      'TRUNCATE stop_levels, stop_executions, transactions, cash_flows, dividends, journal_entries, entry_tags, tags, daily_closes RESTART IDENTITY CASCADE',
+    );
   });
 
   afterAll(async () => {
