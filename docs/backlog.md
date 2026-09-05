@@ -127,10 +127,16 @@ Raised as a block; each needs its own slice.
   `numeric(20,8)`'s limit came back as a 500 quoting Postgres at the caller.
   Pure functions came through clean on every edge case tried (empty book,
   zero account value, no trades, zero quantity, single bar, no history).
-- [ ] **Second QA pass, on the areas the first did not reach**: date-range
-  validation (`?from=hello` is accepted and silently returns nothing rather
-  than 400), concurrent edits to the same journal entry, and behaviour when
-  Yahoo returns a partial or malformed payload rather than failing outright.
+- [x] **Second QA pass — the provider answering WRONG rather than failing.**
+  Malformed bars (zero, negative, NaN closes; a high below its low) all
+  produce `null` honestly, which is the pure-function discipline working. One
+  real hole: bar ORDER was assumed everywhere and guaranteed nowhere, so an
+  out-of-order payload would name the wrong session as today. Now sorted where
+  bars enter the app. Checked and cleared: every `daily_closes` query that
+  needs an order has one, and the two without are order-independent.
+- [ ] **Still unprobed**: date-range validation (`?from=hello` returns 200 and
+  silently filters everything out rather than 400), and concurrent edits to
+  the same journal entry.
 - [ ] A pass for best practices — interfaces, generics, inheritance where they
   genuinely earn their place.
 - [x] Remove dead code — for now. `oxlint` reports nothing across `src` and

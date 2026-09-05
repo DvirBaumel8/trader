@@ -158,7 +158,16 @@ export class YahooClient {
           volume: finite(q.volume),
         };
       })
-      .filter((b): b is RawBar => b !== null);
+      .filter((b): b is RawBar => b !== null)
+      // Chronological, once, here. The provider is not contracted to return
+      // bars in order, and every consumer downstream assumes it is: the
+      // trade chart draws them in array order, and computePriceAction takes
+      // the LAST element as today — so an out-of-order payload would name the
+      // wrong session and misreport the day's change, silently. indicators.ts
+      // already sorted defensively on its own, which is the tell that the
+      // assumption was undefended rather than guaranteed. Sorting at the one
+      // place bars enter the app is cheaper than each consumer remembering.
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   async quoteMany(symbols: string[]): Promise<RawQuote[]> {

@@ -66,6 +66,31 @@ describe('dailyBars OHLC mapping', () => {
   });
 });
 
+describe('bar ordering', () => {
+  it('returns bars chronologically even when the provider does not', async () => {
+    // Nothing contracts Yahoo to return these in order, and everything
+    // downstream assumes it: the chart draws them in array order and
+    // computePriceAction reads the LAST element as today. Out of order, the
+    // app would name the wrong session and misreport the day's change without
+    // any error to notice.
+    const client = clientReturning([
+      { date: '2026-09-04T00:00:00.000Z', close: 30, adjclose: 30 },
+      { date: '2026-09-01T00:00:00.000Z', close: 10, adjclose: 10 },
+      { date: '2026-09-02T00:00:00.000Z', close: 20, adjclose: 20 },
+    ]);
+
+    const bars = await client.dailyBars('AAPL', new Date('2026-08-01'));
+    expect(bars.map((b) => b.date)).toEqual([
+      '2026-09-01',
+      '2026-09-02',
+      '2026-09-04',
+    ]);
+    // The one that matters: "today" is the newest session, not whichever the
+    // provider happened to list last.
+    expect(bars.at(-1)?.close).toBe(30);
+  });
+});
+
 describe('quote P/E mapping', () => {
   it('exposes a trailing P/E when Yahoo reports one', async () => {
     const client = clientQuoting({
