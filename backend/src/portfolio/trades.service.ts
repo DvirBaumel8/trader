@@ -311,7 +311,17 @@ export class TradesService {
     ) && highWaterPrice === null;
 
     return {
-      trade: { ...summary, entryRelativeVolume },
+      trade: {
+        ...summary,
+        entryRelativeVolume,
+        // Live price and the high-water mark since entry, for pricing a
+        // stop-plan draft from here rather than from entry — see
+        // computeRiskFromCurrentPrice's doc comment for why the Stop Plan
+        // editor needs a different anchor than the entry sheet does. Both
+        // null for a closed trade: nothing to protect, nothing to price.
+        currentPrice: currentPriceForTrail,
+        highWaterPrice,
+      },
       fills,
       // The chart draws the stop that is live now, not the one at entry —
       // see DerivedTrade.currentStops. The JSON key stays `stopLevels`,

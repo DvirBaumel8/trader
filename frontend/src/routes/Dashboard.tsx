@@ -19,12 +19,8 @@ import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { AiSummary } from '../components/AiSummary';
 import { SessionBadge } from '../components/SessionBadge';
 import { RefreshButton } from '../components/RefreshButton';
-import {
-  BenchmarkChart,
-  RANGES,
-  type Point,
-  type Range,
-} from '../components/BenchmarkChart';
+import { BenchmarkChart } from '../components/BenchmarkChart';
+import { RANGES, type Point, type Range } from '../lib/benchmarkRange';
 
 interface Position {
   symbol: string;

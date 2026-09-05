@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { formatPercent, signClass } from './format';
 import { longDay, shortDay } from '../lib/chartDates';
+import { RANGES, type Point, type Range } from '../lib/benchmarkRange';
 
 /**
  * Validated with the dataviz palette validator against the dark chart surface
@@ -13,24 +14,6 @@ const SERIES = [
   { key: 'sp500', label: 'S&P 500', color: '#7b8cde' },
   { key: 'nasdaq', label: 'Nasdaq', color: '#c2792f' },
 ] as const;
-
-export type Range = '1W' | '1M' | '6M' | 'YTD' | '1Y' | 'ALL';
-
-export const RANGES: { value: Range; label: string }[] = [
-  { value: '1W', label: '1W' },
-  { value: '1M', label: '1M' },
-  { value: '6M', label: '6M' },
-  { value: 'YTD', label: 'YTD' },
-  { value: '1Y', label: '1Y' },
-  { value: 'ALL', label: 'All' },
-];
-
-export interface Point {
-  date: string;
-  you: number | null;
-  sp500: number | null;
-  nasdaq: number | null;
-}
 
 const W = 320;
 const H = 150;

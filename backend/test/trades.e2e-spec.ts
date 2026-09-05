@@ -128,6 +128,63 @@ describe('Trades (e2e)', () => {
     ).toBe(true);
   });
 
+  it('surfaces currentPrice and highWaterPrice for an open trade, so the Stop Plan editor can price a draft from here', async () => {
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'still open',
+        occurredAt: '2026-08-28T13:30:00.000Z',
+        trade: {
+          symbol: 'PLTR',
+          quantity: 100,
+          price: 150,
+          fee: 0,
+          stopLevels: [{ kind: 'FIXED', price: 145, quantity: 100 }],
+        },
+      })
+      .expect(201);
+
+    const id = `PLTR:2026-08-28T13:30:00.000Z`;
+    const detail = await http(app, token)
+      .get(`/portfolio/trades/${encodeURIComponent(id)}`)
+      .expect(200);
+
+    // PLTR's stub quote is 170 (test/yahoo-stub.ts) — with no bars on
+    // record, the high-water mark is just today's live price.
+    expect(detail.body.trade.currentPrice).toBeCloseTo(170, 6);
+    expect(detail.body.trade.highWaterPrice).toBeCloseTo(170, 6);
+  });
+
+  it('leaves currentPrice and highWaterPrice null for a closed trade', async () => {
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'opened',
+        occurredAt: '2026-08-28T13:30:00.000Z',
+        trade: { symbol: 'NVDA', quantity: 10, price: 200, fee: 0 },
+      })
+      .expect(201);
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'closed',
+        occurredAt: '2026-08-29T13:30:00.000Z',
+        trade: { symbol: 'NVDA', quantity: -10, price: 220, fee: 0 },
+      })
+      .expect(201);
+
+    const id = `NVDA:2026-08-28T13:30:00.000Z`;
+    const detail = await http(app, token)
+      .get(`/portfolio/trades/${encodeURIComponent(id)}`)
+      .expect(200);
+
+    expect(detail.body.trade.currentPrice).toBeNull();
+    expect(detail.body.trade.highWaterPrice).toBeNull();
+  });
+
   it('resolves a TRAILING stop level to a concrete resolvedPrice from the high-water mark', async () => {
     await http(app, token)
       .post('/journal')

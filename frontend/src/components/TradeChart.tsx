@@ -200,17 +200,13 @@ export function TradeChart({
   // progress" — Play sets step to 0, Skip-to-end sets it straight to
   // `totalBars`, and the ticking effect below just keeps advancing step by
   // one until it catches up. One state variable, one source of truth.
+  //
+  // A different trade resetting back to this fully-revealed view, rather
+  // than carrying over a stale replay position, is the caller's job: it
+  // renders this component keyed on the trade id, so a new trade is a fresh
+  // mount with `step` initialized here — not a reset effect racing the
+  // first paint.
   const [step, setStep] = useState(totalBars);
-
-  // A different trade (new bars/fills/stopLevels) resets back to the
-  // static, fully-revealed view rather than carrying over a stale replay
-  // position from whatever trade was open before.
-  useEffect(() => {
-    setStep(totalBars);
-    // `totalBars` is deliberately not a dependency: it's derived from
-    // `bars`/`fills` (already listed) via `placeFills`, so including it too
-    // would just be the same change firing this effect twice.
-  }, [bars, fills, stopLevels]);
 
   // The ticking clock. A chained setTimeout, not setInterval: each tick is
   // scheduled fresh off the *current* step, so there is exactly one timer

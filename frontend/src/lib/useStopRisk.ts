@@ -13,6 +13,8 @@ export interface StopRisk {
 
 interface StopRiskRequest {
   avgEntry: number;
+  currentPrice?: number;
+  highWaterPrice?: number;
   quantity: number;
   direction: 'LONG' | 'SHORT';
   levels: Array<{
@@ -21,6 +23,18 @@ interface StopRiskRequest {
     trailPercent?: number;
     quantity: number;
   }>;
+}
+
+/**
+ * Prices the draft from the live price instead of entry — what the Stop Plan
+ * editor passes for a position already underway, where give-back-from-here
+ * is the question, not risk-at-entry. Omitted entirely by the entry sheet,
+ * which is answering the other question. See `computeRiskFromCurrentPrice`'s
+ * doc comment on the backend for why the two must not share one anchor.
+ */
+export interface PriceFrom {
+  currentPrice: number;
+  highWaterPrice: number | null;
 }
 
 const num = (s: string): number | null => {
@@ -33,11 +47,12 @@ const num = (s: string): number | null => {
  * to price. Parsing input text is a display concern and stays here; what the
  * numbers MEAN is the backend's.
  */
-function toRequest(
+export function toRequest(
   entryPrice: string,
   positionQuantity: string,
   rows: StopRow[],
   side: 'BUY' | 'SELL',
+  priceFrom?: PriceFrom,
 ): StopRiskRequest | null {
   const avgEntry = num(entryPrice);
   if (avgEntry === null || avgEntry <= 0) return null;
@@ -62,6 +77,12 @@ function toRequest(
 
   return {
     avgEntry,
+    ...(priceFrom !== undefined && {
+      currentPrice: priceFrom.currentPrice,
+      ...(priceFrom.highWaterPrice !== null && {
+        highWaterPrice: priceFrom.highWaterPrice,
+      }),
+    }),
     quantity: Math.abs(num(positionQuantity) ?? 0),
     direction: side === 'BUY' ? 'LONG' : 'SHORT',
     levels,
@@ -86,8 +107,9 @@ export function useStopRisk(
   positionQuantity: string,
   rows: StopRow[],
   side: 'BUY' | 'SELL',
+  priceFrom?: PriceFrom,
 ): StopRisk | null {
-  const request = toRequest(entryPrice, positionQuantity, rows, side);
+  const request = toRequest(entryPrice, positionQuantity, rows, side, priceFrom);
   // Debounce the serialised request, not the rows: an edit that does not
   // change the priced plan (adding an empty tier, say) should not re-ask.
   const key = useDebounced(request === null ? null : JSON.stringify(request), DEBOUNCE_MS);

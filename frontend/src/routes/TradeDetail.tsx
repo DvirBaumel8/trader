@@ -14,7 +14,12 @@ import type { Bar } from '../lib/candleScale';
 import type { Trade } from '../components/TradeCard';
 
 interface TradeDetailResponse {
-  trade: Trade;
+  trade: Trade & {
+    // Null for a closed trade — nothing left to protect, nothing to price
+    // from. See StopPlanEditor's `priceFrom` doc comment.
+    currentPrice: number | null;
+    highWaterPrice: number | null;
+  };
   fills: Fill[];
   stopLevels: StopLevel[];
   bars: Bar[];
@@ -195,7 +200,12 @@ export function TradeDetail() {
         </p>
       </header>
 
-      <TradeChart bars={bars} fills={fills} stopLevels={stopLevels} />
+      {/*
+        Keyed on the trade id so opening a different trade is a fresh mount —
+        its replay position resets for free instead of via an effect racing
+        the first paint. See the `step` state's doc comment in TradeChart.
+      */}
+      <TradeChart key={id} bars={bars} fills={fills} stopLevels={stopLevels} />
 
       {/*
         Only an OPEN trade gets an editable plan: a stop on a position that no
@@ -214,6 +224,8 @@ export function TradeDetail() {
           // out of the Stops list and leaving its risk unpriced.
           quantity={trade.remainingQuantity}
           direction={trade.direction}
+          currentPrice={trade.currentPrice}
+          highWaterPrice={trade.highWaterPrice}
         />
       )}
 

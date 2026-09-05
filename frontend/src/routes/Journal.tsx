@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { EntryCard, type Entry } from '../components/EntryCard';
@@ -334,16 +334,17 @@ export function Journal() {
   // iOS discards backgrounded tabs, so returning from the broker app cold-
   // starts this one. Everything below exists to put the user back where they
   // were rather than on the default screen.
-  const restored = useRef(loadUiState());
+  //
+  // Captured once via a lazy initializer rather than a ref: a plain useState
+  // value is stable and readable during render for the component's whole
+  // life, with no `.current` mutation needed to mark it "consumed" — that
+  // job now belongs to `restoreDone` below.
+  const [restored] = useState(loadUiState);
   const [tab, setTab] = useState<Tab>(
-    (restored.current?.journalTab as Tab) ?? 'TRADES',
+    (restored?.journalTab as Tab) ?? 'TRADES',
   );
-  const [composing, setComposing] = useState(
-    restored.current?.composing ?? false,
-  );
-  const [editMode, setEditMode] = useState(
-    restored.current?.editingEntryId != null,
-  );
+  const [composing, setComposing] = useState(restored?.composing ?? false);
+  const [editMode, setEditMode] = useState(restored?.editingEntryId != null);
   const [editing, setEditing] = useState<Entry | null>(null);
 
   const { data: settings } = useQuery({
@@ -351,21 +352,20 @@ export function Journal() {
     queryFn: () => api<{ defaultFee: number }>('/settings'),
   });
 
-  // Only fetched when there is an entry to reopen, and only once.
-  const pendingEntryId = restored.current?.editingEntryId ?? null;
-  // Captured once, at mount. `restored.current` is nulled by the effect below,
-  // so reading it during render would flip this to false on the next pass —
-  // it only works today because EntrySheet reads its draft in a useState
-  // initializer, which is too subtle a thing to depend on.
-  const [resumedCompose] = useState(() => restored.current?.composing ?? false);
+  // Only fetched when there is an entry to reopen, and only once — gated by
+  // `restoreDone` below rather than by clearing `pendingEntryId` itself, so
+  // this stays a plain derived read with nothing to null out later.
+  const pendingEntryId = restored?.editingEntryId ?? null;
+  const resumedCompose = restored?.composing ?? false;
+  const [restoreDone, setRestoreDone] = useState(false);
   const { data: allEntries } = useQuery({
     queryKey: ['journal', 'ALL'],
     queryFn: () => api<Entry[]>('/journal'),
-    enabled: pendingEntryId !== null,
+    enabled: pendingEntryId !== null && !restoreDone,
   });
 
   useEffect(() => {
-    if (!pendingEntryId || !allEntries) return;
+    if (!pendingEntryId || !allEntries || restoreDone) return;
     // The fetch behind this can take a moment, and by the time it resolves
     // the user may already be composing a new entry or have opened a
     // different one. Reopening the restored entry onto that would silently
@@ -377,8 +377,8 @@ export function Journal() {
       // it rather than reopening an editor onto nothing.
       if (found) setEditing(found);
     }
-    restored.current = null;
-  }, [pendingEntryId, allEntries, composing, editing]);
+    setRestoreDone(true);
+  }, [pendingEntryId, allEntries, composing, editing, restoreDone]);
 
   useEffect(() => {
     saveUiState({

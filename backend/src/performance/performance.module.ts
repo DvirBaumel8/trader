@@ -8,6 +8,7 @@ import { Dividend } from '../transactions/dividend.entity.js';
 import { PerformanceService } from './performance.service.js';
 import { PerformanceController } from './performance.controller.js';
 import { UsersModule } from '../users/users.module.js';
+import { MarketDataModule } from '../market-data/market-data.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { UsersModule } from '../users/users.module.js';
       Dividend,
     ]),
     UsersModule,
+    MarketDataModule,
   ],
   providers: [PerformanceService],
   controllers: [PerformanceController],

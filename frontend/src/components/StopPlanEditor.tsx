@@ -30,12 +30,21 @@ export function StopPlanEditor({
   avgEntry,
   quantity,
   direction,
+  currentPrice,
+  highWaterPrice,
 }: {
   tradeId: string;
   tiers: Tier[];
   avgEntry: number;
   quantity: number;
   direction: 'LONG' | 'SHORT';
+  /**
+   * Null when the live quote could not be fetched — the editor then falls
+   * back to pricing from entry rather than showing nothing, same as before
+   * this screen had a current price to work from at all.
+   */
+  currentPrice: number | null;
+  highWaterPrice: number | null;
 }) {
   // Keyed per trade, so two positions being edited never share a draft.
   // Switching to a broker app to read a level is the normal way this screen is
@@ -114,6 +123,7 @@ export function StopPlanEditor({
         entryPrice={String(avgEntry)}
         quantity={String(Math.abs(quantity))}
         side={direction === 'LONG' ? 'BUY' : 'SELL'}
+        priceFrom={currentPrice !== null ? { currentPrice, highWaterPrice } : undefined}
       />
       {mutation.isError && (
         <p className="text-xs text-down">

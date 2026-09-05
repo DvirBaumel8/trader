@@ -24,13 +24,28 @@ import { PortfolioService } from './portfolio.service.js';
 import { SeedService } from './seed.service.js';
 import { TradesService } from './trades.service.js';
 import { StopLevelDto } from '../journal/journal.dto.js';
-import { computeRisk } from './risk.js';
+import { computeRisk, computeRiskFromCurrentPrice } from './risk.js';
 import type { FeePeriod } from './fee-buckets.js';
 
 /** A plan being typed, not one being saved — see the `stop-risk` route. */
 class StopRiskDto {
   @IsNumber()
   avgEntry: number;
+
+  /**
+   * Omitted by the entry sheet, where risk-at-entry is exactly the question
+   * being asked. Supplied when editing an existing position's stops, where
+   * give-back-from-here is — see `computeRiskFromCurrentPrice`'s doc comment
+   * for why the two answers legitimately differ.
+   */
+  @IsOptional()
+  @IsNumber()
+  currentPrice?: number;
+
+  /** Needed to resolve a TRAILING level's price when pricing from currentPrice. */
+  @IsOptional()
+  @IsNumber()
+  highWaterPrice?: number;
 
   @IsNumber()
   quantity: number;
@@ -137,16 +152,30 @@ export class PortfolioController {
    */
   @Post('stop-risk')
   stopRisk(@Body() body: StopRiskDto) {
+    const direction = body.direction ?? 'LONG';
+    const levels = body.levels.map((l) => ({
+      kind: l.kind,
+      price: l.price ?? null,
+      trailPercent: l.trailPercent ?? null,
+      quantity: l.quantity,
+    }));
+
+    if (body.currentPrice !== undefined) {
+      return computeRiskFromCurrentPrice({
+        avgEntry: body.avgEntry,
+        currentPrice: body.currentPrice,
+        quantity: body.quantity,
+        direction,
+        levels,
+        highWaterPrice: body.highWaterPrice ?? null,
+      });
+    }
+
     return computeRisk({
       avgEntry: body.avgEntry,
       quantity: body.quantity,
-      direction: body.direction ?? 'LONG',
-      levels: body.levels.map((l) => ({
-        kind: l.kind,
-        price: l.price ?? null,
-        trailPercent: l.trailPercent ?? null,
-        quantity: l.quantity,
-      })),
+      direction,
+      levels,
     });
   }
 

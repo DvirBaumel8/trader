@@ -1,4 +1,4 @@
-import { useStopRisk } from '../lib/useStopRisk';
+import { useStopRisk, type PriceFrom } from '../lib/useStopRisk';
 import type { StopRow } from '../lib/stopRow';
 import { formatMoney, formatQuantity } from './format';
 
@@ -17,14 +17,21 @@ export function StopLevelEditor({
   entryPrice,
   quantity,
   side,
+  priceFrom,
 }: {
   rows: StopRow[];
   onChange: (rows: StopRow[]) => void;
   entryPrice: string;
   quantity: string;
   side: 'BUY' | 'SELL';
+  /**
+   * Present only when editing an already-open position's stops, where
+   * give-back-from-here is the question — see `PriceFrom`'s doc comment.
+   * Omitted by the entry sheet, which prices risk-at-entry instead.
+   */
+  priceFrom?: PriceFrom;
 }) {
-  const risk = useStopRisk(entryPrice, quantity, rows, side);
+  const risk = useStopRisk(entryPrice, quantity, rows, side, priceFrom);
   const size = Math.abs(parseFloat(quantity || '0'));
 
   const update = (i: number, patch: Partial<StopRow>) =>

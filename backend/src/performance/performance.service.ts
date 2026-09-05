@@ -7,6 +7,7 @@ import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
 import { UsersService } from '../users/users.service.js';
+import { HistoryService } from '../market-data/history.service.js';
 import {
   buildValuationSeries,
   pricesToReturns,
@@ -30,9 +31,18 @@ export class PerformanceService {
     @InjectRepository(Dividend)
     private readonly dividends: Repository<Dividend>,
     private readonly users: UsersService,
+    private readonly history: HistoryService,
   ) {}
 
   async getSeries(range: Range = 'ALL') {
+    // Unlike the portfolio read path, nothing else keeps `daily_closes`
+    // fresh for this endpoint — it is fire-and-forget from a concurrent
+    // `/portfolio` request at best, and this query has no poll of its own to
+    // self-correct once it renders. Without this, "you" and the benchmarks
+    // can render off yesterday's (or older) bars while the rest of the app
+    // already shows today's live move — see docs/backlog.md, "+8% today but
+    // still behind the Nasdaq".
+    await this.history.ensureFresh();
     const user = await this.users.ensureDefaultUser();
     const [txnRows, flowRows, divRows, instrumentRows] = await Promise.all([
       this.txns.find({ where: { userId: user.id } }),

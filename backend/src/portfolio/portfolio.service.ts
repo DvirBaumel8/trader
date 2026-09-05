@@ -63,11 +63,13 @@ export class PortfolioService {
   ) {}
 
   async getPortfolio(opts: { refresh?: boolean } = {}) {
-    // Trailing stops resolve from the high-water mark since entry, which is
-    // read out of `daily_closes` — so stale bars mean a stop price that is
-    // quietly below the broker's. Debounced and swallowing its own failures;
-    // see HistoryService.ensureFresh.
-    await this.history.ensureFresh();
+    // Deliberately NOT awaited. The top-up keeps `daily_closes` current for
+    // trailing stops, but this endpoint is polled every 60s and the request
+    // logging caught it taking 1.1s and 2.6s in real use. Nothing on THIS
+    // response needs the bars that are about to arrive — they land before the
+    // next poll, one minute away. Errors are swallowed inside ensureFresh;
+    // the catch here is belt and braces against an unhandled rejection.
+    void this.history.ensureFresh().catch(() => {});
 
     const user = await this.users.ensureDefaultUser();
     const [txnRows, flowRows, divRows, instrumentRows, entryRows] =

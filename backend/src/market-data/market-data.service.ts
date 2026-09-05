@@ -70,13 +70,22 @@ export class MarketDataService {
   ): Promise<{ high: number | null; low: number | null }> {
     const key = `${symbol.toUpperCase()}:${from.toISOString().slice(0, 10)}`;
     const cached = this.extremesCache.get(key);
-    if (!force && cached && Date.now() - cached.fetchedAt < EXTREMES_TTL_MS) {
+
+    if (!force && cached) {
+      const age = Date.now() - cached.fetchedAt;
+      if (age < EXTREMES_TTL_MS) return { high: cached.high, low: cached.low };
+
+      // Expired, but we have something. Serve it and refresh behind: a
+      // high-water mark only ratchets, so the worst a slightly old one can do
+      // is show a trail marginally BELOW where it should be — never above,
+      // which is the direction that would matter. Blocking the portfolio on
+      // this instead was measured at over a second in real use.
+      void this.refreshExtremes(symbol, from, key).catch(() => {});
       return { high: cached.high, low: cached.low };
     }
+
     try {
-      const found = await this.yahoo.extremesIncludingExtended(symbol, from);
-      this.extremesCache.set(key, { ...found, fetchedAt: Date.now() });
-      return found;
+      return await this.refreshExtremes(symbol, from, key);
     } catch {
       // A failure here must never take down the portfolio: the caller falls
       // back to daily bars, which is the behaviour that existed before this.
@@ -84,6 +93,16 @@ export class MarketDataService {
         ? { high: cached.high, low: cached.low }
         : { high: null, low: null };
     }
+  }
+
+  private async refreshExtremes(
+    symbol: string,
+    from: Date,
+    key: string,
+  ): Promise<{ high: number | null; low: number | null }> {
+    const found = await this.yahoo.extremesIncludingExtended(symbol, from);
+    this.extremesCache.set(key, { ...found, fetchedAt: Date.now() });
+    return found;
   }
 
   /**
