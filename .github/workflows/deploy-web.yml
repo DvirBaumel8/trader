@@ -1,8 +1,11 @@
 name: deploy-web
 
-# Builds the frontend and deploys it to Cloudflare Pages. Pushing any
-# branch produces a preview at <branch>.trader-app.pages.dev — open it on
-# the phone before merging. Pushing main deploys production.
+# Builds the frontend and deploys it to Cloudflare Pages. Pushing any branch
+# produces a preview, pushing main deploys production; both URLs are printed
+# in the run summary. Read them from there rather than guessing at
+# <project>.pages.dev — Cloudflare suffixes the project name when the one you
+# asked for is taken globally, as it did here (trader-app -> trader-app-55e),
+# and the unsuffixed name belongs to an unrelated stranger's site.
 #
 # See docs/DEPLOYMENT.md for the one-time Cloudflare/Render/Neon account
 # setup this depends on.
@@ -75,6 +78,10 @@ jobs:
             --commit-dirty=true | tee deploy.log
           url=$(grep -oE 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1)
           echo "url=$url" >> "$GITHUB_OUTPUT"
+          # Strip the per-deploy hash label to get the stable hostname
+          # Cloudflare actually assigned, which is not necessarily
+          # <project>.pages.dev.
+          echo "alias=$(echo "$url" | sed -E 's#^https://[^.]+\.#https://#')" >> "$GITHUB_OUTPUT"
 
       - name: Publish the URL to the run summary
         run: |
@@ -84,7 +91,7 @@ jobs:
             echo "**${{ steps.deploy.outputs.url }}**"
             echo ""
             if [ "$GITHUB_REF_NAME" = "main" ]; then
-              echo "Production. Also reachable at https://$PROJECT.pages.dev"
+              echo "Production. Also reachable at ${{ steps.deploy.outputs.alias }}"
             else
               echo "Preview. Open it in Safari on the iPhone to test before merging."
             fi
