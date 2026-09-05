@@ -15,3 +15,8 @@ logs/
 
 # Merged coverage run (npm run test:cov:all, from backend/)
 backend/.vitest-reports/
+
+# The HTML report the same command writes. Regenerated on every coverage run,
+# so leaving it tracked meant ~100 generated files turning up in an unrelated
+# diff. Read it locally; there is no reason for it in the history.
+coverage/
