@@ -12,17 +12,32 @@ const opts = (long: boolean): Intl.DateTimeFormatOptions => ({
   ...(long ? { year: 'numeric' } : {}),
 });
 
+/**
+ * English, pinned, rather than the device's own locale.
+ *
+ * The rest of the app already fixes `en-US` for every money value, so
+ * leaving dates to follow the device meant Hebrew month abbreviations under
+ * an otherwise English chart — "אוג׳" where the app everywhere else says
+ * Aug. Pinned to the same `en-US`, so there is one locale across the whole
+ * UI rather than a split; `en-GB` was tried first for its day-month order
+ * and rejected because it abbreviates September as "Sept".
+ *
+ * The doc comments below used to promise "4 Sep". That was never what this
+ * returned on an en-US machine, so they now say what it really does.
+ */
+const LOCALE = 'en-US';
+
 function format(date: string | undefined, long: boolean): string {
   if (!date) return '';
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString([], opts(long));
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString(LOCALE, opts(long));
 }
 
-/** "4 Sep" — for the axis ends, where the year is obvious from context. */
+/** "Sep 4" — for the axis ends, where the year is obvious from context. */
 export function shortDay(date: string | undefined): string {
   return format(date, false);
 }
 
-/** "4 Sep 2026" — for the point actually under the finger. */
+/** "Sep 4, 2026" — for the point actually under the finger. */
 export function longDay(date: string | undefined): string {
   return format(date, true);
 }

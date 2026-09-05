@@ -243,6 +243,11 @@ export function TradeChart({
 
     const chart = createChart(container, {
       autoSize: true,
+      // Without this the library formats its axis in the device's locale,
+      // which put Hebrew month abbreviations on the owner's phone under an
+      // otherwise English screen. Matches lib/chartDates.ts, so the axis and
+      // the read-out beneath it name a month the same way.
+      localization: { locale: 'en-US' },
       layout: {
         background: { type: ColorType.Solid, color: BG },
         textColor: TEXT,
