@@ -19,6 +19,8 @@ interface TradeDetailResponse {
     // from. See StopPlanEditor's `priceFrom` doc comment.
     currentPrice: number | null;
     highWaterPrice: number | null;
+    /** The level aimed for, recorded at entry. Null when none was set. */
+    plannedTarget: number | null;
   };
   fills: Fill[];
   stopLevels: StopLevel[];
@@ -205,7 +207,13 @@ export function TradeDetail() {
         its replay position resets for free instead of via an effect racing
         the first paint. See the `step` state's doc comment in TradeChart.
       */}
-      <TradeChart key={id} bars={bars} fills={fills} stopLevels={stopLevels} />
+      <TradeChart
+        key={id}
+        bars={bars}
+        fills={fills}
+        stopLevels={stopLevels}
+        plannedTarget={trade.plannedTarget}
+      />
 
       {/*
         Only an OPEN trade gets an editable plan: a stop on a position that no

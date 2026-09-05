@@ -353,6 +353,14 @@ export interface DerivedTrade {
    * never computed from whatever stop happens to be live now.
    */
   riskAmount: number | null;
+  /**
+   * The level the owner was aiming for, as recorded on the OPENING fill.
+   * Same rule as the stop plan: the plan belongs to the entry, and a later
+   * add does not redefine it. Null when none was set. It was captured on
+   * the transaction from the day this feature shipped and then dropped
+   * here, so nothing downstream could draw it.
+   */
+  plannedTarget: number | null;
   /** False when the entry stop tiers covered only part of the position. */
   riskCoversFullPosition: boolean;
   /** Result in units of entry risk. Null without a known entry stop. */
@@ -399,6 +407,7 @@ interface OpenTrade {
    * `selectEntryStops`/`selectCurrentStops`.
    */
   stopLevels: StopRevisionInput[];
+  plannedTarget: number | null;
   fills: TradeFill[];
 }
 
@@ -438,6 +447,7 @@ export function deriveTrades(txns: TradeTxn[]): DerivedTrade[] {
           enteredAt: t.executedAt,
           // The plan belongs to the opening fill; later adds do not redefine it.
           stopLevels: t.stopLevels ?? [],
+          plannedTarget: t.plannedTarget ?? null,
           fills: [],
         };
         open.fills.push({
@@ -571,6 +581,7 @@ function finish(
     isWin: realizedPnl === null ? null : realizedPnl > 0,
     isOpen: exitedAt === null,
     riskAmount: risk.amount,
+    plannedTarget: open.plannedTarget,
     riskCoversFullPosition: risk.fullyCovered,
     rMultiple:
       realizedPnl !== null && risk.amount !== null && risk.amount > EPSILON

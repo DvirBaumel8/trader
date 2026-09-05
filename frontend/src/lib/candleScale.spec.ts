@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   backfillIndexForPrice,
   indexForDate,
+  markerSideForPrice,
   placementFor,
   type Bar,
 } from './candleScale';
@@ -94,5 +95,35 @@ describe('placementFor', () => {
     // Nothing to fetch — it predates the window, which snapping already
     // handles by falling back to the first bar.
     expect(placementFor(bars, '2026-08-01T09:00:00.000Z')).toBe('non-trading-day');
+  });
+});
+
+describe('markerSideForPrice', () => {
+  // A tall candle: the fill can sit anywhere inside it.
+  const candle = { high: 120, low: 100 };
+
+  it('goes below when the fill sits in the lower half — the low is nearer', () => {
+    expect(markerSideForPrice(candle, 104)).toBe('atPriceBottom');
+  });
+
+  it('goes above when the fill sits in the upper half — the high is nearer', () => {
+    expect(markerSideForPrice(candle, 118)).toBe('atPriceTop');
+  });
+
+  it('goes below at dead centre, so the choice is never arbitrary', () => {
+    expect(markerSideForPrice(candle, 110)).toBe('atPriceBottom');
+  });
+
+  it('goes below for a fill under the whole candle, where there is nothing to cover', () => {
+    // A seeded fill relocated onto a bar it only just reaches.
+    expect(markerSideForPrice(candle, 96)).toBe('atPriceBottom');
+  });
+
+  it('goes above for a fill over the whole candle', () => {
+    expect(markerSideForPrice(candle, 130)).toBe('atPriceTop');
+  });
+
+  it('goes below on a doji, where both sides are equally empty', () => {
+    expect(markerSideForPrice({ high: 100, low: 100 }, 100)).toBe('atPriceBottom');
   });
 });

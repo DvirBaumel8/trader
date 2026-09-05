@@ -94,3 +94,29 @@ export function placementFor(bars: Bar[], fillIso: string): FillPlacement {
   const last = bars.at(-1)?.date;
   return last !== undefined && day > last ? 'beyond-data' : 'non-trading-day';
 }
+
+/**
+ * Which side of the fill price to hang its marker on, given the candle it
+ * lands on.
+ *
+ * A marker anchored to the price is only honest if it sits *at* the price —
+ * but a fill inside the day's range then has a candle underneath it, and an
+ * arrow drawn over the body hides the very price action it annotates. The
+ * two constraints only conflict in the middle of the range, so the choice is
+ * made per fill instead of fixed per side: hang it on whichever side of the
+ * price is nearer that candle's edge, which is the side with less candle to
+ * cover.
+ *
+ * For a fill at or beyond an extreme — a seeded entry relocated onto a bar
+ * that merely reaches its price — the nearer edge is the one it is beyond,
+ * so the marker lands in open space outside the candle entirely.
+ *
+ * Ties go below: a doji has no body to hide either way, and an arbitrary
+ * rule that is at least stable beats one that flickers as prices move.
+ */
+export function markerSideForPrice(
+  bar: { high: number; low: number },
+  price: number,
+): 'atPriceTop' | 'atPriceBottom' {
+  return price - bar.low <= bar.high - price ? 'atPriceBottom' : 'atPriceTop';
+}

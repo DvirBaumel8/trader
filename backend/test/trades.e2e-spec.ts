@@ -191,6 +191,31 @@ describe('Trades (e2e)', () => {
     expect(detail.body.trade.highWaterPrice).toBeNull();
   });
 
+  it('returns the target recorded at entry, so the chart can draw it', async () => {
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'aiming for 240',
+        occurredAt: '2026-08-28T13:30:00.000Z',
+        trade: {
+          symbol: 'NVDA',
+          quantity: 10,
+          price: 200,
+          fee: 0,
+          plannedTarget: 240,
+        },
+      })
+      .expect(201);
+
+    const id = `NVDA:2026-08-28T13:30:00.000Z`;
+    const detail = await http(app, token)
+      .get(`/portfolio/trades/${encodeURIComponent(id)}`)
+      .expect(200);
+
+    expect(detail.body.trade.plannedTarget).toBe(240);
+  });
+
   it('resolves a TRAILING stop level to a concrete resolvedPrice from the high-water mark', async () => {
     await http(app, token)
       .post('/journal')

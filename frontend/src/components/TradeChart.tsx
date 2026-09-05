@@ -16,6 +16,7 @@ import {
 import {
   backfillIndexForPrice,
   indexForDate,
+  markerSideForPrice,
   placementFor,
   type Bar,
 } from '../lib/candleScale';
@@ -150,10 +151,13 @@ export function TradeChart({
   bars,
   fills,
   stopLevels,
+  plannedTarget = null,
 }: {
   bars: Bar[];
   fills: Fill[];
   stopLevels: StopLevel[];
+  /** The level aimed for, recorded on the opening fill. Null when none was set. */
+  plannedTarget?: number | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -372,10 +376,18 @@ export function TradeChart({
       .filter((_, i) => visible.has(i))
       .map(({ fill, markerBar }) => ({
         time: markerBar.date as Time,
-        position: fill.side === 'BUY' ? 'belowBar' : 'aboveBar',
+        // Anchored to the PRICE, not the bar. `belowBar`/`aboveBar` sit
+        // outside the candle, which drifts as far from the fill as that
+        // day's range is tall — a PLTR sell of 167.15 drew its arrow near
+        // 185. Which side of the price it hangs on is decided per fill from
+        // that candle's own geometry (see markerSideForPrice), so it falls
+        // into whichever side has less candle to cover rather than landing
+        // on the body the way a fixed `atPriceMiddle` did.
+        position: markerSideForPrice(markerBar, fill.price),
+        price: fill.price,
         shape: fill.side === 'BUY' ? 'arrowUp' : 'arrowDown',
         color: fill.side === 'BUY' ? UP : DOWN,
-        size: 2.5,
+        size: 2,
       }));
 
     // The library stacks same-bar/same-position markers outward rather than
@@ -429,6 +441,12 @@ export function TradeChart({
     for (const line of priceLinesRef.current) {
       series.removePriceLine(line);
     }
+    // Every level that matters gets its number on the price axis. The
+    // numbers used to live only in the text beneath the chart, which meant
+    // reading a level off the plot was guesswork against the gridlines.
+    // Axis labels are drawn by the library in the scale's own gutter, so
+    // they are not the marker text that used to get clipped mid-number
+    // (see fillsSummary.ts) — that failure mode does not apply here.
     const stopLines = frame.stopLinesVisible
       ? drawableStops.map((s) =>
           series.createPriceLine({
@@ -436,7 +454,7 @@ export function TradeChart({
             color: MUTED,
             lineWidth: 1,
             lineStyle: s.kind === 'TRAILING' ? LineStyle.Dotted : LineStyle.Dashed,
-            axisLabelVisible: false,
+            axisLabelVisible: true,
             title: '',
           }),
         )
@@ -455,13 +473,31 @@ export function TradeChart({
         color: l.side === 'BUY' ? UP : DOWN,
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
-        axisLabelVisible: false,
+        axisLabelVisible: true,
         title: '',
       }),
     );
 
-    priceLinesRef.current = [...stopLines, ...fillLines];
-  }, [step, bars, fills, stopLevels]);
+    // The target the owner was aiming for, recorded at entry. Dashed like
+    // the stops because it is the same kind of thing — a level that may or
+    // may not be reached — and drawn in the accent colour so it reads as
+    // the one level that is neither a fill nor a risk.
+    const targetLine =
+      plannedTarget !== null && plannedTarget > 0
+        ? [
+            series.createPriceLine({
+              price: plannedTarget,
+              color: ACCENT,
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true,
+              title: '',
+            }),
+          ]
+        : [];
+
+    priceLinesRef.current = [...stopLines, ...fillLines, ...targetLine];
+  }, [step, bars, fills, stopLevels, plannedTarget]);
 
   if (candleBars.length === 0) {
     return (
@@ -516,6 +552,15 @@ export function TradeChart({
               ? `Trailing stop: ${resolvedLines[0].label}`
               : `Stop: ${stopSummaryEntries[0]}`
             : `Stops, top to bottom: ${stopSummaryEntries.join(', ')}`}
+        </p>
+      )}
+
+      {plannedTarget !== null && plannedTarget > 0 && (
+        <p className="text-[11px] text-muted">
+          Target: {plannedTarget.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
         </p>
       )}
 

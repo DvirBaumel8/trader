@@ -1055,3 +1055,44 @@ describe('autoAttributeTier', () => {
     expect(autoAttributeTier([fixed('a', 10)], 0)).toBeNull();
   });
 });
+
+describe('deriveTrades — the planned target', () => {
+  const at = (day: number) => new Date(Date.UTC(2026, 0, day));
+  const fill = (
+    side: 'BUY' | 'SELL',
+    quantity: number,
+    price: number,
+    day: number,
+    plannedTarget?: number | null,
+  ): TradeTxn => ({
+    symbol: 'NVDA',
+    side,
+    quantity,
+    price,
+    fee: 0,
+    executedAt: at(day),
+    recordedAt: null,
+    plannedTarget,
+  });
+
+  it('carries the target recorded at entry onto the trade', () => {
+    // It was captured on the opening fill and then dropped on the floor:
+    // nothing downstream could draw the level the owner was aiming for.
+    const [trade] = deriveTrades([fill('BUY', 100, 200, 2, 240)]);
+    expect(trade.plannedTarget).toBe(240);
+  });
+
+  it('is null when none was recorded', () => {
+    const [trade] = deriveTrades([fill('BUY', 100, 200, 2)]);
+    expect(trade.plannedTarget).toBeNull();
+  });
+
+  it('keeps the entry target when a later add carries its own', () => {
+    // Same rule the stop plan follows: the plan belongs to the opening fill.
+    const [trade] = deriveTrades([
+      fill('BUY', 100, 200, 2, 240),
+      fill('BUY', 50, 210, 3, 300),
+    ]);
+    expect(trade.plannedTarget).toBe(240);
+  });
+});
