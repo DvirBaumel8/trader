@@ -53,8 +53,32 @@ when the question was "should I add to this winner?".
 - [ ] **Check the enlarged prompt actually improved the answer.** It is
   materially longer now; re-ask BITX and confirm it reads as an add/trim
   decision, and that the extra context sharpened rather than diluted it.
-- [ ] **Ideas answers are slow.** Look at streaming, a smaller model for the
-  first pass, or cutting prompt size.
+- [ ] **Ideas answers are slow — the waiting before the model was removed;
+  the model's own time is untouched.** The request used to do four
+  independent things one after another before the prompt was even built:
+  the ticker facts (itself two serial provider round trips), then the record
+  and the book, then the profile off disk. Nothing needed anything from
+  anything else. They now run together, in both places — `getPortfolio`
+  alone is documented at 1.1s and 2.6s in real use, and the quote and the
+  history were a further two round trips in series.
+
+  Error semantics were preserved deliberately rather than incidentally:
+  running concurrently means several failures can settle at once, so both
+  services check results in the order they used to run. An unknown ticker is
+  still a 404 and not whatever the database happened to throw. Pinned by
+  `ticker-facts.service.spec.ts` and `trade-idea.service.spec.ts`, including
+  the ordering itself — the 503 paths had no coverage at all before, and the
+  restructure introduced a real bug there that only tsc caught.
+
+  **Not done, and needs the owner:** the model call itself. It is already
+  `gemini-3.6-flash`, so there is little headroom in "a smaller model for
+  the first pass". Measuring what remains needs a real key — the suite
+  blanks `LLM_API_KEY` on purpose — so the end-to-end saving here is
+  reasoned from the recorded `getPortfolio` timings, not measured. Streaming
+  is the other lever and is a UI change, not a latency one: it would make
+  the wait *legible* rather than shorter. The prompt is also worth a look —
+  the stored facts snapshot grew from ~1,600 to ~4,600 characters when the
+  book and record were added.
 
 ## Tech debt
 

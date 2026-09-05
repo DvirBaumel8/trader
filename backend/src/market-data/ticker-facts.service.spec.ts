@@ -1,67 +1,108 @@
 import { describe, expect, it, vi } from 'vitest';
+import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { TickerFactsService } from './ticker-facts.service.js';
 import type { YahooClient } from './yahoo.client.js';
 import type { FundamentalsService } from './fundamentals.service.js';
 
-function bars() {
-  return Array.from({ length: 60 }, (_, i) => ({
-    date: `2026-0${i < 30 ? 7 : 8}-${String((i % 28) + 1).padStart(2, '0')}`,
-    close: 300 + i,
-    adjClose: 300 + i,
-    open: 300 + i,
-    high: 301 + i,
-    low: 299 + i,
-    volume: 1_000_000,
-  }));
-}
+const QUOTE = {
+  symbol: 'NVDA',
+  name: 'NVIDIA',
+  price: 200,
+  currency: 'USD',
+  session: 'REGULAR' as const,
+  extended: false,
+  regularPrice: 200,
+  peRatio: 25,
+};
 
-function serviceWith(peRatio: number | null, fundamentalsPe: number | null) {
+const BARS = Array.from({ length: 60 }, (_, i) => ({
+  date: new Date(Date.UTC(2026, 0, 1) + i * 86_400_000).toISOString().slice(0, 10),
+  close: 200,
+  adjClose: 200,
+  open: 200,
+  high: 202,
+  low: 198,
+  volume: 1_000_000,
+}));
+
+function makeService(opts: {
+  quote?: () => unknown;
+  dailyBars?: () => unknown;
+}) {
   const yahoo = {
-    quote: async () => ({
-      symbol: 'APP',
-      name: 'Applovin Corporation',
-      price: 320,
-      currency: 'USD',
-      session: 'CLOSED' as const,
-      extended: false,
-      regularPrice: 320,
-      peRatio,
-    }),
-    dailyBars: async () => bars(),
+    quote: vi.fn().mockImplementation(opts.quote ?? (async () => QUOTE)),
+    dailyBars: vi.fn().mockImplementation(opts.dailyBars ?? (async () => BARS)),
   } as unknown as YahooClient;
-
-  const peFromFundamentals = vi.fn(async () => fundamentalsPe);
   const fundamentals = {
-    peRatio: peFromFundamentals,
+    peRatio: vi.fn().mockResolvedValue(null),
   } as unknown as FundamentalsService;
-
-  return {
-    service: new TickerFactsService(yahoo, fundamentals),
-    peFromFundamentals,
-  };
+  return { service: new TickerFactsService(yahoo, fundamentals), yahoo };
 }
 
-describe('P/E when the quote provider cannot supply one', () => {
-  it('falls back to the fundamentals provider', async () => {
-    // In production Yahoo's crumb-gated quote endpoint is blocked, so the
-    // price arrives from its chart endpoint with no P/E attached.
-    const { service } = serviceWith(null, 38.1);
+describe('TickerFactsService.get', () => {
+  it('asks for the quote and the history at once, not one after the other', async () => {
+    // They need nothing from each other, and the request used to wait
+    // through both round trips in series before the model was even called.
+    const order: string[] = [];
+    const { service } = makeService({
+      quote: async () => {
+        order.push('quote:start');
+        await new Promise((r) => setTimeout(r, 10));
+        order.push('quote:end');
+        return QUOTE;
+      },
+      dailyBars: async () => {
+        order.push('bars:start');
+        return BARS;
+      },
+    });
 
-    expect((await service.get('APP')).peRatio).toBe(38.1);
+    await service.get('NVDA');
+
+    // Bars begin before the quote has come back — impossible if serial.
+    expect(order.indexOf('bars:start')).toBeLessThan(order.indexOf('quote:end'));
   });
 
-  it('prefers the quote provider when it has one, and asks for nothing else', async () => {
-    // Locally the real quote works and already carries a trailing P/E; a
-    // second provider call there would be waste.
-    const { service, peFromFundamentals } = serviceWith(37.4, 99);
-
-    expect((await service.get('APP')).peRatio).toBe(37.4);
-    expect(peFromFundamentals).not.toHaveBeenCalled();
+  it('404s a ticker the provider does not recognise', async () => {
+    const { service } = makeService({ quote: async () => null });
+    await expect(service.get('ZZZZNOTREAL')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
-  it('stays null when neither provider has one', async () => {
-    const { service } = serviceWith(null, null);
+  it('503s when the quote fails, rather than reading as "no such symbol"', async () => {
+    const { service } = makeService({
+      quote: async () => {
+        throw new Error('provider down');
+      },
+    });
+    await expect(service.get('NVDA')).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
 
-    expect((await service.get('APP')).peRatio).toBeNull();
+  it('503s when only the history fails, rather than answering on half the facts', async () => {
+    const { service } = makeService({
+      dailyBars: async () => {
+        throw new Error('history down');
+      },
+    });
+    await expect(service.get('NVDA')).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  it('reports an unknown ticker as unknown even when the history also fails', async () => {
+    // Both settle as failures now that they run together; which one the
+    // caller is told about must not depend on that race.
+    const { service } = makeService({
+      quote: async () => null,
+      dailyBars: async () => {
+        throw new Error('history down');
+      },
+    });
+    await expect(service.get('ZZZZNOTREAL')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

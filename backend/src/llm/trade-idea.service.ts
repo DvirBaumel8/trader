@@ -84,22 +84,41 @@ export class TradeIdeaService {
       };
     }
 
-    // A NotFoundException (unknown ticker) or ServiceUnavailableException
-    // (provider down) propagates deliberately: those are different failures
-    // from "the model could not answer", and flattening them into this
-    // result shape would hide which one happened.
-    const facts = await this.tickerFacts.get(upper);
-
     // The book and the record, not just the chart. Without them the model
     // answered "should I open this?" when he already held 4,600 shares of the
     // name — see trade-idea-context.ts.
-    const [stats, book] = await Promise.all([
-      this.trades.getStats(),
-      this.portfolio.getPortfolio(),
-    ]);
+    //
+    // All four are gathered at once. They used to run one after another —
+    // the facts (two provider round trips), then the book and record, then
+    // the profile off disk — and none of them needs anything from the
+    // others, so the request simply waited through the sum of them before
+    // the model was even asked. `getPortfolio` alone is documented at 1.1s
+    // and 2.6s in real use.
+    const [factsResult, statsResult, bookResult, profileResult] =
+      await Promise.allSettled([
+        this.tickerFacts.get(upper),
+        this.trades.getStats(),
+        this.portfolio.getPortfolio(),
+        this.readProfile(),
+      ]);
+
+    // Checked in the order they used to run, so which failure a caller sees
+    // is unchanged. A NotFoundException (unknown ticker) or
+    // ServiceUnavailableException (provider down) still propagates from the
+    // facts before anything else is considered — those are different
+    // failures from "the model could not answer", and running the gathering
+    // concurrently must not let an unrelated one overtake them.
+    if (factsResult.status === 'rejected') throw factsResult.reason;
+    if (statsResult.status === 'rejected') throw statsResult.reason;
+    if (bookResult.status === 'rejected') throw bookResult.reason;
+    if (profileResult.status === 'rejected') throw profileResult.reason;
+
+    const facts = factsResult.value;
+    const stats = statsResult.value;
+    const book = bookResult.value;
     const usualRisk = stats.avgRisk ?? null;
 
-    const system = buildSystemPrompt(await this.readProfile());
+    const system = buildSystemPrompt(profileResult.value);
     const user = buildTradeIdeaPrompt(facts, usualRisk, {
       book: buildBookSection(book, upper),
       record: buildRecordSection(stats, upper),

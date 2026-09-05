@@ -44,24 +44,34 @@ export class TickerFactsService {
   async get(symbol: string): Promise<TickerFacts> {
     const upper = symbol.trim().toUpperCase();
 
+    // The quote and the history are two provider round trips that need
+    // nothing from each other — only the symbol — so they are asked for at
+    // once rather than one after the other. Both are still judged in the
+    // order they used to run, so an unknown ticker is still a 404 and not
+    // whichever failure happened to settle first. The cost is one wasted
+    // history fetch for a symbol that turns out not to exist, which is a
+    // typo's worth of traffic against a round trip saved on every real one.
+    const from = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    const [quoteResult, barsResult] = await Promise.allSettled([
+      this.yahoo.quote(upper),
+      this.yahoo.dailyBars(upper, from),
+    ]);
+
     let quote: Awaited<ReturnType<YahooClient['quote']>>;
-    try {
-      quote = await this.yahoo.quote(upper);
-    } catch {
+    if (quoteResult.status === 'rejected') {
       // The provider being down is not the same as the ticker not existing,
       // and must not read as "no such symbol". No partial answer is offered:
       // an opinion resting on half the facts is worse than none.
       throw new ServiceUnavailableException(
         'Market data is unavailable right now, so this ticker cannot be checked.',
       );
+    } else {
+      quote = quoteResult.value;
     }
     if (!quote) throw new NotFoundException(`Unknown ticker: ${upper}`);
 
-    const from = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     let bars;
-    try {
-      bars = await this.yahoo.dailyBars(upper, from);
-    } catch {
+    if (barsResult.status === 'rejected') {
       // The quote can succeed while history fails — this is a real,
       // possible split, not a hypothetical. It would be tempting to return
       // quote-only facts with null indicators in that case, but that is a
@@ -72,6 +82,8 @@ export class TickerFactsService {
       throw new ServiceUnavailableException(
         'Price history is unavailable right now, so this ticker cannot be checked.',
       );
+    } else {
+      bars = barsResult.value;
     }
 
     return {
