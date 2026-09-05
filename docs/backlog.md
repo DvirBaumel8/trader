@@ -50,9 +50,42 @@ opinion on buying BITX that lectured the owner about having no crypto in his
 profile, while he held 4,600 shares of it. It answered "should I open this?"
 when the question was "should I add to this winner?".
 
-- [ ] **Check the enlarged prompt actually improved the answer.** It is
-  materially longer now; re-ask BITX and confirm it reads as an add/trim
-  decision, and that the extra context sharpened rather than diluted it.
+- [ ] **The model misquotes the app's own figures.** Found while checking
+  whether the enlarged prompt improved the answer — it did, decisively (see
+  below), but the same answer overstated two portfolio aggregates.
+
+  Verified against the database for the BITX opinion of 2026-09-04 16:49:
+
+  | Figure | Model said | Actually | |
+  |---|---|---|---|
+  | BITX weight | 9.0% | 9.0% | ok |
+  | ETHU / HOOD / IREN weights | 6.5 / 8.8 / 7.4% | 6.4 / 8.9 / 7.5% | ok |
+  | BITX holding | 1,000 sh, $18,150 | 1,000 sh, $18,155 | ok |
+  | Prior BITX profit | $7,172 | $7,172 | ok |
+  | **LMND weight** | **36.1%** | **22.1%** | **inflated by 63%** |
+  | **Gross exposure** | **$538,203 / 2.67x** | **$480,726 / 2.37x** | **inflated by 12%** |
+
+  The small per-position numbers match to within a tenth of a point, which
+  is what rules out my method as the cause: those figures come from the same
+  snapshot at the same moment, so a live-quote-versus-close difference
+  cannot explain fourteen points on LMND. The two that are wrong are the two
+  aggregates, and both are load-bearing — the recommendation leans on
+  "LMND occupying 36.1% of the account" and on total leverage.
+
+  The book section already hands these over under the heading "computed by
+  the app, quote these, do not recalculate", and LMND's correct 22.1% was in
+  the prompt. So a stronger instruction is not the fix; the model overrode a
+  number it had been given. This is the exact failure the product brief
+  refuses — a plausible figure that is wrong — and it is worse inside prose,
+  where there is no axis to check it against.
+
+  Directions, none obviously right: have the UI show the app's own
+  concentration figures beside the opinion so a mismatch is visible; or
+  cross-check the numerals in the answer against the facts snapshot and flag
+  disagreements; or stop giving the model aggregates it can restate and let
+  it reason only about the position in question. Worth deciding before the
+  Ideas tab is trusted for sizing.
+
 - [ ] **Ideas answers are slow — the waiting before the model was removed;
   the model's own time is untouched.** The request used to do four
   independent things one after another before the prompt was even built:
