@@ -19,5 +19,11 @@ export default async function globalSetup(): Promise<void> {
   process.env.LLM_API_KEY = '';
   process.env.LLM_PROVIDER = '';
 
+  // Same reasoning for the fundamentals provider: /portfolio now asks it for
+  // any P/E the quote did not carry, so a developer with a real key would have
+  // the portfolio e2e specs make live Finnhub calls. Empty rather than
+  // deleted, for the dotenv reason above.
+  process.env.FINNHUB_API_KEY = '';
+
   await createTestDatabase();
 }

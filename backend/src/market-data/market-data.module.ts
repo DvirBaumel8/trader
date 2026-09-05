@@ -2,6 +2,8 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MarketDataService } from './market-data.service.js';
 import { YahooClient } from './yahoo.client.js';
+import { FinnhubClient } from './finnhub.client.js';
+import { FundamentalsService } from './fundamentals.service.js';
 import { HistoryService } from './history.service.js';
 import { HistoryController } from './history.controller.js';
 import { TickerFactsService } from './ticker-facts.service.js';
@@ -20,6 +22,10 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
   ],
   providers: [
     YahooClient,
+    // Fundamentals only, and only because Yahoo's crumb-gated quote endpoint
+    // is blocked from Render — see finnhub.client.ts. Inert without a key.
+    FinnhubClient,
+    FundamentalsService,
     HistoryService,
     TickerFactsService,
     {
@@ -31,6 +37,11 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
     },
   ],
   controllers: [HistoryController, MarketDataController],
-  exports: [MarketDataService, HistoryService, TickerFactsService],
+  exports: [
+    MarketDataService,
+    HistoryService,
+    TickerFactsService,
+    FundamentalsService,
+  ],
 })
 export class MarketDataModule {}

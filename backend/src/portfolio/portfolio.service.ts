@@ -11,6 +11,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { MarketDataService } from '../market-data/market-data.service.js';
+import { FundamentalsService } from '../market-data/fundamentals.service.js';
 import { HistoryService } from '../market-data/history.service.js';
 import { TradesService } from './trades.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -49,6 +50,7 @@ export class PortfolioService {
     private readonly closes: Repository<DailyClose>,
     private readonly instrumentsService: InstrumentsService,
     private readonly marketData: MarketDataService,
+    private readonly fundamentals: FundamentalsService,
     private readonly history: HistoryService,
     private readonly users: UsersService,
     private readonly journal: JournalService,
@@ -117,6 +119,10 @@ export class PortfolioService {
       derived.map((p) => p.symbol),
       opts.refresh === true,
     );
+    // Production prices come from Yahoo's chart endpoint, which carries no
+    // fundamentals, so the multiple is computed from a separate provider's
+    // trailing EPS. A no-op where the quote already had one.
+    await this.fundamentals.fillMissingPeRatios(quotes);
 
     const openTrades = (await this.trades.deriveAllTrades()).filter(
       (t) => t.isOpen,

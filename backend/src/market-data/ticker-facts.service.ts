@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { YahooClient } from './yahoo.client.js';
+import { FundamentalsService } from './fundamentals.service.js';
 import { computeIndicators, type IndicatorSet } from './indicators.js';
 import { computePriceAction, type PriceAction } from './price-action.js';
 
@@ -35,7 +36,10 @@ export interface TickerFacts {
  */
 @Injectable()
 export class TickerFactsService {
-  constructor(private readonly yahoo: YahooClient) {}
+  constructor(
+    private readonly yahoo: YahooClient,
+    private readonly fundamentals: FundamentalsService,
+  ) {}
 
   async get(symbol: string): Promise<TickerFacts> {
     const upper = symbol.trim().toUpperCase();
@@ -84,7 +88,11 @@ export class TickerFactsService {
       stale: false,
       session: quote.session ?? null,
       extended: quote.extended,
-      peRatio: quote.peRatio,
+      // The quote's own P/E when it has one. It does not in production: the
+      // price comes from Yahoo's chart endpoint there, which carries no
+      // fundamentals, so the multiple is computed from a separate provider's
+      // trailing EPS instead.
+      peRatio: quote.peRatio ?? (await this.fundamentals.peRatio(upper, quote.price)),
       indicators: computeIndicators(bars, quote.price),
       // From the bars already fetched above — no extra provider call.
       priceAction: computePriceAction(bars),

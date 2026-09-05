@@ -52,3 +52,8 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      # FINNHUB_API_KEY is deliberately NOT declared here. It is optional —
+      # without it the P/E is simply null, exactly as it was before — and a
+      # `sync: false` entry would make every future blueprint sync prompt for
+      # a value that may not exist yet. Set it by hand in the Render dashboard
+      # instead; see docs/DEPLOYMENT.md.
