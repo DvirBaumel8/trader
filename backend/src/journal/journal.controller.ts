@@ -10,7 +10,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { JournalService, type CreateEntryInput } from './journal.service.js';
-import { CreateEntryDto } from './journal.dto.js';
+import { CreateEntryDto, ListQueryDto } from './journal.dto.js';
 
 /** One mapping from wire shape to service input, used by create and update. */
 function toInput(body: CreateEntryDto): CreateEntryInput {
@@ -47,15 +47,8 @@ export class JournalController {
   }
 
   @Get()
-  list(
-    @Query('symbol') symbol?: string,
-    @Query('kind') kind?: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND',
-    @Query('tagId') tagId?: string,
-    @Query('search') search?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ) {
-    return this.journal.list({ symbol, kind, tagId, search, from, to });
+  list(@Query() query: ListQueryDto) {
+    return this.journal.list(query);
   }
 
   @Post()

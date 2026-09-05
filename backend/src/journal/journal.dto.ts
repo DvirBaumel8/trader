@@ -171,3 +171,38 @@ export class CreateEntryDto {
   @Type(() => TagDto)
   tags?: TagDto[];
 }
+
+/**
+ * `GET /journal`'s filters. Individual `@Query('x')` params skip
+ * class-validator entirely — nothing checks their shape — which is how
+ * `from=hello` used to become a 200 with an empty list: compared as a plain
+ * string against `occurredAt.slice(0, 10)`, every digit sorts below every
+ * letter, so the malformed bound excluded every entry instead of erroring.
+ */
+export class ListQueryDto {
+  @IsOptional()
+  @IsString()
+  symbol?: string;
+
+  @IsOptional()
+  @IsIn(['TRADE', 'NOTE', 'CASH', 'DIVIDEND'])
+  kind?: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
+
+  @IsOptional()
+  @IsUUID()
+  tagId?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  /** Inclusive calendar bound, YYYY-MM-DD. */
+  @IsOptional()
+  @IsISO8601()
+  from?: string;
+
+  /** Inclusive calendar bound, YYYY-MM-DD. */
+  @IsOptional()
+  @IsISO8601()
+  to?: string;
+}

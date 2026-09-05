@@ -912,6 +912,15 @@ describe('Journal (e2e)', () => {
       .expect(200);
     expect(none.body).toEqual([]);
   });
+  it('rejects a malformed date-range filter rather than silently returning nothing', async () => {
+    // Found by probing: `from`/`to` were unvalidated strings compared
+    // lexicographically against `occurredAt.slice(0, 10)`. Since every digit
+    // sorts below every letter, `from=hello` made `day < 'hello'` true for
+    // every entry — a 200 with an empty list, indistinguishable from a
+    // genuinely empty range.
+    await http(app, token).get('/journal?from=hello').expect(400);
+    await http(app, token).get('/journal?to=not-a-date').expect(400);
+  });
   it('refuses a negative price rather than storing nonsense', async () => {
     // Found by probing, not by a report. Direction lives in the sign of
     // quantity; a negative PRICE is not a short, it is a number that silently
