@@ -10,22 +10,30 @@ this says what is outstanding.
 ## Bugs — correctness
 
 - [ ] **Trade chart shows prices that are visibly wrong.** Called out as a basic
-  feature that must be right. Needs its own investigation; do not patch symptoms.
-  Worth re-checking after the freshness fix, for the same reason.
-- [ ] **Stop Plan editor shows entry-anchored risk, not give-back-from-here.**
-  Found on VST: entry $141.26, current $148.41, draft stop $139.51 x100
-  showed "Total risk $175.00" (`(avgEntry - stop) x qty`, `computeRisk`) when
-  the design doc (`2026-09-03-stop-executions-design.md`, "At risk, shown per
-  tier") explicitly settled on give-back-from-here — `(currentPrice - stop) x
-  qty`, `computeRiskFromCurrentPrice` — as "the number that matters when
-  deciding what to do today," which is what the Stops headline and
-  Dashboard's At-risk box already use. Correct figure here is $890.00.
-  Root cause: `StopPlanEditor` (editing stops on an open, already-moved
-  position) reuses `EntrySheet`'s `StopLevelEditor` / `useStopRisk` /
-  `POST /portfolio/stop-risk`, which is entry-anchored — right for the entry
-  sheet, wrong for this screen. Needs the draft priced from current price
-  (and high-water price, for trailing tiers) when editing an existing
-  position; entry sheet keeps pricing from entry.
+  feature that must be right. **Needs a concrete example — investigated once
+  and nothing reproduced.** Ruled out so far, against the real database:
+
+  - The stored bars are sound: 1,176 rows, zero null `open`/`high`/`low`,
+    OHLC internally coherent, `adjClose` equal to `close` (so no split or
+    dividend adjustment is skewing anything), and fresh through the last
+    trading day.
+  - No trade predates its own price history — earliest fill 2026-08-28
+    against bars from 2026-07-14 — so the 45-day runway is doing its job
+    and no chart is missing the context around its entry.
+  - The chart passes `date` to `lightweight-charts` as a business-day
+    string, so there is no timezone conversion to shift a bar by a day.
+  - Null OHLC cannot reach the candle series: `hasRange` filters those bars
+    out before `setData` (deliberately omitting a candle rather than
+    inventing a flat one).
+
+  **The most likely candidate left is placement, not price.** A *seeded*
+  opening fill is stamped with the seed date and the owner's average cost
+  rather than a real historical print, so `placeFills` relocates its marker
+  to an earlier bar whose range actually contains that price. That is
+  working as designed and is honest about it, but a marker sitting on a day
+  he did not trade, at a price that is an average rather than a print, is
+  exactly the kind of thing that reads as "wrong" on the phone. **Ask which
+  symbol and what looked off before changing anything here.**
 
 ## UI
 
