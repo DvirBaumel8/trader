@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { YahooClient, type RawQuote } from './yahoo.client.js';
 import type { MarketSession } from './select-price.js';
 
@@ -35,6 +35,10 @@ const EXTREMES_TTL_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class MarketDataService {
+  // A swallowed provider failure is invisible to the operator: the UI honestly
+  // says "stale", but nothing anywhere says why. That gap cost a full remote
+  // debugging session once prices went dark in production.
+  private readonly logger = new Logger(MarketDataService.name);
   private readonly cache = new Map<string, CacheEntry>();
   /** symbol -> extremes since a position's entry, with pre/post included. */
   private readonly extremesCache = new Map<
@@ -119,7 +123,8 @@ export class MarketDataService {
       const raw = await this.yahoo.quote(key);
       if (!raw) return null;
       return this.store(key, raw);
-    } catch {
+    } catch (err) {
+      this.logger.warn(`quote(${key}) failed: ${describe(err)}`);
       // Never show a wrong number as if it were fresh.
       return cached ? { ...cached.quote, stale: true } : null;
     }
@@ -148,7 +153,10 @@ export class MarketDataService {
         const key = raw.symbol.toUpperCase();
         out.set(key, this.store(key, raw));
       }
-    } catch {
+    } catch (err) {
+      this.logger.warn(
+        `quoteMany(${missing.length} symbols) failed: ${describe(err)}`,
+      );
       for (const key of missing) {
         const cached = this.cache.get(key);
         if (cached) out.set(key, { ...cached.quote, stale: true });
@@ -173,4 +181,18 @@ export class MarketDataService {
     this.cache.set(key, { quote, fetchedAt: now.getTime() });
     return quote;
   }
+}
+
+/**
+ * Provider errors arrive in several shapes — a plain Error, a fetch failure, or
+ * a yahoo-finance2 HTTP error carrying the status on a nested response. The
+ * status is the part that distinguishes a rate limit from a block from an
+ * outage, so dig it out rather than logging just the message.
+ */
+function describe(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const status = (err as { response?: { status?: number } }).response?.status;
+  const code = (err as { code?: string }).code;
+  const parts = [err.name, status && `HTTP ${status}`, code, err.message];
+  return parts.filter(Boolean).join(' | ').slice(0, 400);
 }
