@@ -405,6 +405,14 @@ export class TradesService {
     }
 
     await this.journal.reviseStopLevels(openingTxn.id, levels);
-    return this.getTrade(tradeId);
+
+    // Deliberately NOT the rebuilt trade. This used to return getTrade(), a
+    // payload the only caller throws away: the editor's onSuccess takes no
+    // argument and immediately invalidates `trade`, `portfolio` and `stats`,
+    // so the client refetches everything regardless. Building it cost up to
+    // 3.6 seconds on a cold cache — fresh quotes, bars and indicators — and
+    // saving a stop waited for every millisecond of it before the editor
+    // would close.
+    return { ok: true, levels: levels.length };
   }
 }

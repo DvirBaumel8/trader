@@ -240,24 +240,12 @@ describe('Trades (e2e)', () => {
         .patch(`/portfolio/trades/${encodeURIComponent(id)}/stops`)
         .send({ levels: [{ kind: 'FIXED', price: 30.39, quantity: 550 }] })
         .expect(200);
-      expect(revised.body.stopLevels).toEqual([
-        {
-          // A real uuid from stop_levels; the entry sheet needs it to name
-          // which tier an exit executed, so it is part of the payload now.
-          id: expect.any(String),
-          kind: 'FIXED',
-          price: 30.39,
-          trailPercent: null,
-          quantity: 550,
-          resolvedPrice: 30.39,
-        },
-      ]);
-      expect(revised.body.stopPlanStatus.needsUpdate).toBe(false);
-
-      // The entry stop — the FIRST revision, which defines R — must be
-      // untouched: the trade id (and its enteredAt) still resolves to the
-      // same opening fill, and this was purely an append.
-      expect(revised.body.trade.riskAmount).not.toBeNull();
+      // The response is an acknowledgement, not the rebuilt trade. It used to
+      // return the whole trade — fresh quotes, bars and indicators — which the
+      // only caller discards, and which cost up to 3.6s on a cold cache while
+      // the editor sat waiting. What the save actually did is asserted below,
+      // by reading it back, which was always the stronger check.
+      expect(revised.body).toEqual({ ok: true, levels: 1 });
 
       const detail = await http(app, token)
         .get(`/portfolio/trades/${encodeURIComponent(id)}`)
@@ -274,6 +262,13 @@ describe('Trades (e2e)', () => {
           resolvedPrice: 30.39,
         },
       ]);
+      expect(detail.body.stopPlanStatus.needsUpdate).toBe(false);
+
+      // The entry stop — the FIRST revision, which defines R — must survive a
+      // revision untouched: the trade id still resolves to the same opening
+      // fill, and this was purely an append. Asserted on the read-back rather
+      // than on the PATCH's own response, which is now an acknowledgement.
+      expect(detail.body.trade.riskAmount).not.toBeNull();
     });
 
     it('refuses to empty a stop plan, rather than silently keeping it', async () => {

@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { RequestLoggingMiddleware } from './common/request-logging.middleware.js';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthModule } from './health/health.module.js';
@@ -38,4 +39,12 @@ import { buildConnectionOptions } from './database/connection-options.js';
     AuthModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /**
+   * Applied to every route. A slow request is worth seeing whichever endpoint
+   * it hit — see RequestLoggingMiddleware.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestLoggingMiddleware).forRoutes('*splat');
+  }
+}
