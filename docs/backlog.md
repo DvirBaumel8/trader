@@ -9,25 +9,21 @@ this says what is outstanding.
 
 ## Bugs — correctness
 
-- [ ] **Trade chart: fill markers float away from the price traded.** Root
-  cause found from the owner's screenshots, and half-fixed. The markers are
-  anchored to the *bar*, not the price (`belowBar` for buys, `aboveBar` for
-  sells), so an arrow lands just outside the candle rather than at the fill:
-  PLTR sold at 167.15 drew its arrow near 185, BITX's sells at 17.46/17.07
-  floated near 20-21, META's buy at 578.69 read as ~565. Nothing is wrong
-  with the data — the bars, the summary text and the numbers in the header
-  were all correct throughout.
+- [ ] **Trade chart: shipped, awaiting the owner's eye.** He reported prices
+  that looked wrong and sent screenshots; the data was correct throughout and
+  the placement was not. Markers were anchored to the bar, so an arrow
+  drifted as far from the fill as that day's range was tall (PLTR's 167.15
+  sell drew near 185). Now anchored to the price, with the side chosen per
+  fill from that candle's geometry (`markerSideForPrice`) so it lands in the
+  emptier space rather than on the body. Fills, stops and the target all
+  carry an axis label, so a level is read rather than guessed. And
+  `plannedTarget` — recorded at entry and silently dropped before it reached
+  `DerivedTrade` — is carried through and drawn.
 
-  **Done:** a solid line at each price actually traded (green for buys, red
-  for sells, `fillPriceLines`), drawn beside the dashed stop lines and
-  revealed with its own fill during replay. The real level is now on the
-  plot without covering the candle.
-
-  **Open:** the arrows themselves still float. Moving them onto the price
-  (`atPriceMiddle`) was tried before and rejected because the marker then
-  covers the candle it annotates — a real cost, but a smaller one than an
-  arrow sitting at a price that was never traded. Needs the owner's eye on
-  the line-only version first before deciding whether the arrows move too.
+  **Still to confirm on the phone:** whether the labels crowd the axis when
+  several levels sit close together (PLTR's stop at 167.61 against its exit
+  at 167.15 is the tightest real case), and whether the per-fill side choice
+  actually reads well on a tall candle.
 
 ## UI
 
@@ -44,8 +40,6 @@ this says what is outstanding.
   and `Journal.tsx`'s 12 `react(refs)` warnings (the `restored` value moved
   from a mutated ref to a plain `useState` capture, with a `restoreDone` flag
   replacing the "null the ref to mark consumed" trick).
-- [ ] **The trade-idea result buries its numbers** under ~400 words of prose.
-  A compact verdict strip above the writing, prose collapsible below.
 - [ ] **Look hard at the UI as a whole.** More conventional components? Study
   comparable products and decide what the right shape actually is.
 

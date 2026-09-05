@@ -167,6 +167,32 @@ function RiskPanel({
   );
 }
 
+/**
+ * The model's argument, collapsible.
+ *
+ * Starts closed so the verdict above is what the screen opens on — 400 words
+ * is most of a phone screen — but the choice is remembered, so anyone who
+ * reads the reasoning every time only says so once. Deliberately not per
+ * symbol: it is a habit, not a property of one idea.
+ */
+function Reasoning({ text }: { text: string }) {
+  const [open, setOpen] = usePersistentState('trader.ideas.reasoningOpen', false);
+  return (
+    <details
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      className="text-xs"
+    >
+      <summary className="cursor-pointer select-none font-medium text-accent">
+        {open ? 'Hide the reasoning' : 'Read the reasoning'}
+      </summary>
+      <div className="pt-2">
+        <Markdown text={text} />
+      </div>
+    </details>
+  );
+}
+
 /** The numbers the opinion rests on. Collapsed: context, not the headline. */
 function FactsPanel({ facts }: { facts: TickerFacts }) {
   const i = facts.indicators;
@@ -249,8 +275,12 @@ function ResultCard({ result }: { result: TradeIdeaResult }) {
         )}
       </div>
 
-      <Markdown text={result.opinion} />
-
+      {/*
+        The verdict first, the argument for it second. These numbers used to
+        sit under ~400 words of prose, which meant scrolling past the whole
+        opinion on a phone to reach the two levels and the R:R the decision
+        actually turns on.
+      */}
       {result.levels && result.risk ? (
         <RiskPanel levels={result.levels} risk={result.risk} />
       ) : (
@@ -260,6 +290,8 @@ function ResultCard({ result }: { result: TradeIdeaResult }) {
             : 'No stop and target were proposed, so there are no risk figures to show.'}
         </p>
       )}
+
+      <Reasoning text={result.opinion} />
 
       <FactsPanel facts={facts} />
     </div>
@@ -280,8 +312,6 @@ function HistoryDetail({ id }: { id: string }) {
 
   return (
     <div className="space-y-2 border-t border-border px-3 pb-3 pt-2">
-      <Markdown text={data.opinion} />
-
       {/*
         The stored figures, shown as they were stored. Risk per share and the
         position size are NOT re-derived here: that arithmetic belongs to the
@@ -304,6 +334,8 @@ function HistoryDetail({ id }: { id: string }) {
           with it.
         </p>
       )}
+
+      <Reasoning text={data.opinion} />
 
       <details className="text-xs">
         <summary className="cursor-pointer select-none font-medium text-accent">
