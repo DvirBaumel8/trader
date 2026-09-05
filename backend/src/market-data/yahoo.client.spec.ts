@@ -91,6 +91,130 @@ describe('bar ordering', () => {
   });
 });
 
+describe('chart fallback when the quote endpoint is blocked', () => {
+  // Yahoo's quote endpoint needs a "crumb" token; its chart endpoint does not.
+  // From a datacenter IP the crumb request is answered with 429, so in
+  // production every quote failed while chart calls kept working. Falling back
+  // to chart keeps prices alive there.
+  const crumbBlocked = () => {
+    throw new Error('Failed to get crumb, status 429, statusText: Too Many Requests');
+  };
+
+  it('prices a symbol from chart meta when the quote endpoint fails', async () => {
+    const client = new YahooClient({
+      quote: async () => crumbBlocked(),
+      chart: async () => ({
+        meta: {
+          symbol: 'APP',
+          shortName: 'Applovin Corporation',
+          currency: 'USD',
+          regularMarketPrice: 320.56,
+        },
+      }),
+    } as never);
+
+    const q = await client.quote('APP');
+
+    expect(q?.symbol).toBe('APP');
+    expect(q?.price).toBe(320.56);
+    expect(q?.name).toBe('Applovin Corporation');
+  });
+
+  it('reports the fallback price as a regular-session price, never an extended print', async () => {
+    // Chart meta carries no marketState and no pre/post price, so there is no
+    // extended print to label. Claiming one would break the rule that an
+    // extended price is always labelled as such.
+    const client = new YahooClient({
+      quote: async () => crumbBlocked(),
+      chart: async () => ({
+        meta: { symbol: 'APP', regularMarketPrice: 320.56 },
+      }),
+    } as never);
+
+    const q = await client.quote('APP');
+
+    expect(q?.extended).toBe(false);
+    expect(q?.peRatio).toBeNull();
+  });
+
+  it('returns null rather than a made-up price when chart has none either', async () => {
+    const client = new YahooClient({
+      quote: async () => crumbBlocked(),
+      chart: async () => ({ meta: { symbol: 'ZZZZ' } }),
+    } as never);
+
+    expect(await client.quote('ZZZZ')).toBeNull();
+  });
+
+  it('does not call chart at all when the quote endpoint works', async () => {
+    // The fallback costs an extra request per symbol, so it must only run
+    // when the primary path has actually failed.
+    let chartCalls = 0;
+    const client = new YahooClient({
+      quote: async () => ({
+        symbol: 'AAPL',
+        marketState: 'REGULAR',
+        regularMarketPrice: 214,
+        trailingPE: 37.4,
+      }),
+      chart: async () => {
+        chartCalls++;
+        return { meta: {} };
+      },
+    } as never);
+
+    const q = await client.quote('AAPL');
+
+    expect(q?.price).toBe(214);
+    expect(chartCalls).toBe(0);
+  });
+
+  it('prices every symbol from chart when the batch quote is blocked', async () => {
+    const prices: Record<string, number> = { APP: 320.56, NVDA: 178.2 };
+    const client = new YahooClient({
+      quote: async () => crumbBlocked(),
+      chart: async (symbol: string) => ({
+        meta: { symbol, regularMarketPrice: prices[symbol] },
+      }),
+    } as never);
+
+    const quotes = await client.quoteMany(['APP', 'NVDA']);
+
+    expect(quotes.map((q) => [q.symbol, q.price])).toEqual([
+      ['APP', 320.56],
+      ['NVDA', 178.2],
+    ]);
+  });
+
+  it('rethrows when the fallback can price nothing, so the caller serves its stale cache', async () => {
+    // Swallowing a total outage into an empty result would strip the cached
+    // prices MarketDataService falls back on, turning "stale" into "blank".
+    const client = new YahooClient({
+      quote: async () => crumbBlocked(),
+      chart: async () => {
+        throw new Error('chart failed too');
+      },
+    } as never);
+
+    await expect(client.quoteMany(['APP', 'NVDA'])).rejects.toThrow(/crumb/);
+  });
+
+  it('still returns the symbols it could price when one of them fails', async () => {
+    // One dead symbol must not blank the whole portfolio.
+    const client = new YahooClient({
+      quote: async () => crumbBlocked(),
+      chart: async (symbol: string) => {
+        if (symbol === 'BROKEN') throw new Error('chart failed too');
+        return { meta: { symbol, regularMarketPrice: 100 } };
+      },
+    } as never);
+
+    const quotes = await client.quoteMany(['BROKEN', 'NVDA']);
+
+    expect(quotes.map((q) => q.symbol)).toEqual(['NVDA']);
+  });
+});
+
 describe('quote P/E mapping', () => {
   it('exposes a trailing P/E when Yahoo reports one', async () => {
     const client = clientQuoting({

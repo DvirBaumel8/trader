@@ -66,9 +66,46 @@ export class YahooClient {
   }
 
   async quote(symbol: string): Promise<RawQuote | null> {
-    // An unknown ticker resolves to undefined here rather than throwing.
-    const raw = (await this.yf.quote(symbol)) as QuoteLike | undefined;
-    return toRawQuote(raw);
+    try {
+      // An unknown ticker resolves to undefined here rather than throwing.
+      const raw = (await this.yf.quote(symbol)) as QuoteLike | undefined;
+      return toRawQuote(raw);
+    } catch (err) {
+      return this.quoteFromChart(symbol, err);
+    }
+  }
+
+  /**
+   * Yahoo's quote endpoint requires a "crumb" token; its chart endpoint does
+   * not. A datacenter IP gets 429 on the crumb request — shared address, shared
+   * reputation — which took every price in production dark while chart calls
+   * kept working. Chart meta carries the price and the name but no
+   * marketState, no pre/post print and no trailing P/E, so a fallback quote is
+   * deliberately a regular-session one with a null P/E: less than the real
+   * quote, but true. Rethrows the original failure when chart cannot price it
+   * either, so the caller still serves its cached price rather than a blank.
+   */
+  private async quoteFromChart(
+    symbol: string,
+    original: unknown,
+  ): Promise<RawQuote | null> {
+    let meta: QuoteLike & { regularMarketPrice?: number };
+    try {
+      const result = await this.yf.chart(symbol, {
+        period1: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        interval: '1d',
+      });
+      meta = (result?.meta ?? {}) as QuoteLike;
+    } catch {
+      throw original;
+    }
+    return toRawQuote({
+      symbol: meta.symbol ?? symbol,
+      shortName: meta.shortName,
+      longName: meta.longName,
+      currency: meta.currency,
+      regularMarketPrice: meta.regularMarketPrice,
+    });
   }
 
   /**
@@ -172,9 +209,27 @@ export class YahooClient {
 
   async quoteMany(symbols: string[]): Promise<RawQuote[]> {
     if (symbols.length === 0) return [];
-    const raw = (await this.yf.quote(symbols)) as QuoteLike[] | undefined;
-    if (!Array.isArray(raw)) return [];
-    return raw.map(toRawQuote).filter((q): q is RawQuote => q !== null);
+    try {
+      const raw = (await this.yf.quote(symbols)) as QuoteLike[] | undefined;
+      if (!Array.isArray(raw)) return [];
+      return raw.map(toRawQuote).filter((q): q is RawQuote => q !== null);
+    } catch (err) {
+      // One chart call per symbol — the batch endpoint is a quote endpoint and
+      // is blocked with the rest. A symbol that fails on its own is dropped
+      // rather than blanking the whole portfolio.
+      const settled = await Promise.allSettled(
+        symbols.map((s) => this.quoteFromChart(s, err)),
+      );
+      const quotes = settled
+        .filter(
+          (r): r is PromiseFulfilledResult<RawQuote | null> =>
+            r.status === 'fulfilled',
+        )
+        .map((r) => r.value)
+        .filter((q): q is RawQuote => q !== null);
+      if (quotes.length === 0) throw err;
+      return quotes;
+    }
   }
 }
 
