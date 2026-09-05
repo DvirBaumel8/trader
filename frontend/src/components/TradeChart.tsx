@@ -564,15 +564,14 @@ export function TradeChart({
         </p>
       )}
 
-      {/* Honest numbers over pretty ones: say so, rather than silently
-          moving or dropping a fill that doesn't line up with its own day. */}
-      {snappedCount > 0 && (
-        <p className="text-[11px] text-muted">
-          {snappedCount === 1
-            ? '1 fill fell on a non-trading day and is shown on the nearest session.'
-            : `${snappedCount} fills fell on non-trading days and are shown on the nearest session.`}
-        </p>
-      )}
+      {/*
+        Honest numbers over pretty ones: say so, rather than silently moving
+        or dropping a fill that doesn't line up with its own day.
+
+        This one stays in the open because it is TRANSIENT and it resolves —
+        the bars are behind, and the chart catches up when they refresh. It
+        is the only one of these worth interrupting a glance for.
+      */}
       {beyondDataCount > 0 && (
         <p className="text-[11px] text-down">
           {beyondDataCount === 1
@@ -581,14 +580,39 @@ export function TradeChart({
           The chart catches up once the bars refresh.
         </p>
       )}
-      {anyOutOfRange && (
-        <p className="text-[11px] text-muted">
-          Some fills sit outside the price range for their day — a seeded
-          position records your average cost on the seed date, not the
-          original fill.
-          {anyRelocated &&
-            ' This marker is placed on the most recent day price actually traded at that level, not a known entry date.'}
-        </p>
+
+      {/*
+        The other two explain placement, and placement does not change: 20 of
+        the owner's 57 fills came from the seed, so left in the open these
+        were four lines of permanent furniture under a small chart on a
+        phone. Folded away rather than cut — the wording is unchanged, and
+        the reason a marker sits where it does is still one tap from the
+        marker itself, which is the whole point of having said it.
+      */}
+      {(snappedCount > 0 || anyOutOfRange) && (
+        <details className="text-[11px] text-muted">
+          <summary className="cursor-pointer select-none text-accent">
+            Why some markers sit where they do
+          </summary>
+          <div className="space-y-1 pt-1">
+            {snappedCount > 0 && (
+              <p>
+                {snappedCount === 1
+                  ? '1 fill fell on a non-trading day and is shown on the nearest session.'
+                  : `${snappedCount} fills fell on non-trading days and are shown on the nearest session.`}
+              </p>
+            )}
+            {anyOutOfRange && (
+              <p>
+                Some fills sit outside the price range for their day — a seeded
+                position records your average cost on the seed date, not the
+                original fill.
+                {anyRelocated &&
+                  ' This marker is placed on the most recent day price actually traded at that level, not a known entry date.'}
+              </p>
+            )}
+          </div>
+        </details>
       )}
     </div>
   );

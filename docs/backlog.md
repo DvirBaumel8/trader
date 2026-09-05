@@ -41,7 +41,31 @@ this says what is outstanding.
   from a mutated ref to a plain `useState` capture, with a `restoreDone` flag
   replacing the "null the ref to mark consumed" trick).
 - [ ] **Look hard at the UI as a whole.** More conventional components? Study
-  comparable products and decide what the right shape actually is.
+  comparable products and decide what the right shape actually is. A first
+  pass against the owner's own screenshots produced three concrete findings;
+  one is fixed, two are decisions.
+
+  **Fixed:** the placement caveats under the trade chart were four lines of
+  permanent furniture — 20 of 57 fills came from the seed, so "some fills sit
+  outside the price range for their day" was true on most screens. Folded
+  into a "Why some markers sit where they do" toggle, wording unchanged. The
+  bars-are-behind warning stays in the open: it is transient and it resolves,
+  which is the only one worth interrupting a glance for.
+
+  **Decide: dates follow the device locale, money does not.** Every money
+  value is pinned to `en-US`; dates pass `[]` to `toLocaleDateString`, and
+  `lightweight-charts` gets no `localization` at all. On the owner's phone
+  that renders Hebrew month abbreviations under an otherwise English screen.
+  This is deliberate — `chartDates.spec.ts` says "order is the VIEWER's
+  locale to decide" — so it was left alone, but the consequence is mixed
+  script in a product meant to be charged for. Pinning both to English is
+  two lines; keeping device dates is also coherent. Not the agent's call.
+
+  **Watch: axis labels may now crowd.** The current-price badge already
+  overlapped its neighbouring gridline label before any of this (visible on
+  MSTR, BITX and PLTR). Fills, stops and the target now each add one. If it
+  is unreadable on a phone, label only the levels that carry the decision —
+  stop and target — and leave fills to their lines plus the text beneath.
 
 ## The trade-idea prompt (design agreed, not built)
 
