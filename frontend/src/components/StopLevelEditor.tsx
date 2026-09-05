@@ -1,9 +1,9 @@
 import { useStopRisk, type PriceFrom } from '../lib/useStopRisk';
 import type { StopRow } from '../lib/stopRow';
+import { inputClasses } from './ui/inputClasses';
 import { formatMoney, formatQuantity } from './format';
 
-const inputClass =
-  'w-full min-w-0 rounded-lg border border-border bg-surface-1 px-2.5 py-1.5 text-sm outline-none focus:border-accent';
+const inputClass = inputClasses('sm');
 
 /**
  * Stops are a list of tiers, each a fixed price or a percentage trail. The

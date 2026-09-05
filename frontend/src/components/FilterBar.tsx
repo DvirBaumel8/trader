@@ -1,3 +1,4 @@
+import { inputClasses } from './ui/inputClasses';
 import { useState } from 'react';
 import {
   emptyFilters,
@@ -15,7 +16,7 @@ const SORTS = [
 export type SortValue = (typeof SORTS)[number]['value'];
 
 const controlClass =
-  'w-full min-w-0 rounded-lg border border-border bg-surface-1 px-2.5 py-1.5 text-sm outline-none focus:border-accent';
+  inputClasses('sm');
 
 /**
  * Collapsed by default. Filters are occasional, and a permanent three-row

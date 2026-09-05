@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { inputClasses } from '../components/ui/inputClasses';
 import { clearDraft, loadDraft, saveDraft } from '../lib/draftStorage';
 
 type Side = 'LONG' | 'SHORT';
@@ -38,8 +39,7 @@ function emptyDraft(): SeedDraft {
   };
 }
 
-const inputClass =
-  'w-full min-w-0 rounded-lg border border-border bg-surface-1 px-3 py-2 text-base outline-none focus:border-accent';
+const inputClass = inputClasses('md');
 
 /**
  * A segmented toggle rather than a typed sign. The iOS decimal keypad has no

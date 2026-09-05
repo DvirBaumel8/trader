@@ -1,3 +1,4 @@
+import { Button } from '../components/ui/Button';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
@@ -47,13 +48,15 @@ export function Login() {
           className="w-full rounded-xl border border-border bg-surface-1 px-4 py-3 text-text"
         />
         {error && <p className="text-sm text-down">{error}</p>}
-        <button
+        <Button
           type="submit"
+          variant="primary"
+          size="lg"
+          className="w-full rounded-xl"
           disabled={submitting || password.length === 0}
-          className="w-full rounded-xl bg-accent px-4 py-3 font-medium text-surface-0 disabled:opacity-50"
         >
           {submitting ? 'Checking…' : 'Log in'}
-        </button>
+        </Button>
       </form>
     </div>
   );

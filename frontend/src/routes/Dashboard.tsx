@@ -19,6 +19,7 @@ import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { AiSummary } from '../components/AiSummary';
 import { SessionBadge } from '../components/SessionBadge';
 import { RefreshButton } from '../components/RefreshButton';
+import { Button } from '../components/ui/Button';
 import { BenchmarkChart } from '../components/BenchmarkChart';
 import { RANGES, type Point, type Range } from '../lib/benchmarkRange';
 
@@ -235,21 +236,16 @@ function ResetPortfolio({ positionCount }: { positionCount: number }) {
         undone.
       </p>
       <div className="flex gap-2">
-        <button
-          type="button"
+        <Button
+          variant="danger"
           disabled={mutation.isPending}
           onClick={() => mutation.mutate()}
-          className="rounded-lg bg-down px-3 py-2 text-sm font-medium text-surface-0 disabled:opacity-50"
         >
           {mutation.isPending ? 'Resetting…' : 'Delete and start over'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirming(false)}
-          className="rounded-lg border border-border px-3 py-2 text-sm text-muted"
-        >
+        </Button>
+        <Button variant="secondary" onClick={() => setConfirming(false)}>
           Cancel
-        </button>
+        </Button>
       </div>
       {mutation.isError && (
         <p className="text-xs text-down">{(mutation.error as Error).message}</p>

@@ -13,12 +13,13 @@ import {
 } from '../lib/entryDraft';
 import type { StopRow } from '../lib/stopRow';
 import { StopLevelEditor } from './StopLevelEditor';
+import { Button } from './ui/Button';
+import { inputClasses } from './ui/inputClasses';
 import type { Entry } from './EntryCard';
 
 const DRAFT_KEY = 'trader.entryDraft.v1';
 
-const inputClass =
-  'w-full min-w-0 rounded-lg border border-border bg-surface-1 px-3 py-2 text-base outline-none focus:border-accent';
+const inputClass = inputClasses('md');
 
 const KINDS: { value: EntryKind; label: string }[] = [
   { value: 'TRADE', label: 'Trade' },
@@ -380,25 +381,22 @@ export function EntrySheet({
         )}
 
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-border px-4 py-3 text-sm text-muted"
-          >
+          <Button variant="secondary" size="lg" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="primary"
+            size="lg"
+            className="flex-1"
             disabled={mutation.isPending}
             onClick={() => mutation.mutate()}
-            className="flex-1 rounded-lg bg-accent px-4 py-3 font-medium text-surface-0 disabled:opacity-50"
           >
             {mutation.isPending
               ? 'Saving…'
               : editing
                 ? 'Save changes'
                 : 'Save entry'}
-          </button>
+          </Button>
         </div>
 
         {editing && (
@@ -453,21 +451,16 @@ function DeleteEntry({
               : 'This note will be deleted.'}
       </p>
       <div className="flex gap-2">
-        <button
-          type="button"
+        <Button
+          variant="danger"
           disabled={mutation.isPending}
           onClick={() => mutation.mutate()}
-          className="rounded-lg bg-down px-3 py-2 text-sm font-medium text-surface-0 disabled:opacity-50"
         >
           {mutation.isPending ? 'Deleting…' : 'Delete'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirming(false)}
-          className="rounded-lg border border-border px-3 py-2 text-sm text-muted"
-        >
+        </Button>
+        <Button variant="secondary" onClick={() => setConfirming(false)}>
           Cancel
-        </button>
+        </Button>
       </div>
       {mutation.isError && (
         <p className="text-xs text-down">{(mutation.error as Error).message}</p>

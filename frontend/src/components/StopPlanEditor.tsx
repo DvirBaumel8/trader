@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { StopLevelEditor } from './StopLevelEditor';
+import { Button } from './ui/Button';
 import { usePersistentState } from '../lib/persistentState';
 import type { StopRow } from '../lib/stopRow';
 
@@ -138,8 +139,9 @@ export function StopPlanEditor({
         </p>
       )}
       <div className="flex gap-2">
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          className="flex-1"
           onClick={() => {
             // Cancel means discard: without clearing, the abandoned draft
             // would be restored the next time this trade is opened.
@@ -148,18 +150,17 @@ export function StopPlanEditor({
             setOpen(false);
           }}
           disabled={mutation.isPending}
-          className="flex-1 rounded-lg border border-border px-3 py-2 text-sm text-muted"
         >
           Cancel
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="primary"
+          className="flex-1"
           onClick={() => mutation.mutate()}
           disabled={mutation.isPending}
-          className="flex-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-surface-0 disabled:opacity-60"
         >
           {mutation.isPending ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </div>
       <p className="text-[11px] leading-tight text-muted">
         Saving records a new revision. The plan you set at entry is kept, so
