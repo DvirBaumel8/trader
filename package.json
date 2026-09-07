@@ -2,13 +2,23 @@
   "name": "trader",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
-    "dev": "mkdir -p logs && concurrently -n api,web -c cyan,magenta \"npm run start:dev --prefix backend 2>&1 | tee logs/api.log\" \"npm run dev --prefix frontend 2>&1 | tee logs/web.log\"",
-    "build": "npm run build --prefix backend && npm run build --prefix frontend",
-    "test": "npm run test --prefix backend && npm run test:e2e --prefix backend && npm run test --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend",
+    "build:backend": "npm run build --prefix backend",
+    "build": "npm run build:backend && npm run build:frontend",
+    "dev": "npm run build:frontend && npm run build:backend && node backend/dist/main.js",
+    "start": "node backend/dist/main.js",
+    "lint": "npm run lint --prefix backend && npm run lint --prefix frontend",
+    "test": "npm run test --prefix backend && npm run test --prefix frontend",
     "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@testing-library/dom": "^10.4.1",
+    "concurrently": "^9.1.0",
+    "pg-mem": "^3.0.14"
   }
 }

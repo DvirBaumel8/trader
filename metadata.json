@@ -1,0 +1,6 @@
+{
+  "name": "Trader",
+  "description": "Portfolio tracker and trading journal for active traders",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

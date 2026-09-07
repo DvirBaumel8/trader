@@ -137,7 +137,7 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}
 @Injectable()
 export class GeminiClient extends LlmClient {
   private readonly logger = new Logger(GeminiClient.name);
-  private readonly apiKey = process.env.LLM_API_KEY;
+  private readonly apiKey = process.env.GEMINI_API_KEY || process.env.LLM_API_KEY;
   private readonly provider = process.env.LLM_PROVIDER ?? 'gemini';
   // Google retires model ids, and this default is what any environment that
   // does not set LLM_MODEL gets. gemini-2.5-flash sat here after it had been
