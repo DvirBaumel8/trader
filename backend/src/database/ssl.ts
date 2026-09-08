@@ -16,5 +16,16 @@ export function buildDatabaseSsl(env: NodeJS.ProcessEnv): DatabaseSsl {
   if (env.DATABASE_SSL === 'no-verify') {
     return { rejectUnauthorized: false };
   }
+  if (env.DATABASE_SSL === 'false') {
+    return false;
+  }
+  if (
+    env.DATABASE_URL &&
+    (env.DATABASE_URL.includes('neon.tech') ||
+      env.DATABASE_URL.includes('sslmode=require') ||
+      env.DATABASE_URL.includes('ssl=true'))
+  ) {
+    return { rejectUnauthorized: false };
+  }
   return false;
 }

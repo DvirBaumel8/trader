@@ -13,9 +13,9 @@ export class AuthService {
         throw new UnauthorizedException('Wrong password');
       }
     } else {
-      // In development when APP_PASSWORD_HASH is unset, allow 'trader' or 'password'
-      if (password !== 'trader' && password !== 'password') {
-        throw new UnauthorizedException('Wrong password (default dev password: trader)');
+      // In development when APP_PASSWORD_HASH is unset, allow 'aaaa', 'trader', or 'password'
+      if (password !== 'aaaa' && password !== 'trader' && password !== 'password') {
+        throw new UnauthorizedException('Wrong password (accepted dev passwords: aaaa or trader)');
       }
     }
     return { accessToken: await this.jwt.signAsync({ sub: 'owner' }) };

@@ -175,21 +175,29 @@ describe('withRetry', () => {
  */
 describe('GeminiClient', () => {
   const originalApiKey = process.env.LLM_API_KEY;
+  const originalGeminiApiKey = process.env.GEMINI_API_KEY;
   const originalProvider = process.env.LLM_PROVIDER;
 
   beforeEach(() => {
     generateContent.mockReset();
     process.env.LLM_API_KEY = 'test-key';
+    delete process.env.GEMINI_API_KEY;
     process.env.LLM_PROVIDER = 'gemini';
   });
 
   afterEach(() => {
     process.env.LLM_API_KEY = originalApiKey;
+    if (originalGeminiApiKey !== undefined) {
+      process.env.GEMINI_API_KEY = originalGeminiApiKey;
+    } else {
+      delete process.env.GEMINI_API_KEY;
+    }
     process.env.LLM_PROVIDER = originalProvider;
   });
 
   it('throws a setup_problem LlmFailure without calling the SDK when unconfigured', async () => {
     delete process.env.LLM_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     const client = new GeminiClient();
 
     await expect(client.complete({ system: 's', user: 'u' })).rejects.toMatchObject({

@@ -13,8 +13,9 @@ type Health = { status: string; database: string; userId: string | null };
 function ConnectionBanner() {
   const { data, isError, isLoading } = useQuery({
     queryKey: ['health'],
-    queryFn: () => api<Health>('/health'),
+    queryFn: () => api<Health>('/health/ping'),
     refetchInterval: 30_000,
+    retry: 1,
   });
 
   if (isLoading) return null;

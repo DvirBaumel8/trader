@@ -22,11 +22,17 @@ export function Login() {
       setToken(accessToken);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(
-        err instanceof ApiError && err.status === 401
-          ? 'Wrong password'
-          : 'Could not reach the server',
-      );
+      if (err instanceof ApiError || (typeof err === 'object' && err !== null && 'status' in err)) {
+        const status = (err as { status?: number }).status;
+        const message = (err as { message?: string }).message;
+        if (status === 401) {
+          setError(message || 'Wrong password');
+        } else {
+          setError(message || `Request failed (${status})`);
+        }
+      } else {
+        setError('Could not reach the server');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -58,6 +64,9 @@ export function Login() {
           {submitting ? 'Checking…' : 'Log in'}
         </Button>
       </form>
+      <p className="mt-4 text-center text-xs text-muted">
+        Connected to your live production database
+      </p>
     </div>
   );
 }

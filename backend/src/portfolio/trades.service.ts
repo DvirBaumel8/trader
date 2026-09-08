@@ -222,7 +222,7 @@ export class TradesService {
    * a setup is named when the position is opened, a mistake often only when
    * it is closed, and both belong to the same trade.
    */
-  private async tagsByEntryId(): Promise<
+  async tagsByEntryId(): Promise<
     Map<string, { setups: string[]; mistakes: string[] }>
   > {
     const user = await this.users.ensureDefaultUser();

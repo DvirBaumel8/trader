@@ -10,6 +10,7 @@ export class HealthController {
     private readonly users: UsersService,
   ) {}
 
+  @Public()
   @Get()
   async check() {
     let database = 'error';

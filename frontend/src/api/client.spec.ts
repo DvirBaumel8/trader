@@ -32,7 +32,7 @@ describe('api client URL construction', () => {
     vi.unstubAllGlobals();
   });
 
-  it('fetches /api/<path> when VITE_API_BASE_URL is unset (dev, proxy strips /api)', async () => {
+  it('fetches /api/<path> when VITE_API_BASE_URL is unset', async () => {
     vi.stubEnv('VITE_API_BASE_URL', '');
     const { api } = await import('./client');
 
@@ -42,7 +42,7 @@ describe('api client URL construction', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/portfolio');
   });
 
-  it('fetches <base>/<path> with no /api segment when VITE_API_BASE_URL is set (production, no proxy)', async () => {
+  it('fetches <base>/api/<path> when VITE_API_BASE_URL is set (production)', async () => {
     vi.stubEnv('VITE_API_BASE_URL', 'https://trader-backend.onrender.com');
     const { api } = await import('./client');
 
@@ -50,7 +50,19 @@ describe('api client URL construction', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://trader-backend.onrender.com/portfolio',
+      'https://trader-backend.onrender.com/api/portfolio',
+    );
+  });
+
+  it('fetches <base>/health/ping without /api segment when querying health', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'https://trader-backend.onrender.com');
+    const { api } = await import('./client');
+
+    await api('/health/ping');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://trader-backend.onrender.com/health/ping',
     );
   });
 

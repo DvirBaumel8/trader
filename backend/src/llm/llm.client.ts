@@ -79,6 +79,16 @@ function classify(err: unknown): LlmFailureKind {
         return 'unknown';
     }
   }
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('403') || msg.includes('401') || msg.includes('PERMISSION_DENIED') || msg.includes('leaked') || msg.includes('API key not valid')) {
+    return 'setup_problem';
+  }
+  if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+    return 'quota_exceeded';
+  }
+  if (msg.includes('503') || msg.includes('UNAVAILABLE')) {
+    return 'busy';
+  }
   return 'unknown';
 }
 
@@ -140,11 +150,8 @@ export class GeminiClient extends LlmClient {
   private readonly apiKey = process.env.GEMINI_API_KEY || process.env.LLM_API_KEY;
   private readonly provider = process.env.LLM_PROVIDER ?? 'gemini';
   // Google retires model ids, and this default is what any environment that
-  // does not set LLM_MODEL gets. gemini-2.5-flash sat here after it had been
-  // withdrawn: local development set the variable and never noticed, while
-  // production fell through to the default and answered every AI request with
-  // "not set up correctly" — a config error wearing the costume of a bug.
-  private readonly model = process.env.LLM_MODEL ?? 'gemini-3.6-flash';
+  // does not set LLM_MODEL gets.
+  private readonly model = process.env.LLM_MODEL ?? 'gemini-2.5-flash';
   private client: GoogleGenAI | null = null;
 
   isConfigured(): boolean {

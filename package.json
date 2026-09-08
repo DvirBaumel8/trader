@@ -10,7 +10,7 @@
     "build:frontend": "npm run build --prefix frontend",
     "build:backend": "npm run build --prefix backend",
     "build": "npm run build:backend && npm run build:frontend",
-    "dev": "npm run build:frontend && npm run build:backend && node backend/dist/main.js",
+    "dev": "npm run build:backend && node backend/dist/main.js",
     "start": "node backend/dist/main.js",
     "lint": "npm run lint --prefix backend && npm run lint --prefix frontend",
     "test": "npm run test --prefix backend && npm run test --prefix frontend",
@@ -20,5 +20,8 @@
     "@testing-library/dom": "^10.4.1",
     "concurrently": "^9.1.0",
     "pg-mem": "^3.0.14"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
   }
 }

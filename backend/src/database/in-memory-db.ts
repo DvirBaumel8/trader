@@ -17,6 +17,22 @@ export async function initDatabaseIfOffline(): Promise<void> {
     );
 
   if (hasRealDb) {
+    try {
+      console.log('[AI Studio] External database configured — running migrations if needed...');
+      if (!dataSource.isInitialized) {
+        await dataSource.initialize();
+      }
+      await dataSource.runMigrations();
+      await dataSource.destroy();
+      console.log('[AI Studio] External database migrations up to date');
+    } catch (err: any) {
+      console.warn('[AI Studio] Migration check on external database:', err?.message ?? err);
+      try {
+        if (dataSource.isInitialized) {
+          await dataSource.destroy();
+        }
+      } catch {}
+    }
     initialized = true;
     return;
   }

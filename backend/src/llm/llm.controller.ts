@@ -12,6 +12,7 @@ import { LlmService } from './llm.service.js';
 import { AiSummaryService } from './ai-summary.service.js';
 import { TradeIdeaService } from './trade-idea.service.js';
 import { TradeIdeaHistoryService } from './trade-idea-history.service.js';
+import { TradeReviewService } from './trade-review.service.js';
 
 class TradeIdeaDto {
   @IsString()
@@ -30,7 +31,18 @@ export class LlmController {
     private readonly summaries: AiSummaryService,
     private readonly tradeIdeas: TradeIdeaService,
     private readonly tradeIdeaHistory: TradeIdeaHistoryService,
+    private readonly tradeReviews: TradeReviewService,
   ) {}
+
+  @Post('trade-reviews/:tradeId')
+  reviewTrade(@Param('tradeId') tradeId: string) {
+    return this.tradeReviews.reviewTrade(tradeId);
+  }
+
+  @Get('trade-reviews/:tradeId')
+  getTradeReview(@Param('tradeId') tradeId: string) {
+    return this.tradeReviews.getReview(tradeId);
+  }
 
   @Post('trade-idea')
   tradeIdea(@Body() body: TradeIdeaDto) {

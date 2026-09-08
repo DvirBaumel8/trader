@@ -10,6 +10,7 @@ import {
 } from '../components/TradeChart';
 import { unresolvedTrailingStops } from '../lib/stopSummary';
 import { StopPlanEditor } from '../components/StopPlanEditor';
+import { TradeReviewCard } from '../components/TradeReviewCard';
 import type { Bar } from '../lib/candleScale';
 import type { Trade } from '../components/TradeCard';
 
@@ -254,6 +255,9 @@ export function TradeDetail() {
           run it to see the rest of this trade.
         </p>
       )}
+
+      {/* AI Post-Mortem & Discipline Review */}
+      <TradeReviewCard tradeId={id} />
     </div>
   );
 }
