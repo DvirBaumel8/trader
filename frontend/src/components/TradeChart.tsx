@@ -613,15 +613,15 @@ export function TradeChart({
    */
   const [callouts, setCallouts] = useState<Callout[]>([]);
 
-  const syncCallouts = useCallback(() => {
+  const syncCallouts = useCallback((): boolean => {
     const chart = chartRef.current;
     const series = seriesRef.current;
-    if (!chart || !series) return;
+    if (!chart || !series) return false;
 
     const { candleBars: cb, placed: pf } = placeFills(bars, fills);
     if (cb.length === 0) {
       setCallouts([]);
-      return;
+      return true; // Nothing to draw is a finished answer, not a failure.
     }
 
     // Only what the replay has revealed, so a callout never announces an
@@ -650,7 +650,7 @@ export function TradeChart({
     const wanted = calloutAnnotations(entry, exit, stopPrice, cb.length - 1);
     if (wanted.length === 0) {
       setCallouts([]);
-      return;
+      return true;
     }
 
     const placements = placeAnnotations(
@@ -723,23 +723,60 @@ export function TradeChart({
         tipY,
       })),
     );
+
+    /**
+     * Done only when EVERY callout was placed, not merely one of them.
+     *
+     * Coordinates come good a frame apart, so a sync can resolve the exit and
+     * not the entry. Treating that as finished stops the retry and leaves one
+     * callout missing for good — a subtler version of the same silent failure
+     * this whole path has already produced twice.
+     */
+    return raw.length === placements.length;
   }, [bars, fills, stopLevels, step]);
 
   // The three things that move the plot. Without the first two the boxes
   // drift off their candles the moment the owner pans or rotates the phone,
   // which is exactly the objection that got a DOM overlay rejected before.
   useEffect(() => {
-    syncCallouts();
     const chart = chartRef.current;
     const container = containerRef.current;
-    if (!chart || !container) return;
+
+    /**
+     * Retry until the chart can actually place a coordinate.
+     *
+     * `setData` and the visible-range call happen in the drawing effect, one
+     * commit earlier, but the library lays out its scales on the next frame —
+     * so the first attempt asks for coordinates that do not exist yet and
+     * gets null for all of them. That alone would be survivable; what made it
+     * fatal is that nothing retried. The visible-range event that would have
+     * re-run this fires BEFORE this effect subscribes, so a single failed
+     * first attempt left the callouts empty forever, which is exactly what
+     * showed on the device: correct price lines, no labels.
+     *
+     * Bounded, and it stops as soon as one attempt succeeds.
+     */
+    let frame = 0;
+    let attempts = 0;
+    const attempt = () => {
+      if (syncCallouts()) return;
+      if (attempts++ < 12) frame = requestAnimationFrame(attempt);
+    };
+    attempt();
+
+    if (!chart || !container) return () => cancelAnimationFrame(frame);
 
     const handler = () => syncCallouts();
     chart.timeScale().subscribeVisibleTimeRangeChange(handler);
+    // Panning and zooming move the logical range without necessarily
+    // changing the time range at the edges, so both are watched.
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
     const observer = new ResizeObserver(handler);
     observer.observe(container);
     return () => {
+      cancelAnimationFrame(frame);
       chart.timeScale().unsubscribeVisibleTimeRangeChange(handler);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
       observer.disconnect();
     };
   }, [syncCallouts]);
