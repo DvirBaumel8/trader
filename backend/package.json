@@ -37,6 +37,7 @@
     "class-validator": "^0.15.1",
     "dotenv": "^17.4.2",
     "express": "^5.0.0",
+    "google-auth-library": "^10.9.1",
     "pg": "^8.23.0",
     "pg-mem": "^3.0.14",
     "reflect-metadata": "^0.2.2",

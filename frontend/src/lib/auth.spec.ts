@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearToken, getToken, setToken } from './auth';
+import {
+  clearToken,
+  forgetUser,
+  getRememberedUser,
+  getToken,
+  rememberUser,
+  setToken,
+} from './auth';
 
 function stubStorage(impl: Partial<Storage>) {
   vi.stubGlobal('window', { localStorage: impl });
@@ -55,5 +62,33 @@ describe('auth token storage', () => {
       removeItem: () => {},
     });
     expect(() => setToken('x')).not.toThrow();
+  });
+});
+
+describe('remembering who signed in', () => {
+  it('gives back what it was told', () => {
+    rememberUser({ id: 'u1', displayName: 'Dvir', email: 'd@x.com', avatarUrl: null });
+    expect(getRememberedUser()?.displayName).toBe('Dvir');
+  });
+
+  it('has nobody to remember before anyone signs in', () => {
+    expect(getRememberedUser()).toBeNull();
+  });
+
+  it('forgets on request', () => {
+    rememberUser({ id: 'u1', displayName: 'Dvir', email: null, avatarUrl: null });
+    forgetUser();
+    expect(getRememberedUser()).toBeNull();
+  });
+
+  /** A hand-edited or half-written value must not reach the UI as a name. */
+  it('treats a malformed stored value as nobody', () => {
+    window.localStorage.setItem('trader.identity.v1', '{"nope":true}');
+    expect(getRememberedUser()).toBeNull();
+  });
+
+  it('treats unparseable JSON as nobody', () => {
+    window.localStorage.setItem('trader.identity.v1', 'not json');
+    expect(getRememberedUser()).toBeNull();
   });
 });

@@ -50,7 +50,7 @@ export class TradeReviewService {
   ) {}
 
   async getReview(tradeId: string): Promise<TradeReviewResult | null> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const existing = await this.reviews.findOne({
       where: { userId: user.id, tradeId },
       order: { createdAt: 'DESC' },
@@ -82,7 +82,7 @@ export class TradeReviewService {
   }
 
   async reviewTrade(tradeId: string): Promise<TradeReviewResult> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const tradeData = await this.trades.getTrade(tradeId);
     if (!tradeData) {
       throw new NotFoundException(`Trade ${tradeId} not found`);

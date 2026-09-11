@@ -66,7 +66,7 @@ export class TradesService {
    * disagree about what a trade is.
    */
   async deriveAllTrades(): Promise<DerivedTrade[]> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const [txnRows, instrumentRows, levelRows, executionRows, entryRows] =
       await Promise.all([
         this.txns.find({ where: { userId: user.id } }),
@@ -225,7 +225,7 @@ export class TradesService {
   async tagsByEntryId(): Promise<
     Map<string, { setups: string[]; mistakes: string[] }>
   > {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const [tags, joins] = await Promise.all([
       this.tags.find({ where: { userId: user.id } }),
       this.entryTags.find(),
@@ -414,7 +414,7 @@ export class TradesService {
     const parsed = parseTradeId(tradeId);
     if (!parsed) throw new NotFoundException('Unknown trade');
 
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const instrument = await this.instruments.findOne({
       where: { symbol: parsed.symbol },
     });

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity.js';
+import { currentUserId } from './user-context.js';
 import { reasonVocabulary } from '../journal/reasons.js';
 
 @Injectable()
@@ -39,16 +40,31 @@ export class UsersService {
    * the single owner, which is exactly today's behaviour.
    */
   async currentUser(): Promise<User> {
+    const id = currentUserId();
+    if (id) {
+      const found = await this.users.findOne({ where: { id } });
+      if (found) return found;
+    }
+    /**
+     * No identity on the request, or an id that no longer exists: fall back
+     * to the single owner.
+     *
+     * This is what keeps the pre-multi-user password login working, and it
+     * fails in the safe direction — the owner can never be locked out of his
+     * own portfolio by a stale token. It does mean a deleted user's token
+     * quietly becomes the owner, which is acceptable while this serves one
+     * person and must be revisited before anyone else has an account.
+     */
     return this.ensureDefaultUser();
   }
 
   async getSettings() {
-    const user = await this.ensureDefaultUser();
+    const user = await this.currentUser();
     return { defaultFee: user.defaultFee, reasons: reasonVocabulary() };
   }
 
   async updateSettings(defaultFee: number) {
-    const user = await this.ensureDefaultUser();
+    const user = await this.currentUser();
     user.defaultFee = Math.abs(defaultFee);
     await this.users.save(user);
     return { defaultFee: user.defaultFee };

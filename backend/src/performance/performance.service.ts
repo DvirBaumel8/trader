@@ -43,7 +43,7 @@ export class PerformanceService {
     // already shows today's live move — see docs/backlog.md, "+8% today but
     // still behind the Nasdaq".
     await this.history.ensureFresh();
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const [txnRows, flowRows, divRows, instrumentRows] = await Promise.all([
       this.txns.find({ where: { userId: user.id } }),
       this.flows.find({ where: { userId: user.id } }),

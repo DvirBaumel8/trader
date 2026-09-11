@@ -1,5 +1,9 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { User } from '../users/user.entity.js';
+import { UsersModule } from '../users/users.module.js';
+import { GoogleVerifier } from './google-verifier.js';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
@@ -7,6 +11,8 @@ import { JwtAuthGuard } from './jwt-auth.guard.js';
 
 @Module({
   imports: [
+    TypeOrmModule.forFeature([User]),
+    UsersModule,
     JwtModule.registerAsync({
       useFactory: () => {
         const secret = process.env.JWT_SECRET;
@@ -21,7 +27,7 @@ import { JwtAuthGuard } from './jwt-auth.guard.js';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+  providers: [AuthService, { provide: APP_GUARD, useClass: JwtAuthGuard }, GoogleVerifier],
   exports: [JwtModule],
 })
 export class AuthModule {}

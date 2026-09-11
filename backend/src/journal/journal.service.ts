@@ -184,7 +184,7 @@ export class JournalService {
   ) {}
 
   async list(filters: ListFilters = {}): Promise<EntryView[]> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const [entries, txns, flows, divs, instruments, allTags, joins, levels, executions] =
       await Promise.all([
         this.entries.find({
@@ -364,7 +364,7 @@ export class JournalService {
    * transaction always belongs to an entry cannot be bypassed.
    */
   async create(input: CreateEntryInput): Promise<EntryView> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const resolved = await this.resolveTrade(input);
 
     const entryId = await this.dataSource.transaction(async (manager) => {
@@ -403,7 +403,7 @@ export class JournalService {
    * is deleted along with everything else this entry owned.
    */
   async update(id: string, input: CreateEntryInput): Promise<EntryView> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const existing = await this.entries.findOne({
       where: { id, userId: user.id },
     });
@@ -455,7 +455,7 @@ export class JournalService {
   }
 
   async remove(id: string): Promise<void> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const existing = await this.entries.findOne({
       where: { id, userId: user.id },
     });

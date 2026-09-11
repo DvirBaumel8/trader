@@ -146,7 +146,17 @@ unaffected; `main` deploys automatically on push.
    tests the flag; nothing else should compute `max(revisionSeq)` itself.
    Clearing never touches revision 0, so risk-at-entry and R survive it.
 
-9. **Price by session.** `select-price.ts` chooses pre-market, regular or
+9. **Every service resolves `usersService.currentUser()`, never
+   `ensureDefaultUser()`.** The app is multi-user: the request's identity
+   arrives through `users/user-context.ts` (AsyncLocalStorage, set by
+   `UserContextMiddleware` before the guard runs) and `currentUser()` is the
+   one place that reads it. A service calling `ensureDefaultUser()` serves
+   the OWNER's data to whoever asked — a data leak that no type checker will
+   catch, because both return a `User`. The two exceptions are deliberate and
+   commented: `AuthService`'s shared-password path, which IS the owner, and
+   `currentUser()`'s own fallback.
+
+10. **Price by session.** `select-price.ts` chooses pre-market, regular or
    after-hours based on Yahoo's `marketState`, so the portfolio is current
    outside regular hours. Extended-hours prints are thinner and can gap, so
    they are always labelled in the UI, never passed off as the close.

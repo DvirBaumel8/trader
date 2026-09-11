@@ -56,6 +56,8 @@ function fakeRepo() {
 function fakeUsers(userId = 'user-1'): UsersService {
   return {
     ensureDefaultUser: vi.fn().mockResolvedValue({ id: userId }),
+    // Services resolve the request's user now, not the single owner.
+    currentUser: vi.fn().mockResolvedValue({ id: userId }),
   } as unknown as UsersService;
 }
 

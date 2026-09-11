@@ -67,7 +67,7 @@ export class PortfolioService {
     // the catch here is belt and braces against an unhandled rejection.
     void this.history.ensureFresh().catch(() => {});
 
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const [txnRows, flowRows, divRows, instrumentRows, entryRows] =
       await Promise.all([
         this.txns.find({ where: { userId: user.id } }),
@@ -291,7 +291,7 @@ export class PortfolioService {
    * used to fetch every trade entry and total them itself.
    */
   async getFees(period: FeePeriod) {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const rows = await this.txns.find({
       where: { userId: user.id },
       select: { executedAt: true, fee: true },

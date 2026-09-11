@@ -18,7 +18,7 @@ export class HealthController {
     try {
       await this.dataSource.query('SELECT 1');
       database = 'ok';
-      userId = (await this.users.ensureDefaultUser()).id;
+      userId = (await this.users.currentUser()).id;
     } catch {
       database = 'error';
     }

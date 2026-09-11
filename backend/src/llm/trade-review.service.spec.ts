@@ -63,6 +63,8 @@ function makeService(opts: {
 
   const users = {
     ensureDefaultUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+    // Services resolve the request's user now, not the single owner.
+    currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
   } as unknown as UsersService;
 
   const reviews = {

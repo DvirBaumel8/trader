@@ -73,7 +73,7 @@ export class TradeIdeaHistoryService {
   ) {}
 
   async list(): Promise<TradeIdeaListRow[]> {
-    const owner = await this.users.ensureDefaultUser();
+    const owner = await this.users.currentUser();
     // factsSnapshot is left out of the selection entirely. `opinion` is still
     // fetched, to build the preview, but truncated before it leaves here.
     const rows = await this.ideas
@@ -105,14 +105,14 @@ export class TradeIdeaHistoryService {
   }
 
   async findOne(id: string): Promise<TradeIdeaDetail> {
-    const owner = await this.users.ensureDefaultUser();
+    const owner = await this.users.currentUser();
     const row = await this.ideas.findOne({ where: { id, userId: owner.id } });
     if (!row) throw new NotFoundException('Trade idea not found');
     return toDetail(row);
   }
 
   async remove(id: string): Promise<void> {
-    const owner = await this.users.ensureDefaultUser();
+    const owner = await this.users.currentUser();
     const result = await this.ideas.delete({ id, userId: owner.id });
     if (!result.affected) throw new NotFoundException('Trade idea not found');
   }

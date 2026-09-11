@@ -204,6 +204,33 @@ There is no staging environment, deliberately. `main` is production; work is
 built and tested locally, then pushed. Every branch pushed to GitHub gets its
 own Cloudflare preview URL for testing on a real phone before merging.
 
+## Google sign-in (optional, and OFF until you set it up)
+
+Google sign-in is built but inert until it has credentials, which only you can
+create. Without them the app behaves exactly as it did: `GET /auth/config`
+reports `google: false` and the button is never rendered, so there is no dead
+end for anyone to press.
+
+To turn it on:
+
+1. In the Google Cloud console, create an **OAuth 2.0 Client ID** of type *Web
+   application*.
+2. Add your Pages URL to **Authorized JavaScript origins**
+   (`https://trader-app-55e.pages.dev`, plus `http://localhost:5173` for local
+   work).
+3. Set the client id in **two** places — they are the same value:
+   - Render: `GOOGLE_CLIENT_ID` (the API verifies the token against it)
+   - GitHub repository variable: `VITE_GOOGLE_CLIENT_ID` (the browser needs it
+     to render the button; it is baked into the build, and it is not a secret)
+
+There is no client *secret* anywhere: this is the ID-token flow, where Google
+signs an assertion in the browser and the API verifies the signature. Nothing
+to leak, and no callback URL to keep in sync.
+
+**Existing accounts are linked, not duplicated.** Signing in with Google using
+an address that already has a password account reaches that account, because
+the verifier only reports an email when Google says it is verified.
+
 ## Local development
 
 Unchanged, except schema changes now go through a migration:

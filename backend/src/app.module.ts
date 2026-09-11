@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { RequestLoggingMiddleware } from './common/request-logging.middleware.js';
+import { UserContextMiddleware } from './users/user-context.middleware.js';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthModule } from './health/health.module.js';
@@ -47,6 +48,8 @@ export class AppModule implements NestModule {
    * it hit — see RequestLoggingMiddleware.
    */
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestLoggingMiddleware).forRoutes('*splat');
+    consumer
+      .apply(RequestLoggingMiddleware, UserContextMiddleware)
+      .forRoutes('*splat');
   }
 }

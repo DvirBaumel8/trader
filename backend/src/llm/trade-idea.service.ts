@@ -165,7 +165,7 @@ export class TradeIdeaService {
     // provider or a failed call has already returned above, so a history of
     // ideas never fills up with rows recording that nothing was said. An
     // unreadable-levels answer IS saved — it is a real opinion, minus numbers.
-    const owner = await this.users.ensureDefaultUser();
+    const owner = await this.users.currentUser();
     await this.ideas.save(
       this.ideas.create({
         userId: owner.id,

@@ -44,7 +44,7 @@ export class SeedService {
   ) {}
 
   async isSeeded(): Promise<boolean> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     return (await this.entries.count({ where: { userId: user.id } })) > 0;
   }
 
@@ -56,7 +56,7 @@ export class SeedService {
   async seed(req: SeedRequest) {
     // Called for the side effect, not the value: the default user must exist
     // before anything below writes a row against it.
-    await this.users.ensureDefaultUser();
+    await this.users.currentUser();
     if (await this.isSeeded()) {
       throw new ConflictException(
         'Portfolio already seeded. Reset it before seeding again.',
@@ -128,7 +128,7 @@ export class SeedService {
   }
 
   async reset() {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     await this.dataSource.transaction(async (manager) => {
       await manager.delete(Transaction, { userId: user.id });
       await manager.delete(CashFlow, { userId: user.id });

@@ -75,7 +75,7 @@ export class AiSummaryService {
   ) {}
 
   async create(input: CreateAiSummaryInput): Promise<AiSummaryDetail> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const saved = await this.summaries.save(
       this.summaries.create({
         userId: user.id,
@@ -90,7 +90,7 @@ export class AiSummaryService {
   }
 
   async list(): Promise<AiSummaryListRow[]> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     // factsSnapshot is left out of the selection entirely — it's the one
     // field guaranteed to be large, and a list of history rows never needs
     // it. `summary` is still fetched (to build the preview) but truncated
@@ -118,7 +118,7 @@ export class AiSummaryService {
    * them is an invitation to quote the wrong one.
    */
   async findLatest(): Promise<{ summary: string; factsAsOf: Date } | null> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const row = await this.summaries
       .createQueryBuilder('s')
       .select(['s.summary', 's.factsAsOf'])
@@ -130,14 +130,14 @@ export class AiSummaryService {
   }
 
   async findOne(id: string): Promise<AiSummaryDetail> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const row = await this.summaries.findOne({ where: { id, userId: user.id } });
     if (!row) throw new NotFoundException('Summary not found');
     return toDetail(row);
   }
 
   async remove(id: string): Promise<void> {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
     const result = await this.summaries.delete({ id, userId: user.id });
     if (!result.affected) throw new NotFoundException('Summary not found');
   }

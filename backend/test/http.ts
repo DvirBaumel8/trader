@@ -1,7 +1,7 @@
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 
-const TEST_PASSWORD = 'e2e-test-password';
+export const TEST_PASSWORD = 'e2e-test-password';
 
 /**
  * Every protected route now requires a bearer token. Logging in once per
@@ -23,11 +23,17 @@ type Method = 'get' | 'post' | 'patch' | 'delete';
  * already attached — a drop-in replacement so existing spec bodies don't
  * need to change beyond the token being in scope.
  */
-export function http(app: INestApplication, token: string) {
+/**
+ * `token` is optional so public routes (sign-up, sign-in, the auth config)
+ * can be exercised the same way as guarded ones, without a second helper.
+ */
+export function http(app: INestApplication, token?: string) {
   const bound = (method: Method) => (path: string) =>
-    request(app.getHttpServer())
-      [method](path)
-      .set('Authorization', `Bearer ${token}`);
+    token === undefined
+      ? request(app.getHttpServer())[method](path)
+      : request(app.getHttpServer())
+          [method](path)
+          .set('Authorization', `Bearer ${token}`);
   return {
     get: bound('get'),
     post: bound('post'),
