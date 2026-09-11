@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import { Money } from '../components/Money';
 import { formatQuantity, signClass } from '../components/format';
@@ -64,6 +64,25 @@ function priorTradingDay(now: Date): string {
 export function TradeDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  /**
+   * Back, with somewhere to go when there is no back.
+   *
+   * `navigate(-1)` pops the history stack, and on this screen the stack is
+   * often empty: reloading the page to pick up a new build lands here as the
+   * first entry, and the home-screen PWA opens straight onto the last URL
+   * with no history at all. The button then did nothing when tapped, which
+   * reads as broken rather than as "nowhere to go".
+   *
+   * React Router marks the first entry of a session with the key 'default',
+   * which is how we can tell. The Portfolio is the fallback because it is
+   * always reachable and is one of the two places this screen is opened from.
+   */
+  const goBack = () => {
+    if (location.key === 'default') navigate('/');
+    else navigate(-1);
+  };
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['trade', id],
@@ -97,7 +116,7 @@ export function TradeDetail() {
         </p>
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           className="text-sm text-accent"
         >
           Back
@@ -142,7 +161,7 @@ export function TradeDetail() {
     <div className="space-y-4">
       <button
         type="button"
-        onClick={() => navigate(-1)}
+        onClick={goBack}
         className="text-sm text-muted"
       >
         ← Back

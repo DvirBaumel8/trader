@@ -35,6 +35,9 @@ vi.mock('lightweight-charts', () => {
       state.calls += 1;
       return state.calls <= state.nullFirstCalls ? null : state.coordinate;
     },
+    // The gutters the callouts must stay clear of. Real values, so a box
+    // clamped to the container rather than the plot shows up as a failure.
+    height: () => 26,
   };
   const series = {
     setData: vi.fn(),
@@ -51,6 +54,7 @@ vi.mock('lightweight-charts', () => {
     createChart: vi.fn(() => ({
       addSeries: vi.fn(() => series),
       timeScale: () => timeScale,
+      priceScale: () => ({ width: () => 54 }),
       applyOptions: vi.fn(),
       remove: vi.fn(),
     })),

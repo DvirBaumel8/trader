@@ -59,7 +59,16 @@ async function bootstrap() {
     });
   }
 
-  const port = 3000;
+  /**
+   * PORT, not a hard-coded 3000.
+   *
+   * The monorepo restructure replaced `process.env.PORT ?? 3000` with a
+   * literal. Render assigns the port it expects a web service to bind, so
+   * this only works while that assignment happens to be 3000 — and it makes
+   * a second local instance (against a snapshot database, say) impossible,
+   * which is how it was noticed.
+   */
+  const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, '0.0.0.0');
   console.log(`[AI Studio] Trader application running on http://0.0.0.0:${port}`);
 }

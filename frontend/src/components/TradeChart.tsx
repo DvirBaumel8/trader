@@ -74,6 +74,12 @@ const AMBER = '#f59e0b';
 const VIEW_PAD_BARS = 15;
 
 /**
+ * Bars of run-up a replay starts with, so the reveal begins just before the
+ * entry rather than 45 days of history earlier.
+ */
+const REPLAY_LEAD_IN_BARS = 5;
+
+/**
  * Callout geometry, in the units `annotationLayout` works in.
  *
  * windowBars is the AREA whose candles a label must clear — the owner's step
@@ -349,8 +355,29 @@ export function TradeChart({
     return () => clearTimeout(id);
   }, [step, totalBars]);
 
+  /**
+   * Replay starts at the edge of the FRAME, not at the first bar held.
+   *
+   * Starting from zero replayed 45 days of context the owner never asked to
+   * watch: the candles crawled in from the far left while the chart sat
+   * zoomed out, and the view snapped to the trade's window only once the
+   * reveal reached it. Beginning at the first bar of the padded range means
+   * the context is already drawn, the frame never moves, and the replay shows
+   * the thing it is for — the run-up, the entry, and what followed.
+   */
   const handlePlay = () => {
-    setStep(0);
+    const annotated = placedFills
+      .map((p) => candleBars.findIndex((b) => b.date === p.markerBar.date))
+      .filter((i) => i >= 0);
+    // A handful of bars before the entry: the window's earlier context is
+    // already drawn, and the reveal begins just before the thing worth
+    // watching. Starting at the window's own left edge instead leaves the
+    // frame completely empty, because those bars sit outside it.
+    const start =
+      annotated.length > 0
+        ? Math.max(0, Math.min(...annotated) - REPLAY_LEAD_IN_BARS)
+        : 0;
+    setStep(start);
   };
   const handleSkipToEnd = () => {
     setStep(totalBars);
@@ -504,7 +531,18 @@ export function TradeChart({
     const annotatedIndices = placed
       .map((p) => candleBars.findIndex((b) => b.date === p.markerBar.date))
       .filter((i) => i >= 0);
-    if (annotatedIndices.length > 0) {
+    /**
+     * Not while the replay is still at zero.
+     *
+     * At step 0 every point is whitespace, and asking the library to show a
+     * logical range of nothing makes it fall back to a span of its own —
+     * which is a visible jolt: the axis shifts a week to the left on the
+     * first frame of a replay and then snaps back once bars appear. Leaving
+     * the range alone keeps the frame the owner was already looking at.
+     */
+    if (frame.visibleBarCount === 0) {
+      // Keep whatever range is already set.
+    } else if (annotatedIndices.length > 0) {
       const range = paddedRange(candleBars.length, annotatedIndices, VIEW_PAD_BARS);
       chart.timeScale().setVisibleLogicalRange({ from: range.from, to: range.to });
     } else {
@@ -730,8 +768,19 @@ export function TradeChart({
     );
 
     const container = containerRef.current;
-    const height = container?.clientHeight ?? 0;
-    const width = container?.clientWidth ?? 0;
+    /**
+     * The PLOT, not the container.
+     *
+     * The container includes the price-scale gutter on the right and the time
+     * axis along the bottom. Clamping to it let a callout slide over the price
+     * labels — the STOP box on an open trade sits at the last bar by
+     * definition, so it landed squarely on top of the axis and hid the very
+     * numbers it was quoting.
+     */
+    const priceScaleWidth = chart.priceScale('right').width();
+    const timeScaleHeight = chart.timeScale().height();
+    const width = (container?.clientWidth ?? 0) - priceScaleWidth;
+    const height = (container?.clientHeight ?? 0) - timeScaleHeight;
 
     const raw: (Callout & { side: 'above' | 'below'; width: number; height: number })[] = [];
     placements.forEach((pl, i) => {
@@ -762,8 +811,10 @@ export function TradeChart({
         // Clamped into the plot rather than dropped. A callout pushed out of
         // view by a pan is still worth showing at the edge it left through —
         // silently rendering nothing is how the first version looked broken.
-        boxX: clampToPlot(x, CALLOUT_W, width),
-        boxY: clampToPlot(y, CALLOUT_H, height),
+        // A wider pad than the default: flush against the gutter is legal but
+        // reads as if the box is falling off the chart.
+        boxX: clampToPlot(x, CALLOUT_W, width, 8),
+        boxY: clampToPlot(y, CALLOUT_H, height, 8),
         tipX: tx,
         tipY: ty,
         side: pl.side,
@@ -779,7 +830,7 @@ export function TradeChart({
     ).map((r) => ({
       ...r,
       boxX: r.x,
-      boxY: clampToPlot(r.y, CALLOUT_H, height),
+      boxY: clampToPlot(r.y, CALLOUT_H, height, 8),
     }));
 
     setCallouts(
