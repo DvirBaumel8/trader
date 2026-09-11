@@ -4,6 +4,9 @@ import { TradeReviewService } from './trade-review.service.js';
 import type { LlmClient } from './llm.client.js';
 import type { TradesService } from '../portfolio/trades.service.js';
 import type { UsersService } from '../users/users.service.js';
+import type { Repository } from 'typeorm';
+import type { TradeReview } from './trade-review.entity.js';
+import type { JournalEntry } from '../journal/journal-entry.entity.js';
 
 function makeService(opts: {
   isConfigured?: boolean;
@@ -70,11 +73,11 @@ function makeService(opts: {
       createdAt: new Date(),
     })),
     save: vi.fn().mockImplementation(async (r) => r),
-  } as never;
+  };
 
   const entries = {
     find: vi.fn().mockResolvedValue([]),
-  } as never;
+  };
 
   const llm = {
     isConfigured: () => opts.isConfigured ?? true,
@@ -91,7 +94,18 @@ Exemplary adherence to risk boundaries.`),
   } as unknown as LlmClient;
 
   return {
-    service: new TradeReviewService(llm, trades, users, reviews, entries),
+    service: new TradeReviewService(
+      llm,
+      trades,
+      users,
+      // Cast at the boundary, not on the stub itself: `as never` erased the
+      // mocks' own types, so `reviews.save` resolved to `never` and the
+      // assertion below could not typecheck. It also swallowed any future
+      // change to this constructor, which is exactly how the four errors in
+      // llm.controller.spec.ts survived unnoticed.
+      reviews as unknown as Repository<TradeReview>,
+      entries as unknown as Repository<JournalEntry>,
+    ),
     trades,
     reviews,
   };
