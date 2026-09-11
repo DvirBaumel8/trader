@@ -280,9 +280,18 @@ The patterns, and the one implementation of each:
 | Pattern | Use | Canonical |
 |---|---|---|
 | Reveal destructive controls | `components/ui/EditModeToggle.tsx` | Journal, Ideas, AiSummary |
+| Long generated content | `components/ui/CollapsibleCard.tsx` | AiSummary, TradeReviewCard |
 | Buttons | `components/ui/Button.tsx` — variants, never ad-hoc classes | everywhere |
 | Text inputs | `components/ui/inputClasses.ts` | everywhere |
 | Correcting a record | edit the journal entry; there is no second editor | `EntrySheet` |
+
+**Any AI answer is collapsible, and collapsed means ONE header line.** A
+model's answer runs to several hundred words and buries the rest of a phone
+screen. Not "the prose is hidden but a verdict and a metrics grid remain" —
+that is what the trade review did, and it was inches tall while claiming to
+be minimised. Anything that must survive collapsing goes in the card's
+`header`; everything else is `children`. It opens expanded: it was just asked
+for.
 
 **Destructive actions are never ambient.** A delete control does not sit
 permanently on a row: the list is read-only until edit mode is switched on.
@@ -291,9 +300,31 @@ tap costs something. Both halves matter; the confirm is not a substitute for
 the mode.
 
 **A convention that lives only in prose gets missed.** Where a pattern can be
-a shared component, make it one — `EditModeToggle` exists because the same
-markup copied a third time is what caused this. Prefer the import over the
-paragraph.
+a shared component, make it one — `EditModeToggle` and `CollapsibleCard` both
+exist because the same markup copied a third time is what caused the bug.
+Prefer the import over the paragraph.
+
+### The shape of these misses
+
+Three have now landed the same way, and the pattern is worth recognising
+before writing the fourth:
+
+| Solved once | Missed again in |
+|---|---|
+| Journal's edit-mode delete | Ideas, then AiSummary copied Ideas |
+| AiSummary's collapsible answer | TradeReviewCard |
+| Risk arithmetic on the backend | the frontend's own copy, twice |
+
+Every one is **a newer screen re-solving a problem an older screen had already
+solved**, and every one degraded in the copy: the delete became permanent, the
+collapse stopped collapsing, the risk figure drifted to $1,200 on a $750 plan.
+None was caught by tests, because each re-implementation was internally
+consistent and passed its own.
+
+So the check before building a screen is not "does this work?" — it is
+**"where else does this app already do this, and am I about to do it
+differently?"** If the answer is a second implementation, that is the bug,
+before a single line is wrong.
 
 ## Mobile gotchas learned the hard way
 

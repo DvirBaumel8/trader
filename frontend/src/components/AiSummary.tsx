@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client';
 import { formatTimestamp } from './format';
 import { Markdown } from './Markdown';
 import { EditModeToggle } from './ui/EditModeToggle';
+import { CollapsibleCard } from './ui/CollapsibleCard';
 
 /** Mirrors `LlmFailureKind` in `backend/src/llm/llm.client.ts`. */
 type ErrorKind = 'busy' | 'quota_exceeded' | 'setup_problem' | 'unknown';
@@ -84,30 +85,24 @@ function CollapsibleSummary({
   summary: string;
   factsAsOf: string | null;
 }) {
-  const [open, setOpen] = useState(true);
-
   return (
-    <div className="space-y-2 rounded-xl border border-dashed border-accent/40 bg-surface-1 p-3">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 text-left text-[10px] uppercase tracking-wide text-accent"
-      >
-        <span className="rounded bg-accent/15 px-1.5 py-0.5 font-medium">
-          AI generated
-        </span>
-        {factsAsOf && (
-          <span className="text-muted normal-case">
-            from data as of {formatTimestamp(factsAsOf)}
+    <CollapsibleCard
+      label="summary"
+      header={
+        <>
+          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
+            AI generated
           </span>
-        )}
-        <span className="ml-auto text-[9px] text-muted">
-          {open ? 'Hide ▲' : 'Show ▼'}
-        </span>
-      </button>
-      {open && <Markdown text={summary} />}
-    </div>
+          {factsAsOf && (
+            <span className="text-[10px] text-muted">
+              from data as of {formatTimestamp(factsAsOf)}
+            </span>
+          )}
+        </>
+      }
+    >
+      <Markdown text={summary} />
+    </CollapsibleCard>
   );
 }
 

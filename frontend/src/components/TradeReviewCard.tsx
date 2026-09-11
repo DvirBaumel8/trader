@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
 import { formatTimestamp } from './format';
 import { Markdown } from './Markdown';
+import { CollapsibleCard } from './ui/CollapsibleCard';
 
 interface TradeReviewFacts {
   symbol: string;
@@ -90,7 +90,6 @@ function scoreStyle(score: string | null): { badge: string; text: string } {
 
 export function TradeReviewCard({ tradeId }: { tradeId: string }) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(true);
   const queryKey = ['trade-review', tradeId];
 
   const { data, isLoading } = useQuery({
@@ -206,10 +205,10 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
   const grade = scoreStyle(score);
 
   return (
-    <div className="space-y-3 rounded-xl border border-dashed border-accent/40 bg-surface-1 p-4">
-      {/* Header and Toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+    <CollapsibleCard
+      label="review"
+      header={
+        <>
           <span className={`rounded px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${grade.badge}`}>
             {grade.text}
           </span>
@@ -218,28 +217,20 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
               {formatTimestamp(createdAt)}
             </span>
           )}
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => reviewMutation.mutate()}
-            disabled={isGenerating}
-            className="text-[11px] text-accent hover:underline disabled:opacity-50"
-          >
-            {isGenerating ? 'Re-evaluating…' : 'Re-evaluate'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setOpen((o) => !o)}
-            aria-expanded={open}
-            className="text-[11px] font-medium text-muted hover:text-text"
-          >
-            {open ? 'Hide ▲' : 'Show ▼'}
-          </button>
-        </div>
-      </div>
-
+        </>
+      }
+      actions={
+        <button
+          type="button"
+          onClick={() => reviewMutation.mutate()}
+          disabled={isGenerating}
+          className="text-[11px] text-accent hover:underline disabled:opacity-50"
+        >
+          {isGenerating ? 'Re-evaluating…' : 'Re-evaluate'}
+        </button>
+      }
+    >
+      <div className="space-y-3">
       {/* Headline Verdict */}
       {verdict && (
         <div className="text-sm font-semibold text-text">
@@ -295,11 +286,10 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
       )}
 
       {/* Post-Mortem Markdown Content */}
-      {open && (
-        <div className="border-t border-border/50 pt-3 space-y-3">
-          <Markdown text={review} />
-        </div>
-      )}
-    </div>
+      <div className="border-t border-border/50 pt-3 space-y-3">
+        <Markdown text={review} />
+      </div>
+      </div>
+    </CollapsibleCard>
   );
 }
