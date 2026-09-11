@@ -10,13 +10,11 @@ import {
   type IPriceLine,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
-  type SeriesMarker,
   type Time,
 } from 'lightweight-charts';
 import {
   backfillIndexForPrice,
   indexForDate,
-  markerSideForPrice,
   placementFor,
   type Bar,
 } from '../lib/candleScale';
@@ -27,6 +25,7 @@ import { formatMoney } from './format';
 import {
   paddedRange,
   placeAnnotations,
+  resolveOverlaps,
   type Annotation,
 } from '../lib/annotationLayout';
 
@@ -80,12 +79,16 @@ const VIEW_PAD_BARS = 15;
  * this chart's density, so a label that clears them clears everything it can
  * actually cover.
  */
-const LAYOUT = {
-  windowBars: 5,
-  labelBars: 6,
-  gapFraction: 0.06,
-  labelHeightFraction: 0.12,
-} as const;
+const LAYOUT = { windowBars: 5, labelBars: 6 } as const;
+
+/** The callout box, in pixels. Matches the padding the markup applies. */
+const CALLOUT_W = 74;
+const CALLOUT_H = 32;
+/** Clear air between the candle it clears and the box. */
+const CALLOUT_GAP_PX = 14;
+
+const clampPx = (v: number, lo: number, hi: number) =>
+  hi < lo ? v : Math.max(lo, Math.min(hi, v));
 
 const BG = '#0a0e17';
 const TEXT = '#e6edf7';
@@ -344,7 +347,17 @@ export function TradeChart({
         vertLine: { color: MUTED, labelBackgroundColor: ACCENT },
         horzLine: { color: MUTED, labelBackgroundColor: ACCENT },
       },
-      rightPriceScale: { borderColor: GRID },
+      rightPriceScale: {
+        borderColor: GRID,
+        /**
+         * Empty space for the callouts to live in. Without it the scale fits
+         * the candles exactly, there is nowhere to put a label that is not on
+         * top of a candle, and `priceToCoordinate` returns null for anything
+         * beyond the highest high — which is why the first version of the
+         * callouts rendered nothing at all.
+         */
+        scaleMargins: { top: 0.22, bottom: 0.18 },
+      },
       timeScale: { borderColor: GRID },
       // The owner's fixed-window decision stands, and a pannable chart
       // inside a scrolling page fights the page's own scroll on a phone.
@@ -472,32 +485,17 @@ export function TradeChart({
     // bug. Only shown once its own bar is reached (`visibleFillIndices`),
     // so watching a fill arrive — and only then seeing what followed — is
     // preserved during replay.
-    const visible = new Set(frame.visibleFillIndices);
-    const fillMarkers: SeriesMarker<Time>[] = placed
-      .filter((_, i) => visible.has(i))
-      .map(({ fill, markerBar }) => ({
-        time: markerBar.date as Time,
-        // Anchored to the PRICE, not the bar. `belowBar`/`aboveBar` sit
-        // outside the candle, which drifts as far from the fill as that
-        // day's range is tall — a PLTR sell of 167.15 drew its arrow near
-        // 185. Which side of the price it hangs on is decided per fill from
-        // that candle's own geometry (see markerSideForPrice), so it falls
-        // into whichever side has less candle to cover rather than landing
-        // on the body the way a fixed `atPriceMiddle` did.
-        position: markerSideForPrice(markerBar, fill.price),
-        price: fill.price,
-        shape: fill.side === 'BUY' ? 'arrowUp' : 'arrowDown',
-        color: fill.side === 'BUY' ? UP : DOWN,
-        size: 2,
-      }));
-
-    // The library stacks same-bar/same-position markers outward rather than
-    // overdrawing them, but that stacking only triggers between markers
-    // that are *adjacent* in this array. Sorting by time guarantees two
-    // fills that land on the same bar are adjacent regardless of the order
-    // `fills` came back in.
-    fillMarkers.sort((a, b) => String(a.time).localeCompare(String(b.time)));
-    markersApi.setMarkers(fillMarkers);
+    /**
+     * No arrow markers any more.
+     *
+     * They were the thing covering the price action: a size-2 arrow anchored
+     * at the fill price sat squarely on the candles around it, which is
+     * exactly what the owner called amateur. Everything they carried is now
+     * said better elsewhere — the callout names the level and its price, the
+     * price line draws it across the plot, and the summary beneath repeats
+     * the fills as text. Drawing both was clutter on top of clutter.
+     */
+    markersApi.setMarkers([]);
 
     // Stop lines. Label placement: rejected two approaches before this one.
     // (1) An absolutely-positioned DOM overlay using `priceToCoordinate()`,
@@ -661,30 +659,70 @@ export function TradeChart({
       LAYOUT,
     );
 
-    const next: Callout[] = [];
+    const container = containerRef.current;
+    const height = container?.clientHeight ?? 0;
+    const width = container?.clientWidth ?? 0;
+
+    const raw: (Callout & { side: 'above' | 'below'; width: number; height: number })[] = [];
     placements.forEach((pl, i) => {
       const boxTime = cb[pl.labelIndex]?.date;
       const tipTime = cb[pl.index]?.date;
       if (!boxTime || !tipTime) return;
+
       const x = chart.timeScale().timeToCoordinate(boxTime as Time);
-      const y = series.priceToCoordinate(pl.labelPrice);
       const tx = chart.timeScale().timeToCoordinate(tipTime as Time);
+      // Both of these are real traded prices, so the scale can always place
+      // them — unlike the label price the first version tried to convert,
+      // which sat beyond the top of the range and came back null every time.
+      const yClear = series.priceToCoordinate(pl.clearancePrice);
       const ty = series.priceToCoordinate(pl.price);
-      // Off-screen after a pan or zoom: drop the callout rather than draw it
-      // at a coordinate the library could not resolve.
-      if (x === null || y === null || tx === null || ty === null) return;
-      next.push({
+      if (x === null || tx === null || yClear === null || ty === null) return;
+
+      // The gap is pixels, not dollars: the same fraction of the price range
+      // is a comfortable gap on a quiet stock and a mile on a volatile one.
+      const offset = CALLOUT_GAP_PX + CALLOUT_H / 2;
+      const y = pl.side === 'above' ? yClear - offset : yClear + offset;
+
+      raw.push({
         key: `${wanted[i].title}-${pl.index}`,
         title: wanted[i].title,
         price: formatMoney(pl.price),
         color: wanted[i].color,
-        boxX: x,
-        boxY: y,
+        // Clamped into the plot rather than dropped. A callout pushed out of
+        // view by a pan is still worth showing at the edge it left through —
+        // silently rendering nothing is how the first version looked broken.
+        boxX: clampPx(x, CALLOUT_W / 2 + 2, width - CALLOUT_W / 2 - 2),
+        boxY: clampPx(y, CALLOUT_H / 2 + 2, height - CALLOUT_H / 2 - 2),
         tipX: tx,
         tipY: ty,
+        side: pl.side,
+        width: CALLOUT_W,
+        height: CALLOUT_H,
       });
     });
-    setCallouts(next);
+
+    // Two callouts can still land on each other once converted; separating
+    // them is only decidable in pixels.
+    const spaced = resolveOverlaps(
+      raw.map((r) => ({ ...r, x: r.boxX, y: r.boxY })),
+    ).map((r) => ({
+      ...r,
+      boxX: r.x,
+      boxY: clampPx(r.y, CALLOUT_H / 2 + 2, height - CALLOUT_H / 2 - 2),
+    }));
+
+    setCallouts(
+      spaced.map(({ key, title, price, color, boxX, boxY, tipX, tipY }) => ({
+        key,
+        title,
+        price,
+        color,
+        boxX,
+        boxY,
+        tipX,
+        tipY,
+      })),
+    );
   }, [bars, fills, stopLevels, step]);
 
   // The three things that move the plot. Without the first two the boxes
@@ -718,7 +756,7 @@ export function TradeChart({
 
   return (
     <div className="space-y-2">
-      <div className="relative h-[260px] w-full">
+      <div className="relative h-[320px] w-full">
         <div
           ref={containerRef}
           className="h-full w-full overflow-hidden rounded-xl"
@@ -752,21 +790,29 @@ export function TradeChart({
               // belonging to the line rather than sitting on it. translate
               // keeps this to one paint rather than a layout pass per frame
               // while the owner pans.
+              // Fixed size, and the same numbers the layout reasoned with —
+              // a box that measures differently than it was placed is a box
+              // that overlaps something the algorithm thought it had cleared.
               style={{
                 left: c.boxX,
                 top: c.boxY,
+                width: CALLOUT_W,
+                height: CALLOUT_H,
                 transform: 'translate(-50%, -50%)',
                 borderColor: c.color,
-                color: c.color,
+                backgroundColor: BG,
               }}
-              className="absolute whitespace-nowrap rounded-md border bg-surface-0/90 px-1.5 py-0.5 text-center"
+              className="absolute flex flex-col items-center justify-center rounded-md border"
             >
-              <div className="text-[9px] font-semibold uppercase tracking-wide leading-tight">
+              <span
+                className="text-[9px] font-semibold uppercase leading-none tracking-wide"
+                style={{ color: c.color }}
+              >
                 {c.title}
-              </div>
-              <div className="text-[10px] font-medium tabular-nums leading-tight text-text">
+              </span>
+              <span className="mt-0.5 text-[11px] font-semibold leading-none tabular-nums text-text">
                 {c.price}
-              </div>
+              </span>
             </div>
           ))}
         </div>
