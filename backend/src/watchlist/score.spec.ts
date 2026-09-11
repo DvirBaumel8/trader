@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { directionFor, distanceToTargetPercent, targetReached, bestCandidate } from './score.js';
+import { directionFor, distanceToTarget, targetReached, bestCandidate } from './score.js';
 
 describe('directionFor', () => {
   it('reads a target above the price as "tell me when it gets there"', () => {
@@ -34,20 +34,30 @@ describe('targetReached', () => {
   });
 });
 
-describe('distanceToTargetPercent', () => {
-  it('measures how far the price still has to move, as a percentage', () => {
-    expect(distanceToTargetPercent(100, 120)).toBeCloseTo(20);
-    expect(distanceToTargetPercent(100, 80)).toBeCloseTo(-20);
+describe('distanceToTarget', () => {
+  /**
+   * A FRACTION, matching `unrealizedPct` and `stop-distance.ts`. Returning a
+   * percentage here made `formatPercent` — which multiplies by 100 — show a
+   * target four cents away as "-1.83% away". Caught by looking at the live
+   * page, not by any test, which is why this one is explicit about the unit.
+   */
+  it('measures how far the price still has to move, as a fraction of it', () => {
+    expect(distanceToTarget(100, 120)).toBeCloseTo(0.2);
+    expect(distanceToTarget(100, 80)).toBeCloseTo(-0.2);
+  });
+
+  it('is a small fraction for a target within pennies, not a whole percent', () => {
+    expect(distanceToTarget(218.63, 218.59)).toBeCloseTo(-0.000183, 6);
   });
 
   it('is zero once the price is exactly there', () => {
-    expect(distanceToTargetPercent(120, 120)).toBe(0);
+    expect(distanceToTarget(120, 120)).toBe(0);
   });
 
   it('declines to divide by a price it does not have', () => {
-    expect(distanceToTargetPercent(null, 120)).toBeNull();
-    expect(distanceToTargetPercent(0, 120)).toBeNull();
-    expect(distanceToTargetPercent(100, null)).toBeNull();
+    expect(distanceToTarget(null, 120)).toBeNull();
+    expect(distanceToTarget(0, 120)).toBeNull();
+    expect(distanceToTarget(100, null)).toBeNull();
   });
 });
 
@@ -60,23 +70,23 @@ describe('bestCandidate', () => {
    */
   it('picks the ticker nearest its own target', () => {
     const best = bestCandidate([
-      { symbol: 'NVDA', distancePercent: 18 },
-      { symbol: 'PLTR', distancePercent: -3 },
-      { symbol: 'AMD', distancePercent: 9 },
+      { symbol: 'NVDA', distanceToTarget: 18 },
+      { symbol: 'PLTR', distanceToTarget: -3 },
+      { symbol: 'AMD', distanceToTarget: 9 },
     ]);
     expect(best?.symbol).toBe('PLTR');
   });
 
   it('ignores tickers with no target to measure against', () => {
     const best = bestCandidate([
-      { symbol: 'NVDA', distancePercent: null },
-      { symbol: 'AMD', distancePercent: 9 },
+      { symbol: 'NVDA', distanceToTarget: null },
+      { symbol: 'AMD', distanceToTarget: 9 },
     ]);
     expect(best?.symbol).toBe('AMD');
   });
 
   it('has no opinion when nothing has a target', () => {
-    expect(bestCandidate([{ symbol: 'NVDA', distancePercent: null }])).toBeNull();
+    expect(bestCandidate([{ symbol: 'NVDA', distanceToTarget: null }])).toBeNull();
     expect(bestCandidate([])).toBeNull();
   });
 });

@@ -105,7 +105,8 @@ describe('Watchlist (e2e)', () => {
       const created = await add({ symbol: 'NVDA' }).expect(201);
       const price = created.body.price as number;
       const res = await add({ symbol: 'NVDA', targetPrice: price * 1.1 }).expect(201);
-      expect(res.body.distancePercent).toBeCloseTo(10, 0);
+      // A fraction, like unrealizedPct — 0.1 means "10% higher from here".
+      expect(res.body.distanceToTarget).toBeCloseTo(0.1, 2);
     });
 
     it('stops alerting once acknowledged, and starts again on a new target', async () => {

@@ -23,18 +23,25 @@ export function targetReached(
 }
 
 /**
- * How far the price still has to move to reach the target, as a percentage of
+ * How far the price still has to move to reach the target, as a FRACTION of
  * today's price. Positive means it has to rise, negative that it has to fall.
+ *
+ * A fraction, not a percentage, because that is this codebase's convention —
+ * `unrealizedPct` is `(value - cost) / |cost|` and `stop-distance.ts` names
+ * the convention explicitly. Returning a percentage here instead put a target
+ * $0.04 away on screen as "-1.83% away", because `formatPercent` multiplies
+ * by 100 on the way out. A hundredfold error in the only number the feature
+ * exists to show.
  *
  * Null rather than 0 when there is no price or no target — a missing number
  * must not read as "already there", which is the whole honest-numbers rule.
  */
-export function distanceToTargetPercent(
+export function distanceToTarget(
   price: number | null,
   target: number | null,
 ): number | null {
   if (price === null || target === null || price === 0) return null;
-  return ((target - price) / price) * 100;
+  return (target - price) / price;
 }
 
 /**
@@ -46,13 +53,13 @@ export function distanceToTargetPercent(
  * the least interesting name first. The app ranks; the model judges — the
  * split the trade-idea design already settled.
  */
-export function bestCandidate<T extends { distancePercent: number | null }>(
+export function bestCandidate<T extends { distanceToTarget: number | null }>(
   candidates: T[],
 ): T | null {
-  const measurable = candidates.filter((c) => c.distancePercent !== null);
+  const measurable = candidates.filter((c) => c.distanceToTarget !== null);
   if (measurable.length === 0) return null;
   return measurable.reduce((best, c) =>
-    Math.abs(c.distancePercent as number) < Math.abs(best.distancePercent as number)
+    Math.abs(c.distanceToTarget as number) < Math.abs(best.distanceToTarget as number)
       ? c
       : best,
   );

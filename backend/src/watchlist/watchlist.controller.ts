@@ -61,7 +61,7 @@ export class WatchlistController {
     const idea = await this.ideas.analyse(best.symbol);
     return {
       chosen: best.symbol,
-      distancePercent: best.distancePercent,
+      distanceToTarget: best.distanceToTarget,
       reason: 'Closest to the target you set for it.',
       idea,
     };

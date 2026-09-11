@@ -28,7 +28,7 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
   stale: false,
   targetPrice: 120,
   targetDirection: 'ABOVE',
-  distancePercent: 20,
+  distanceToTarget: 20,
   reached: false,
   alerting: false,
   note: '',

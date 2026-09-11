@@ -20,7 +20,7 @@ interface WatchRow {
   stale: boolean;
   targetPrice: number | null;
   targetDirection: 'ABOVE' | 'BELOW' | null;
-  distancePercent: number | null;
+  distanceToTarget: number | null;
   reached: boolean;
   alerting: boolean;
   note: string;
@@ -29,7 +29,7 @@ interface WatchRow {
 
 interface OpinionResult {
   chosen: string | null;
-  distancePercent?: number;
+  distanceToTarget?: number;
   reason: string;
   idea: { opinion: string; configured: boolean } | null;
 }
@@ -274,8 +274,8 @@ export function Watchlist() {
                   {r.targetPrice !== null && (
                     <div className="text-[10px] tabular-nums text-muted">
                       target {formatMoney(r.targetPrice)}
-                      {r.distancePercent !== null && (
-                        <> · {formatPercent(r.distancePercent)} away</>
+                      {r.distanceToTarget !== null && (
+                        <> · {formatPercent(r.distanceToTarget)} away</>
                       )}
                     </div>
                   )}

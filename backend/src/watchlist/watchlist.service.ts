@@ -11,7 +11,7 @@ import { UsersService } from '../users/users.service.js';
 import {
   bestCandidate,
   directionFor,
-  distanceToTargetPercent,
+  distanceToTarget,
   targetReached,
 } from './score.js';
 
@@ -24,7 +24,7 @@ export interface WatchlistRow {
   targetPrice: number | null;
   targetDirection: 'ABOVE' | 'BELOW' | null;
   /** How far the price still has to move, as a percentage. Null without both numbers. */
-  distancePercent: number | null;
+  distanceToTarget: number | null;
   /** The price is at or through the target right now. */
   reached: boolean;
   /**
@@ -99,7 +99,7 @@ export class WatchlistService {
         stale: quote?.stale ?? false,
         targetPrice: r.targetPrice,
         targetDirection: r.targetDirection,
-        distancePercent: distanceToTargetPercent(price, r.targetPrice),
+        distanceToTarget: distanceToTarget(price, r.targetPrice),
         reached,
         alerting: reached && r.acknowledgedAt === null,
         note: r.note,
@@ -198,11 +198,11 @@ export class WatchlistService {
    * settled. Nothing here asks a model anything; it returns the candidate and
    * the number that chose it, so the reason is always inspectable.
    */
-  async best(): Promise<{ symbol: string; distancePercent: number } | null> {
+  async best(): Promise<{ symbol: string; distanceToTarget: number } | null> {
     const rows = await this.list();
     const chosen = bestCandidate(rows);
-    return chosen && chosen.distancePercent !== null
-      ? { symbol: chosen.symbol, distancePercent: chosen.distancePercent }
+    return chosen && chosen.distanceToTarget !== null
+      ? { symbol: chosen.symbol, distanceToTarget: chosen.distanceToTarget }
       : null;
   }
 
