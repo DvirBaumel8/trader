@@ -244,11 +244,56 @@ npx tsc --noEmit -p tsconfig.json         # everything, specs included
 npx tsc -p tsconfig.build.json --noEmit   # exactly what the build compiles
 ```
 
+**Both of those are `backend/` commands.** In `frontend/`, `tsconfig.json` is
+a solution file — `"files": []` plus references to `tsconfig.app.json` and
+`tsconfig.node.json` — so `tsc --noEmit -p tsconfig.json` there checks
+**zero files and exits 0**. It looks like a clean typecheck and proves
+nothing; it reported success over a component used without being imported.
+From `frontend/`, use:
+
+```bash
+npx tsc -b            # follows the references — what `npm run build` runs
+```
+
 The second is the one that answers "will the deploy fail?" —
 `tsconfig.build.json` excludes `**/*spec.ts`, so a type error in a spec fails
 the first and not the second. That difference is live right now: four errors
 in `llm.controller.spec.ts` and one in `trade-review.service.spec.ts` fail a
 plain `tsc` while the build and both suites stay green.
+
+## UI conventions — reuse before invention
+
+The product bar is a **product** bar (see `product-brief.md`): this is meant to
+be shared and eventually charged for, and inconsistent interaction is one of
+the fastest ways an app reads as amateur. The invariants above protect the
+numbers; these protect the feel.
+
+**Before building a screen or a control, find the screen that already solves
+the same problem and copy its interaction.** Introducing a second pattern for
+the same job needs a stated reason. This is not a style preference — it is the
+rule that was missing when the Ideas page invented its own row-level delete
+and the AI summary list then copied Ideas, leaving three different answers to
+"how do I remove a row".
+
+The patterns, and the one implementation of each:
+
+| Pattern | Use | Canonical |
+|---|---|---|
+| Reveal destructive controls | `components/ui/EditModeToggle.tsx` | Journal, Ideas, AiSummary |
+| Buttons | `components/ui/Button.tsx` — variants, never ad-hoc classes | everywhere |
+| Text inputs | `components/ui/inputClasses.ts` | everywhere |
+| Correcting a record | edit the journal entry; there is no second editor | `EntrySheet` |
+
+**Destructive actions are never ambient.** A delete control does not sit
+permanently on a row: the list is read-only until edit mode is switched on.
+And delete is always **two taps** — a phone screen is exactly where a stray
+tap costs something. Both halves matter; the confirm is not a substitute for
+the mode.
+
+**A convention that lives only in prose gets missed.** Where a pattern can be
+a shared component, make it one — `EditModeToggle` exists because the same
+markup copied a third time is what caused this. Prefer the import over the
+paragraph.
 
 ## Mobile gotchas learned the hard way
 

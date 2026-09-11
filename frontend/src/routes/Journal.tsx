@@ -21,24 +21,7 @@ import {
   type Filters,
 } from '../lib/entryFilters';
 import { useDebounced } from '../lib/useDebounced';
-
-function PencilIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  );
-}
+import { EditModeToggle } from '../components/ui/EditModeToggle';
 
 type Tab = 'TRADES' | 'ACTIVITIES' | 'BALANCE' | 'FEES';
 
@@ -414,19 +397,11 @@ export function Journal() {
         ))}
 
         {(tab === 'ACTIVITIES' || tab === 'BALANCE') && (
-          <button
-            type="button"
-            aria-pressed={editMode}
-            aria-label={editMode ? 'Done editing' : 'Edit entries'}
-            onClick={() => setEditMode((v) => !v)}
-            className={`shrink-0 rounded-lg border px-2 py-1.5 transition-colors ${
-              editMode
-                ? 'border-accent/40 bg-accent/10 text-accent'
-                : 'border-border text-muted'
-            }`}
-          >
-            <PencilIcon />
-          </button>
+          <EditModeToggle
+            on={editMode}
+            onChange={setEditMode}
+            noun="entries"
+          />
         )}
       </div>
 

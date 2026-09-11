@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
 import { formatTimestamp } from './format';
 import { Markdown } from './Markdown';
+import { EditModeToggle } from './ui/EditModeToggle';
 
 /** Mirrors `LlmFailureKind` in `backend/src/llm/llm.client.ts`. */
 type ErrorKind = 'busy' | 'quota_exceeded' | 'setup_problem' | 'unknown';
@@ -151,6 +152,8 @@ interface HistoryRowProps {
   row: AiSummaryListRow;
   isOpen: boolean;
   onToggle: () => void;
+  /** Delete is offered only in edit mode — see EditModeToggle. */
+  editMode: boolean;
   pendingDelete: boolean;
   onRequestDelete: () => void;
   onCancelDelete: () => void;
@@ -167,6 +170,7 @@ function HistoryRow({
   row,
   isOpen,
   onToggle,
+  editMode,
   pendingDelete,
   onRequestDelete,
   onCancelDelete,
@@ -195,6 +199,7 @@ function HistoryRow({
 
       {isOpen && <HistoryDetail id={row.id} />}
 
+      {editMode && (
       <div className="border-t border-border px-3 py-2">
         {pendingDelete ? (
           <div className="flex items-center justify-between gap-2">
@@ -227,6 +232,7 @@ function HistoryRow({
           </button>
         )}
       </div>
+      )}
     </li>
   );
 }
@@ -236,6 +242,7 @@ export function AiSummary() {
   const [showHistory, setShowHistory] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
 
   const mutation = useMutation({
     mutationFn: () => api<PortfolioSummaryResult>('/ai/portfolio-summary', { method: 'POST' }),
@@ -310,11 +317,28 @@ export function AiSummary() {
               <p className="text-xs text-muted">No summaries saved yet.</p>
             )}
             {historyQuery.data && historyQuery.data.length > 0 && (
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-[10px] uppercase tracking-wide text-muted">
+                  Saved summaries
+                </span>
+                <EditModeToggle
+                  on={editMode}
+                  onChange={(next) => {
+                    setEditMode(next);
+                    // Leaving edit mode abandons a half-started delete.
+                    if (!next) setPendingDeleteId(null);
+                  }}
+                  noun="summaries"
+                />
+              </div>
+            )}
+            {historyQuery.data && historyQuery.data.length > 0 && (
               <ul className="space-y-1.5">
                 {historyQuery.data.map((row) => (
                   <HistoryRow
                     key={row.id}
                     row={row}
+                    editMode={editMode}
                     isOpen={openId === row.id}
                     onToggle={() =>
                       setOpenId((current) => (current === row.id ? null : row.id))

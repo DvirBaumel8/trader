@@ -5,6 +5,7 @@ import { formatMoney, formatPercent, formatQuantity, formatTimestamp } from '../
 import { Markdown } from '../components/Markdown';
 import { SessionBadge } from '../components/SessionBadge';
 import { usePersistentState } from '../lib/persistentState';
+import { EditModeToggle } from '../components/ui/EditModeToggle';
 
 /** Mirrors `LlmFailureKind` in `backend/src/llm/llm.client.ts`. */
 type ErrorKind = 'busy' | 'quota_exceeded' | 'setup_problem' | 'unknown';
@@ -353,6 +354,8 @@ interface HistoryRowProps {
   row: TradeIdeaListRow;
   isOpen: boolean;
   onToggle: () => void;
+  /** Delete is offered only in edit mode — see EditModeToggle. */
+  editMode: boolean;
   pendingDelete: boolean;
   onRequestDelete: () => void;
   onCancelDelete: () => void;
@@ -368,6 +371,7 @@ function HistoryRow({
   row,
   isOpen,
   onToggle,
+  editMode,
   pendingDelete,
   onRequestDelete,
   onCancelDelete,
@@ -400,6 +404,7 @@ function HistoryRow({
 
       {isOpen && <HistoryDetail id={row.id} />}
 
+      {editMode && (
       <div className="border-t border-border px-3 py-2">
         {pendingDelete ? (
           <div className="flex items-center justify-between gap-2">
@@ -432,6 +437,7 @@ function HistoryRow({
           </button>
         )}
       </div>
+      )}
     </li>
   );
 }
@@ -456,6 +462,7 @@ export function Ideas() {
     null,
   );
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
 
   const mutation = useMutation({
     mutationFn: (ticker: string) =>
@@ -548,7 +555,24 @@ export function Ideas() {
       {mutation.isError && <p className="text-xs text-down">{errorMessage(mutation.error)}</p>}
 
       <section className="space-y-2">
-        <h2 className="text-[10px] uppercase tracking-wide text-muted">Past ideas</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-[10px] uppercase tracking-wide text-muted">Past ideas</h2>
+          {historyQuery.data && historyQuery.data.length > 0 && (
+            <EditModeToggle
+              on={editMode}
+              onChange={(next) => {
+                setEditMode(next);
+                // Leaving edit mode abandons a half-started delete rather
+                // than keeping it armed under a closed lid.
+                if (!next) setPendingDeleteId(null);
+              }}
+              noun="ideas"
+            />
+          )}
+        </div>
+        {editMode && (
+          <p className="text-[11px] text-accent">Tap Delete to remove an idea.</p>
+        )}
         {historyQuery.isLoading && <p className="text-xs text-muted">Loading…</p>}
         {historyQuery.isError && <p className="text-xs text-muted">Couldn't load history.</p>}
         {historyQuery.data && historyQuery.data.length === 0 && (
@@ -562,6 +586,7 @@ export function Ideas() {
               <HistoryRow
                 key={row.id}
                 row={row}
+                editMode={editMode}
                 isOpen={openId === row.id}
                 onToggle={() => setOpenId((current) => (current === row.id ? null : row.id))}
                 pendingDelete={pendingDeleteId === row.id}
