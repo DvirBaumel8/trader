@@ -38,6 +38,11 @@ export function buildTradeIdeaPrompt(
     `- P/E: ${facts.peRatio !== null ? facts.peRatio.toFixed(1) : 'n/a'}`,
     `- 20-day average: ${level(i.sma20)} (price is ${pct(i.percentFromSma20)} from it)`,
     `- 50-day average: ${level(i.sma50)} (price is ${pct(i.percentFromSma50)} from it)`,
+    // His own trend indicator, and it was absent from this prompt entirely
+    // while 20, 50 and 200 were all present — so every opinion so far judged
+    // trend against averages he does not use. Named as his, so the model
+    // weights it accordingly rather than treating it as one line of five.
+    `- 150-day average (HIS trend indicator): ${level(i.sma150)} (price is ${pct(i.percentFromSma150)} from it)`,
     `- 200-day average: ${level(i.sma200)} (price is ${pct(i.percentFromSma200)} from it)`,
     `- 52-week high: ${level(i.high52w)} (price is ${pct(i.percentFromHigh52w)} from it)`,
     `- 52-week low: ${level(i.low52w)} (price is ${pct(i.percentFromLow52w)} from it)`,

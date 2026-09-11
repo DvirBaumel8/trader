@@ -14,9 +14,11 @@ type ErrorKind = 'busy' | 'quota_exceeded' | 'setup_problem' | 'unknown';
 interface IndicatorSet {
   sma20: number | null;
   sma50: number | null;
+  sma150: number | null;
   sma200: number | null;
   percentFromSma20: number | null;
   percentFromSma50: number | null;
+  percentFromSma150: number | null;
   percentFromSma200: number | null;
   high52w: number | null;
   low52w: number | null;
@@ -213,7 +215,8 @@ function FactsPanel({ facts }: { facts: TickerFacts }) {
           />
         </div>
         <div className="grid grid-cols-3 gap-2">
-          <Figure label="vs 20-day" value={formatPercent(i.percentFromSma20)} />
+          {/* His own trend indicator leads; the rest are context. */}
+          <Figure label="vs 150-day" value={formatPercent(i.percentFromSma150)} />
           <Figure label="vs 50-day" value={formatPercent(i.percentFromSma50)} />
           <Figure label="vs 200-day" value={formatPercent(i.percentFromSma200)} />
         </div>

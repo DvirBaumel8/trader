@@ -15,10 +15,18 @@ import type { RawBar } from './yahoo.client.js';
 export interface IndicatorSet {
   sma20: number | null;
   sma50: number | null;
+  /**
+   * The owner's OWN trend indicator. `trader-profile.md`: "150-day SMA as his
+   * trend indicator (not the more common 50 or 200)". It was missing while 20,
+   * 50 and 200 were all computed, so anything judging trend — the AI's read of
+   * a ticker included — was judging it against a rule that is not his.
+   */
+  sma150: number | null;
   sma200: number | null;
   /** Signed fraction of the average: 0.1 means price is 10% above it. */
   percentFromSma20: number | null;
   percentFromSma50: number | null;
+  percentFromSma150: number | null;
   percentFromSma200: number | null;
   high52w: number | null;
   low52w: number | null;
@@ -58,6 +66,7 @@ export function computeIndicators(
 
   const sma20 = sma(sorted, 20);
   const sma50 = sma(sorted, 50);
+  const sma150 = sma(sorted, 150);
   const sma200 = sma(sorted, 200);
 
   const highs = year.map((b) => b.high).filter((h): h is number => h !== null);
@@ -70,9 +79,11 @@ export function computeIndicators(
   return {
     sma20,
     sma50,
+    sma150,
     sma200,
     percentFromSma20: fraction(currentPrice, sma20),
     percentFromSma50: fraction(currentPrice, sma50),
+    percentFromSma150: fraction(currentPrice, sma150),
     percentFromSma200: fraction(currentPrice, sma200),
     high52w,
     low52w,

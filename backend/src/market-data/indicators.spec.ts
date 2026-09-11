@@ -33,6 +33,9 @@ describe('computeIndicators', () => {
     expect(r.sma20).toBeCloseTo(110, 6);
     // 50 bars: 30 at 100, 20 at 110.
     expect(r.sma50).toBeCloseTo((30 * 100 + 20 * 110) / 50, 6);
+    // 150 bars: 130 at 100, 20 at 110. His own trend indicator — see the
+    // note on IndicatorSet.sma150 for why it is the one that matters here.
+    expect(r.sma150).toBeCloseTo((130 * 100 + 20 * 110) / 150, 6);
     expect(r.barsAvailable).toBe(200);
   });
 
@@ -42,6 +45,8 @@ describe('computeIndicators', () => {
     const r = computeIndicators(flat(60, 100), 100);
     expect(r.sma20).toBeCloseTo(100, 6);
     expect(r.sma50).toBeCloseTo(100, 6);
+    expect(r.sma150).toBeNull();
+    expect(r.percentFromSma150).toBeNull();
     expect(r.sma200).toBeNull();
     expect(r.percentFromSma200).toBeNull();
   });
