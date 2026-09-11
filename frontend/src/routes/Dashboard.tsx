@@ -349,6 +349,18 @@ export function Dashboard() {
           )}
         </div>
         <div className="min-w-[140px] flex-1 rounded-xl border border-border bg-surface-1 p-3">
+          {/*
+            Counting the array the backend already served — `GET /portfolio`
+            filters to open positions (`portfolio.service.ts`), so this IS the
+            number of tickers held, and nothing here decides what it means.
+            Shorts count: they are held and they carry risk.
+          */}
+          <div className="text-xs text-muted">Positions</div>
+          <div className="mt-1 text-lg font-medium">
+            {data.positions.length}
+          </div>
+        </div>
+        <div className="min-w-[140px] flex-1 rounded-xl border border-border bg-surface-1 p-3">
           <div className="text-xs text-muted">Deployed</div>
           <div className="mt-1 text-lg font-medium">
             <Money value={data.positionsValue} />
