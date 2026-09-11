@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CandlestickSeries,
   ColorType,
@@ -23,6 +23,12 @@ import {
 import { replayFrame } from '../lib/tradeReplay';
 import { fillPriceLines, formatFillsSummary } from '../lib/fillsSummary';
 import { resolvedStopLines } from '../lib/stopSummary';
+import { formatMoney } from './format';
+import {
+  paddedRange,
+  placeAnnotations,
+  type Annotation,
+} from '../lib/annotationLayout';
 
 export interface Fill {
   executedAt: string;
@@ -57,6 +63,30 @@ export interface StopLevel {
  * *my* action" distinction. ACCENT is reserved for the crosshair readout,
  * the one other thing that's specifically his interaction with the chart.
  */
+const AMBER = '#f59e0b';
+
+/**
+ * Bars of context kept either side of the trade. Roughly three weeks at daily
+ * resolution — enough to read the trend the entry was taken against, without
+ * shrinking the trade itself to a sliver the way the full fetched window did.
+ */
+const VIEW_PAD_BARS = 15;
+
+/**
+ * Callout geometry, in the units `annotationLayout` works in.
+ *
+ * windowBars is the AREA whose candles a label must clear — the owner's step
+ * 3. Five either side is about the width of a callout box plus its arrow at
+ * this chart's density, so a label that clears them clears everything it can
+ * actually cover.
+ */
+const LAYOUT = {
+  windowBars: 5,
+  labelBars: 6,
+  gapFraction: 0.06,
+  labelHeightFraction: 0.12,
+} as const;
+
 const BG = '#0a0e17';
 const TEXT = '#e6edf7';
 const MUTED = '#7d8da6';
@@ -146,6 +176,54 @@ function placeFills(bars: Bar[], fills: Fill[]) {
   return { candleBars, placed };
 }
 
+
+/** One callout as the overlay draws it, in container pixels. */
+interface Callout {
+  key: string;
+  title: string;
+  price: string;
+  color: string;
+  /** Top-left of the box. */
+  boxX: number;
+  boxY: number;
+  /** The point the arrow lands on. */
+  tipX: number;
+  tipY: number;
+}
+
+/**
+ * Which two levels get called out. The owner's step 2, and deliberately only
+ * two: a chart annotated with everything annotates nothing.
+ *
+ * Entry always. Then the exit if the trade is closed — what actually
+ * happened beats what was planned — and otherwise the stop, which is the
+ * live decision on an open position.
+ */
+function calloutAnnotations(
+  entry: { index: number; price: number } | null,
+  exit: { index: number; price: number } | null,
+  stopPrice: number | null,
+  lastIndex: number,
+): { annotation: Annotation; title: string; color: string }[] {
+  const out: { annotation: Annotation; title: string; color: string }[] = [];
+  if (entry) {
+    out.push({
+      annotation: entry,
+      title: 'ENTRY',
+      color: UP,
+    });
+  }
+  if (exit) {
+    out.push({ annotation: exit, title: 'EXIT', color: DOWN });
+  } else if (stopPrice !== null) {
+    out.push({
+      annotation: { index: lastIndex, price: stopPrice },
+      title: 'STOP',
+      color: AMBER,
+    });
+  }
+  return out;
+}
 
 export function TradeChart({
   bars,
@@ -341,7 +419,25 @@ export function TradeChart({
           : { time: b.date },
       ),
     );
-    chart.timeScale().fitContent();
+    /**
+     * The owner's step 4: show some time before the entry and after the sell,
+     * rather than letting the trade sit flush against the edge of the plot.
+     * `fitContent()` showed the entire fetched window, which is a month
+     * either side and makes a three-day trade a sliver. A padded range around
+     * the action reads the way his reference screenshot does.
+     *
+     * Falls back to fitContent whenever there is nothing to centre on, so an
+     * unannotated chart is never worse off than before.
+     */
+    const annotatedIndices = placed
+      .map((p) => candleBars.findIndex((b) => b.date === p.markerBar.date))
+      .filter((i) => i >= 0);
+    if (annotatedIndices.length > 0) {
+      const range = paddedRange(candleBars.length, annotatedIndices, VIEW_PAD_BARS);
+      chart.timeScale().setVisibleLogicalRange({ from: range.from, to: range.to });
+    } else {
+      chart.timeScale().fitContent();
+    }
 
     // Fill markers: the owner's own actions. Colour matches the candle
     // convention he asked for (red sells, green buys), so shape (arrow
@@ -504,6 +600,112 @@ export function TradeChart({
     priceLinesRef.current = [...stopLines, ...fillLines, ...targetLine];
   }, [step, bars, fills, stopLevels, plannedTarget]);
 
+  /**
+   * Callout positions, in container pixels.
+   *
+   * A DOM overlay over the plot was rejected twice before, for reasons that
+   * were right at the time: it has to dodge the marker labels, and it has to
+   * be kept in sync with every redraw by hand. Both are answered rather than
+   * ignored — the markers carry no text any more, and `sync` below is
+   * subscribed to the three things that can move the plot (visible range,
+   * container size, replay step) instead of being computed once and left to
+   * drift. What changed is the requirement: boxed callouts placed in empty
+   * space are not something the library can position, and they are what the
+   * owner asked for.
+   */
+  const [callouts, setCallouts] = useState<Callout[]>([]);
+
+  const syncCallouts = useCallback(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series) return;
+
+    const { candleBars: cb, placed: pf } = placeFills(bars, fills);
+    if (cb.length === 0) {
+      setCallouts([]);
+      return;
+    }
+
+    // Only what the replay has revealed, so a callout never announces an
+    // exit before the bar it happened on has been drawn.
+    const frame = replayFrame(
+      cb.map((b) => b.date),
+      pf.map((p) => p.markerBar.date),
+      step,
+    );
+    const revealed = new Set(frame.visibleFillIndices);
+    const shown = pf.filter((_, i) => revealed.has(i));
+
+    const opening = shown.find((p) => p.fill.side === 'BUY') ?? shown[0] ?? null;
+    const closing = [...shown].reverse().find((p) => p.fill.side === 'SELL') ?? null;
+    const indexOf = (date: string) => cb.findIndex((b) => b.date === date);
+
+    const entry = opening
+      ? { index: indexOf(opening.markerBar.date), price: opening.fill.price }
+      : null;
+    const exit = closing
+      ? { index: indexOf(closing.markerBar.date), price: closing.fill.price }
+      : null;
+    const stops = resolvedStopLines(stopLevels);
+    const stopPrice = frame.stopLinesVisible && stops.length > 0 ? stops[0].price : null;
+
+    const wanted = calloutAnnotations(entry, exit, stopPrice, cb.length - 1);
+    if (wanted.length === 0) {
+      setCallouts([]);
+      return;
+    }
+
+    const placements = placeAnnotations(
+      cb.map((b) => ({ high: b.high, low: b.low })),
+      wanted.map((w) => w.annotation),
+      LAYOUT,
+    );
+
+    const next: Callout[] = [];
+    placements.forEach((pl, i) => {
+      const boxTime = cb[pl.labelIndex]?.date;
+      const tipTime = cb[pl.index]?.date;
+      if (!boxTime || !tipTime) return;
+      const x = chart.timeScale().timeToCoordinate(boxTime as Time);
+      const y = series.priceToCoordinate(pl.labelPrice);
+      const tx = chart.timeScale().timeToCoordinate(tipTime as Time);
+      const ty = series.priceToCoordinate(pl.price);
+      // Off-screen after a pan or zoom: drop the callout rather than draw it
+      // at a coordinate the library could not resolve.
+      if (x === null || y === null || tx === null || ty === null) return;
+      next.push({
+        key: `${wanted[i].title}-${pl.index}`,
+        title: wanted[i].title,
+        price: formatMoney(pl.price),
+        color: wanted[i].color,
+        boxX: x,
+        boxY: y,
+        tipX: tx,
+        tipY: ty,
+      });
+    });
+    setCallouts(next);
+  }, [bars, fills, stopLevels, step]);
+
+  // The three things that move the plot. Without the first two the boxes
+  // drift off their candles the moment the owner pans or rotates the phone,
+  // which is exactly the objection that got a DOM overlay rejected before.
+  useEffect(() => {
+    syncCallouts();
+    const chart = chartRef.current;
+    const container = containerRef.current;
+    if (!chart || !container) return;
+
+    const handler = () => syncCallouts();
+    chart.timeScale().subscribeVisibleTimeRangeChange(handler);
+    const observer = new ResizeObserver(handler);
+    observer.observe(container);
+    return () => {
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(handler);
+      observer.disconnect();
+    };
+  }, [syncCallouts]);
+
   if (candleBars.length === 0) {
     return (
       <p className="rounded-xl border border-border bg-surface-1 p-3 text-xs text-muted">
@@ -516,10 +718,59 @@ export function TradeChart({
 
   return (
     <div className="space-y-2">
-      <div
-        ref={containerRef}
-        className="h-[260px] w-full overflow-hidden rounded-xl"
-      />
+      <div className="relative h-[260px] w-full">
+        <div
+          ref={containerRef}
+          className="h-full w-full overflow-hidden rounded-xl"
+        />
+        {/*
+          The callouts. `pointer-events-none` throughout: the crosshair and
+          the chart's own pan/pinch must keep working through the overlay —
+          an annotation that eats touches on a phone would be worse than no
+          annotation.
+        */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <svg className="absolute inset-0 h-full w-full" aria-hidden="true">
+            {callouts.map((c) => (
+              <g key={`line-${c.key}`}>
+                <line
+                  x1={c.boxX}
+                  y1={c.boxY}
+                  x2={c.tipX}
+                  y2={c.tipY}
+                  stroke={c.color}
+                  strokeWidth="1.5"
+                />
+                <circle cx={c.tipX} cy={c.tipY} r="3" fill={c.color} />
+              </g>
+            ))}
+          </svg>
+          {callouts.map((c) => (
+            <div
+              key={c.key}
+              // Centred on its anchor and nudged off it, so the box reads as
+              // belonging to the line rather than sitting on it. translate
+              // keeps this to one paint rather than a layout pass per frame
+              // while the owner pans.
+              style={{
+                left: c.boxX,
+                top: c.boxY,
+                transform: 'translate(-50%, -50%)',
+                borderColor: c.color,
+                color: c.color,
+              }}
+              className="absolute whitespace-nowrap rounded-md border bg-surface-0/90 px-1.5 py-0.5 text-center"
+            >
+              <div className="text-[9px] font-semibold uppercase tracking-wide leading-tight">
+                {c.title}
+              </div>
+              <div className="text-[10px] font-medium tabular-nums leading-tight text-text">
+                {c.price}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {totalBars > 1 && (
         <div className="flex items-center gap-3">
