@@ -295,7 +295,12 @@ The patterns, and the one implementation of each:
 | Text inputs | `components/ui/inputClasses.ts` | everywhere |
 | Correcting a record | edit the journal entry; there is no second editor | `EntrySheet` |
 
-**Any AI answer is collapsible, and collapsed means ONE header line.** A
+**Any AI answer is collapsible, and collapsed means ONE header line.** All
+four of them: the portfolio summary, the trade review, the watchlist opinion
+and the trade idea. The idea card was missed in the very commit that wrote
+this rule down — writing a convention is not applying it, so when a rule like
+this lands, grep for the other places it already applies before claiming it
+is done. A
 model's answer runs to several hundred words and buries the rest of a phone
 screen. Not "the prose is hidden but a verdict and a metrics grid remain" —
 that is what the trade review did, and it was inches tall while claiming to
@@ -361,6 +366,7 @@ before writing the fourth:
 | AiSummary's collapsible answer | TradeReviewCard |
 | Risk arithmetic on the backend | the frontend's own copy, twice |
 | Verifying UI in a browser | the chart callouts, three deploys running |
+| CollapsibleCard for AI answers | the Ideas card — missed while writing the rule |
 
 Every one is **a newer screen re-solving a problem an older screen had already
 solved**, and every one degraded in the copy: the delete became permanent, the

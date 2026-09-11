@@ -6,6 +6,7 @@ import { Markdown } from '../components/Markdown';
 import { SessionBadge } from '../components/SessionBadge';
 import { usePersistentState } from '../lib/persistentState';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
+import { CollapsibleCard } from '../components/ui/CollapsibleCard';
 
 /** Mirrors `LlmFailureKind` in `backend/src/llm/llm.client.ts`. */
 type ErrorKind = 'busy' | 'quota_exceeded' | 'setup_problem' | 'unknown';
@@ -259,23 +260,42 @@ function ResultCard({ result }: { result: TradeIdeaResult }) {
 
   const { facts } = result;
 
+  /**
+   * Collapsible, like every other AI answer in the app.
+   *
+   * This is the longest one — levels, sizing, several hundred words of
+   * reasoning and the facts panel — and it sat above the history list, so
+   * with it open the past ideas were off the bottom of a phone screen. It was
+   * also the last AI answer still rolling its own card after CollapsibleCard
+   * was extracted, which is exactly the miss the reuse rule exists to catch.
+   *
+   * The header keeps what identifies the answer — the badge, the ticker, its
+   * price and the session — so a collapsed card still says which ticker at
+   * what price, and the staleness warning can never be hidden behind a fold.
+   */
   return (
-    <div className="space-y-3 rounded-xl border border-dashed border-accent/40 bg-surface-1 p-3">
-      <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-accent">
-        <span className="rounded bg-accent/15 px-1.5 py-0.5 font-medium">AI generated</span>
-        <span className="text-sm font-semibold normal-case tracking-normal text-text">
-          {facts.symbol}
-        </span>
-        <span className="tabular-nums text-sm normal-case tracking-normal text-text">
-          {formatMoney(facts.price)}
-        </span>
-        <SessionBadge session={facts.session} extended={facts.extended} />
-        {/* Never show a stale price as if it were fresh. */}
-        {facts.stale && (
-          <span className="rounded bg-down/15 px-1.5 py-0.5 font-medium text-down">stale</span>
-        )}
-      </div>
-
+    <CollapsibleCard
+      label="idea"
+      header={
+        <>
+          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
+            AI generated
+          </span>
+          <span className="text-sm font-semibold text-text">{facts.symbol}</span>
+          <span className="text-sm tabular-nums text-text">
+            {formatMoney(facts.price)}
+          </span>
+          <SessionBadge session={facts.session} extended={facts.extended} />
+          {/* Never show a stale price as if it were fresh. */}
+          {facts.stale && (
+            <span className="rounded bg-down/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-down">
+              stale
+            </span>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-3">
       {/*
         The verdict first, the argument for it second. These numbers used to
         sit under ~400 words of prose, which meant scrolling past the whole
@@ -295,7 +315,8 @@ function ResultCard({ result }: { result: TradeIdeaResult }) {
       <Reasoning text={result.opinion} />
 
       <FactsPanel facts={facts} />
-    </div>
+      </div>
+    </CollapsibleCard>
   );
 }
 
