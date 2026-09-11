@@ -265,6 +265,12 @@ export function Watchlist() {
                       </span>
                     )}
                   </div>
+                  {/* The company, so a row is legible without knowing every ticker. */}
+                  {r.name && (
+                    <div className="mt-0.5 truncate text-[11px] text-muted">
+                      {r.name}
+                    </div>
+                  )}
                   {r.tags.length > 0 && (
                     <div className="mt-0.5 flex flex-wrap gap-1">
                       {r.tags.map((t) => (
@@ -282,26 +288,32 @@ export function Watchlist() {
                   <div className="text-sm tabular-nums">
                     {r.price === null ? '—' : formatMoney(r.price)}
                   </div>
-                  {r.targetPrice !== null && (
+                  {r.targetPrice !== null ? (
                     <div className="text-[10px] tabular-nums text-muted">
                       target {formatMoney(r.targetPrice)}
                       {r.distanceToTarget !== null && (
                         <> · {formatPercent(r.distanceToTarget)} away</>
                       )}
                     </div>
+                  ) : (
+                    /*
+                      A ticker with no target rendered as a bare symbol and a
+                      price, which reads as something half-loaded rather than
+                      as a deliberate state. Saying so — and saying where to
+                      change it — costs one line and makes the row explain
+                      itself. The target stays optional; it just no longer
+                      looks like an omission.
+                    */
+                    <div className="text-[10px] text-muted">no target set</div>
                   )}
                 </div>
               </div>
               {editMode && (
-                <div className="mt-2 border-t border-border pt-2">
-                  <button
-                    type="button"
-                    onClick={() => removeMutation.mutate(r.id)}
-                    className="text-xs font-medium text-down active:opacity-70"
-                  >
-                    Delete
-                  </button>
-                </div>
+                <RowEditor
+                  row={r}
+                  onDelete={() => removeMutation.mutate(r.id)}
+                  onSaved={invalidate}
+                />
               )}
             </li>
           ))}
@@ -353,6 +365,134 @@ export function Watchlist() {
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+/**
+ * Editing a watched ticker: its target, its note, its tags.
+ *
+ * The API has always supported this — `POST /watchlist` upserts on the symbol
+ * — but nothing on screen reached it, so the list was add-and-delete only and
+ * a target could never be corrected without removing the row and starting
+ * again.
+ *
+ * Lives inside edit mode rather than behind a separate control, which keeps
+ * one rule for the whole app: the list is read-only until the pencil is on,
+ * and then a row can be changed or removed. Delete keeps its own confirm.
+ */
+function RowEditor({
+  row,
+  onDelete,
+  onSaved,
+}: {
+  row: WatchRow;
+  onDelete: () => void;
+  onSaved: () => Promise<unknown>;
+}) {
+  const [target, setTarget] = useState(
+    row.targetPrice === null ? '' : String(row.targetPrice),
+  );
+  const [note, setNote] = useState(row.note);
+  const [tags, setTags] = useState(row.tags.map((t) => t.label).join(', '));
+  const [confirming, setConfirming] = useState(false);
+
+  const save = useMutation({
+    mutationFn: () => {
+      const parsed = parseFloat(target);
+      return api<WatchRow>('/watchlist', {
+        method: 'POST',
+        body: JSON.stringify({
+          symbol: row.symbol,
+          // Empty means "remove the target" — null, not omitted. Omitting it
+          // would leave the old one in place, which is the opposite of what
+          // clearing the field says.
+          targetPrice:
+            target.trim() === '' || !Number.isFinite(parsed) || parsed <= 0
+              ? null
+              : Math.abs(parsed),
+          note,
+          tags: tags
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean),
+        }),
+      });
+    },
+    onSuccess: onSaved,
+  });
+
+  const dirty =
+    note !== row.note ||
+    tags !== row.tags.map((t) => t.label).join(', ') ||
+    target !== (row.targetPrice === null ? '' : String(row.targetPrice));
+
+  return (
+    <div className="mt-2 space-y-2 border-t border-border pt-2">
+      <div className="flex gap-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          placeholder="target (blank to clear)"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          className={inputClasses('sm')}
+        />
+        <input
+          placeholder="tags, comma separated"
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          className={inputClasses('sm')}
+        />
+      </div>
+      <input
+        placeholder="why you are watching it"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        className={inputClasses('sm')}
+      />
+
+      {save.isError && (
+        <p className="text-xs text-down">Could not save that just now.</p>
+      )}
+
+      <div className="flex items-center justify-between gap-2">
+        {confirming ? (
+          <span className="flex items-center gap-2">
+            <span className="text-xs text-muted">Stop watching {row.symbol}?</span>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="rounded px-2 py-1 text-xs font-medium text-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="rounded bg-down/10 px-2 py-1 text-xs font-medium text-down"
+            >
+              Delete
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="text-xs font-medium text-down active:opacity-70"
+          >
+            Delete
+          </button>
+        )}
+
+        <Button
+          variant="secondary"
+          disabled={!dirty || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
     </div>
   );
 }

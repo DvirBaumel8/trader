@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Watchlist } from './Watchlist';
@@ -94,6 +94,51 @@ describe('Watchlist target alerts', () => {
 });
 
 describe('Watchlist rows', () => {
+  /**
+   * A ticker with no target rendered as a bare symbol and a price, which
+   * reads as half-loaded rather than as a deliberate state. The target stays
+   * optional; it just says so.
+   */
+  it('says so when a ticker is watched without a target', async () => {
+    renderWatchlist([row({ targetPrice: null, targetDirection: null, distanceToTarget: null })]);
+    expect(await screen.findByText('no target set')).toBeInTheDocument();
+  });
+
+  it('names the company, so a row is legible without knowing the ticker', async () => {
+    renderWatchlist([row({ name: 'NVIDIA' })]);
+    expect(await screen.findByText('NVIDIA')).toBeInTheDocument();
+  });
+
+  /** Edit was missing entirely: the list was add-and-delete only. */
+  it('offers an editor for target, tags and note in edit mode', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([row()]);
+    await screen.findByText('NVDA');
+    await user.click(screen.getByRole('button', { name: 'Edit watchlist' }));
+
+    expect(screen.getByPlaceholderText('target (blank to clear)')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/tags/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/why you are watching/)).toBeInTheDocument();
+  });
+
+  /** Clearing the field must REMOVE the target, not leave the old one. */
+  it('sends null when the target field is emptied', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([row()]);
+    await screen.findByText('NVDA');
+    await user.click(screen.getByRole('button', { name: 'Edit watchlist' }));
+    await user.clear(screen.getByPlaceholderText('target (blank to clear)'));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      const call = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/watchlist' && (c[1] as { method?: string })?.method === 'POST',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse((call![1] as { body: string }).body).targetPrice).toBeNull();
+    });
+  });
+
   it('shows how far the price still has to travel', async () => {
     renderWatchlist([row()]);
     expect(await screen.findByText(/away/)).toBeInTheDocument();
