@@ -15,7 +15,13 @@ const inputClass = `${inputClasses('md')} rounded-xl px-4 py-3`;
 
 interface Session {
   accessToken: string;
-  user: RememberedUser;
+  /**
+   * Optional on purpose. An API older than this build — a branch preview
+   * pointed at production, or a frontend deployed a few minutes ahead of the
+   * API — returns only the token. Signing in must still work; the device just
+   * does not learn who signed in.
+   */
+  user?: RememberedUser;
 }
 
 type Mode = 'SIGN_IN' | 'SIGN_UP' | 'APP_PASSWORD';
@@ -68,7 +74,7 @@ export function Login() {
 
   function accept(session: Session) {
     setToken(session.accessToken);
-    rememberUser(session.user);
+    if (session.user) rememberUser(session.user);
     navigate('/', { replace: true });
   }
 

@@ -94,6 +94,28 @@ describe('Login', () => {
   });
 
   /** No client id on the server means the button would be a dead end. */
+  /**
+   * A branch preview points at the production API, which may predate this
+   * build and return only a token. Signing in must still work.
+   */
+  it('signs in against an API that returns no user', async () => {
+    const user = userEvent.setup();
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/auth/config') return Promise.reject(new Error('404'));
+      return Promise.resolve({ accessToken: 't' });
+    });
+    renderLogin();
+    await user.type(screen.getByPlaceholderText('Password'), 'hunter2');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+
+    await waitFor(() => {
+      expect(
+        (api as ReturnType<typeof vi.fn>).mock.calls.some((c) => c[0] === '/auth/login'),
+      ).toBe(true);
+    });
+    expect(screen.queryByText(/Could not/)).not.toBeInTheDocument();
+  });
+
   it('offers Google only where the server says it is configured', async () => {
     renderLogin();
     await waitFor(() => {
