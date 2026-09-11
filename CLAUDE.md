@@ -355,6 +355,52 @@ A pure unit test cannot see any of this. All three failures were in the seam
 between our code and a third-party renderer, which is exactly where a test
 double agrees with you and the browser does not.
 
+### When a bug is found, four steps — not one
+
+The owner's rule, and it is not optional. Fixing the symptom and moving on is
+how the same defect gets shipped three times in different clothes.
+
+1. **Fix it.**
+2. **Cover it with a test** that fails without the fix, and whose name states
+   the behaviour rather than the code.
+3. **Stop. Post-mortem.** Why did this exist, and — separately, and more
+   importantly — **why did the tests not find it?** A bug that passed a green
+   suite is two failures: the defect, and the blind spot that hid it. Fix the
+   blind spot as well.
+4. **Sweep for the same shape elsewhere.** Where else does this pattern live?
+   Fix those too. If the answer is "in several places", that is the signal to
+   pull the logic into one place rather than patch each — the specific
+   implementation becoming generic code.
+
+Step 4 is the one that pays. Every miss in the table below was a second
+instance of something already solved, and each was found by a person rather
+than by the sweep that should have followed the first fix.
+
+**Worked example — the history gap, and why it is in this file.**
+
+*Fix:* the daily top-up fetched a fixed seven days back. Ten days away from
+the app meant days eight to ten were never fetched — and never would be,
+since every later top-up also reached back seven. A permanent hole, and every
+average computed across it quietly wrong.
+
+*Test:* `ensureFresh` had **no tests at all**. The spec file existed and
+covered `ensurePriced` only, so the file looked tested while the path that
+runs on every request in production was not. Coverage of a FILE is not
+coverage of a BEHAVIOUR, and a spec file's existence is not evidence.
+
+*Post-mortem:* one constant served two policies. `OVERLAP_DAYS = 7` was chosen
+to re-fetch recently revised bars, then silently reused as the bound on how
+far behind the history could be. The comment above it even said "rather than
+only the missing ones" — the author had the second question in mind and
+answered it with the first question's number.
+
+*Sweep:* the same shape one level down. The first fix derived the window from
+the newest stored bar — but the GLOBAL newest, across all instruments. One
+symbol failing at the provider while the rest succeed leaves it behind, with
+the database reporting itself current. A gap is a property of an instrument,
+so the window is now computed per instrument, through one helper
+(`catchUpFrom`) that carries the whole story.
+
 ### The shape of these misses
 
 Three have now landed the same way, and the pattern is worth recognising
@@ -367,6 +413,7 @@ before writing the fourth:
 | Risk arithmetic on the backend | the frontend's own copy, twice |
 | Verifying UI in a browser | the chart callouts, three deploys running |
 | CollapsibleCard for AI answers | the Ideas card — missed while writing the rule |
+| A fixed catch-up window | the same gap per-instrument, one fix later |
 
 Every one is **a newer screen re-solving a problem an older screen had already
 solved**, and every one degraded in the copy: the delete became permanent, the

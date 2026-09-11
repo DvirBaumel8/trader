@@ -6,7 +6,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { YahooClient } from './yahoo.client.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
-import { isHistoryBehind } from './trading-day.js';
+import { catchUpFrom, isHistoryBehind } from './trading-day.js';
 
 export const BENCHMARKS = ['SPY', 'QQQ'] as const;
 
@@ -191,32 +191,32 @@ export class HistoryService {
       // let concurrent requests all start their own top-up.
       this.lastFreshenAt = now.getTime();
 
-      /**
-       * Back far enough to close any gap, not a fixed week.
-       *
-       * The overlap exists because Yahoo revises recent bars, and re-fetching
-       * a handful is free — upsert is keyed on (instrument, date). But a
-       * FIXED seven days silently caps how far behind the history can be
-       * allowed to fall: leave the app unopened for ten days and the top-up
-       * fetches the last seven, so days eight to ten are never fetched, and
-       * they never will be — every later top-up reaches back seven days too.
-       * A permanent hole, and a 150-day average computed across it is quietly
-       * wrong.
-       *
-       * So the window starts at the older of "a week ago" and "the overlap
-       * before the newest bar we actually hold".
-       */
-      const from = new Date(now);
-      from.setDate(from.getDate() - OVERLAP_DAYS);
-      if (newest?.date) {
-        const fromNewest = new Date(`${String(newest.date)}T00:00:00Z`);
-        fromNewest.setDate(fromNewest.getDate() - OVERLAP_DAYS);
-        if (fromNewest.getTime() < from.getTime()) {
-          from.setTime(fromNewest.getTime());
-        }
-      }
-
       const instrumentRows = await this.instruments.find();
+
+      /**
+       * How far back to fetch, decided PER INSTRUMENT.
+       *
+       * A gap is a property of one symbol, not of the database. One ticker
+       * failing at the provider while the rest succeed leaves that ticker
+       * behind, and a single global watermark reports everything as current —
+       * so its gap is never repaired. The window is computed from each
+       * instrument's own newest bar; see `catchUpFrom`, which carries the
+       * full history of this mistake.
+       */
+      const newestByInstrument = new Map<string, string>();
+      for (const row of await this.closes
+        .createQueryBuilder('c')
+        .select('c."instrumentId"', 'instrumentId')
+        .addSelect('MAX(c.date)', 'newest')
+        .groupBy('c."instrumentId"')
+        .getRawMany<{ instrumentId: string; newest: string | Date }>()) {
+        newestByInstrument.set(
+          row.instrumentId,
+          row.newest instanceof Date
+            ? row.newest.toISOString().slice(0, 10)
+            : String(row.newest),
+        );
+      }
 
       // Fetched in parallel, and never allowed to hold up the response.
       // Sequentially this took four seconds against thirty instruments —
@@ -224,7 +224,14 @@ export class HistoryService {
       // every time the history had fallen behind.
       const work = Promise.all(
         instrumentRows.map((instrument) =>
-          this.fetchAndStore(instrument, instrument.symbol, from),
+          this.fetchAndStore(
+            instrument,
+            instrument.symbol,
+            catchUpFrom(newestByInstrument.get(instrument.id) ?? null, now, {
+              overlapDays: OVERLAP_DAYS,
+              runwayDays: RUNWAY_DAYS,
+            }),
+          ),
         ),
       );
 

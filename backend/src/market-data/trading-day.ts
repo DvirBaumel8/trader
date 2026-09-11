@@ -109,3 +109,51 @@ export function isHistoryBehind(
   // re-fetching it every ten minutes all weekend would be pure waste.
   return latest === marketDate(now);
 }
+
+/**
+ * From what date to fetch bars for ONE instrument.
+ *
+ * The generic answer to "how far back do I need to go", extracted after the
+ * same defect appeared twice at different scopes.
+ *
+ * First version: a fixed seven-day overlap, chosen so a recently revised bar
+ * would be corrected. It silently doubled as a cap on how far behind the
+ * history could ever be — ten days away from the app meant days eight to ten
+ * were never fetched, and never would be, because the next top-up also
+ * reached back seven.
+ *
+ * Second version derived the window from the newest bar, but from the newest
+ * bar ACROSS ALL INSTRUMENTS. One symbol failing at the provider while the
+ * others succeed leaves that symbol behind, and the global watermark says
+ * everything is fine. A gap is a property of an instrument, so this takes
+ * that instrument's own newest bar.
+ *
+ * Accepts a `Date` as well as a string: node-postgres parses DATE columns
+ * into JS dates, so a grouped MAX(date) does not hand back a string — the
+ * same trap that once made `isHistoryBehind` a silent no-op.
+ */
+export function catchUpFrom(
+  newestStored: string | Date | null,
+  now: Date,
+  opts: { overlapDays: number; runwayDays: number },
+): Date {
+  // Nothing stored: fetch the whole runway, or every long average — the
+  // 150-day he actually trades included — stays null forever.
+  if (newestStored === null) {
+    const full = new Date(now);
+    full.setDate(full.getDate() - opts.runwayDays);
+    return full;
+  }
+
+  const ordinary = new Date(now);
+  ordinary.setDate(ordinary.getDate() - opts.overlapDays);
+
+  const latest =
+    newestStored instanceof Date ? marketDate(newestStored) : newestStored;
+  const fromNewest = new Date(`${latest}T00:00:00Z`);
+  fromNewest.setDate(fromNewest.getDate() - opts.overlapDays);
+
+  // Whichever is earlier. A bar dated in the future must never push the
+  // window forward and skip days.
+  return fromNewest.getTime() < ordinary.getTime() ? fromNewest : ordinary;
+}

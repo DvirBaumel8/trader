@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isHistoryBehind, lastExpectedSession, marketDate } from './trading-day.js';
+import {
+  catchUpFrom,
+  isHistoryBehind,
+  lastExpectedSession,
+  marketDate,
+} from './trading-day.js';
 
 /** 2026-09-04 is a Friday; 2026-09-05 a Saturday; 2026-09-07 a Monday. */
 const at = (iso: string) => new Date(iso);
@@ -82,5 +87,55 @@ describe('isHistoryBehind', () => {
 
   it('is not behind on a Saturday holding Friday data either', () => {
     expect(isHistoryBehind('2026-09-04', at('2026-09-05T16:00:00Z'))).toBe(false);
+  });
+});
+
+describe('catchUpFrom', () => {
+  const now = new Date('2026-09-18T15:00:00Z');
+  const opts = { overlapDays: 7, runwayDays: 500 };
+  const daysBefore = (d: Date) =>
+    Math.round((now.getTime() - d.getTime()) / 86_400_000);
+
+  /**
+   * The bug, and then the same bug one level down.
+   *
+   * A fixed seven-day window meant a history more than a week behind could
+   * never catch up: every top-up reached back exactly seven days, so an
+   * older gap stayed forever. Deriving the window from the newest bar fixed
+   * it — but only from the GLOBAL newest, so one instrument lagging while
+   * the rest were current was still never repaired. This answers the
+   * question per instrument, which is the only level at which it is true.
+   */
+  it('reaches back past a single instrument that has fallen far behind', () => {
+    const from = catchUpFrom('2026-08-01', now, opts);
+    expect(daysBefore(from)).toBeGreaterThan(40);
+  });
+
+  it('asks for about a week when that instrument is current', () => {
+    const from = catchUpFrom('2026-09-17', now, opts);
+    expect(daysBefore(from)).toBeLessThanOrEqual(9);
+    expect(daysBefore(from)).toBeGreaterThanOrEqual(7);
+  });
+
+  /** No bars at all: fetch the full runway, or the long averages stay null. */
+  it('fetches the whole runway for an instrument with no history', () => {
+    const from = catchUpFrom(null, now, opts);
+    expect(daysBefore(from)).toBe(500);
+  });
+
+  /**
+   * node-postgres parses DATE columns into JS Dates, so a grouped MAX(date)
+   * does not hand back a string. The same trap that once made
+   * isHistoryBehind a silent no-op.
+   */
+  it('accepts a Date, which is what a grouped query actually returns', () => {
+    const from = catchUpFrom(new Date('2026-08-01T04:00:00Z'), now, opts);
+    expect(daysBefore(from)).toBeGreaterThan(40);
+  });
+
+  /** A bar dated in the future must not push the window forward. */
+  it('never starts later than the ordinary overlap', () => {
+    const from = catchUpFrom('2026-12-01', now, opts);
+    expect(daysBefore(from)).toBe(7);
   });
 });

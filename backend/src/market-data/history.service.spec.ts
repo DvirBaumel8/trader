@@ -102,21 +102,41 @@ describe('HistoryService.ensurePriced', () => {
 function makeFreshService(opts: {
   newestDate: string | null;
   instruments: Instrument[];
+  perInstrument?: { instrumentId: string; newest: string }[];
 }) {
   const requestedFrom: Date[] = [];
+  const requestedBySymbol = new Map<string, Date>();
   const closes = {
     count: vi.fn().mockResolvedValue(1),
     upsert: vi.fn().mockResolvedValue(undefined),
     find: vi
       .fn()
       .mockResolvedValue(opts.newestDate ? [{ date: opts.newestDate }] : []),
+    // The per-instrument watermark. `perInstrument` lets a test put one
+    // symbol behind while the rest are current — the case a single global
+    // watermark could never see.
+    createQueryBuilder: vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      addSelect: vi.fn().mockReturnThis(),
+      groupBy: vi.fn().mockReturnThis(),
+      getRawMany: vi.fn().mockResolvedValue(
+        opts.perInstrument ??
+          (opts.newestDate
+            ? opts.instruments.map((i) => ({
+                instrumentId: i.id,
+                newest: opts.newestDate,
+              }))
+            : []),
+      ),
+    }),
   };
   const instruments = {
     find: vi.fn().mockResolvedValue(opts.instruments),
   };
   const yahoo = {
-    dailyBars: vi.fn().mockImplementation(async (_s: string, from: Date) => {
+    dailyBars: vi.fn().mockImplementation(async (sym: string, from: Date) => {
       requestedFrom.push(from);
+      requestedBySymbol.set(sym, from);
       return [];
     }),
   } as unknown as YahooClient;
@@ -128,7 +148,7 @@ function makeFreshService(opts: {
     {} as never,
     yahoo,
   );
-  return { service, requestedFrom };
+  return { service, requestedFrom, requestedBySymbol };
 }
 
 describe('HistoryService.ensureFresh', () => {
@@ -187,5 +207,38 @@ describe('HistoryService.ensureFresh', () => {
     await service.ensureFresh(new Date('2026-09-20T15:00:00Z'));
 
     expect(requestedFrom).toHaveLength(0);
+  });
+});
+
+describe('HistoryService.ensureFresh, per instrument', () => {
+  const OTHER: Instrument = { ...CRWV, id: 'inst-nvda', symbol: 'NVDA' };
+
+  /**
+   * The same defect one level down, found by asking step 4 of the bug
+   * process: where else does this pattern live? Deriving the window from the
+   * newest bar fixed the everything-is-behind case, but the watermark was
+   * GLOBAL — so one symbol failing at the provider while the others succeed
+   * left it behind forever, with the database reporting itself current.
+   */
+  it('catches up a lagging instrument even while the others are current', async () => {
+    const now = new Date('2026-09-18T15:00:00Z');
+    const { service, requestedBySymbol } = makeFreshService({
+      newestDate: '2026-09-17',
+      instruments: [CRWV, OTHER],
+      perInstrument: [
+        { instrumentId: 'inst-nvda', newest: '2026-09-17' }, // current
+        { instrumentId: 'inst-crwv', newest: '2026-08-01' }, // far behind
+      ],
+    });
+
+    await service.ensureFresh(now);
+
+    const laggard = requestedBySymbol.get('CRWV')!;
+    const current = requestedBySymbol.get('NVDA')!;
+    const daysBack = (d: Date) =>
+      Math.round((now.getTime() - d.getTime()) / 86_400_000);
+
+    expect(daysBack(laggard)).toBeGreaterThan(40);
+    expect(daysBack(current)).toBeLessThanOrEqual(9);
   });
 });
