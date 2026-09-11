@@ -191,11 +191,30 @@ export class HistoryService {
       // let concurrent requests all start their own top-up.
       this.lastFreshenAt = now.getTime();
 
-      // A few days of overlap rather than only the missing ones. Yahoo revises
-      // recent bars (a split, a late print), and re-fetching a handful is
-      // free — upsert is keyed on (instrument, date).
+      /**
+       * Back far enough to close any gap, not a fixed week.
+       *
+       * The overlap exists because Yahoo revises recent bars, and re-fetching
+       * a handful is free — upsert is keyed on (instrument, date). But a
+       * FIXED seven days silently caps how far behind the history can be
+       * allowed to fall: leave the app unopened for ten days and the top-up
+       * fetches the last seven, so days eight to ten are never fetched, and
+       * they never will be — every later top-up reaches back seven days too.
+       * A permanent hole, and a 150-day average computed across it is quietly
+       * wrong.
+       *
+       * So the window starts at the older of "a week ago" and "the overlap
+       * before the newest bar we actually hold".
+       */
       const from = new Date(now);
       from.setDate(from.getDate() - OVERLAP_DAYS);
+      if (newest?.date) {
+        const fromNewest = new Date(`${String(newest.date)}T00:00:00Z`);
+        fromNewest.setDate(fromNewest.getDate() - OVERLAP_DAYS);
+        if (fromNewest.getTime() < from.getTime()) {
+          from.setTime(fromNewest.getTime());
+        }
+      }
 
       const instrumentRows = await this.instruments.find();
 

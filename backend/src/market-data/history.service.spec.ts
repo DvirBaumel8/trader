@@ -94,3 +94,98 @@ describe('HistoryService.ensurePriced', () => {
     await expect(service.ensurePriced(CRWV, 'CRWV')).resolves.toBeUndefined();
   });
 });
+
+/**
+ * `ensureFresh` needs more of the repositories than `ensurePriced` does: the
+ * newest stored bar, and the list of instruments to top up.
+ */
+function makeFreshService(opts: {
+  newestDate: string | null;
+  instruments: Instrument[];
+}) {
+  const requestedFrom: Date[] = [];
+  const closes = {
+    count: vi.fn().mockResolvedValue(1),
+    upsert: vi.fn().mockResolvedValue(undefined),
+    find: vi
+      .fn()
+      .mockResolvedValue(opts.newestDate ? [{ date: opts.newestDate }] : []),
+  };
+  const instruments = {
+    find: vi.fn().mockResolvedValue(opts.instruments),
+  };
+  const yahoo = {
+    dailyBars: vi.fn().mockImplementation(async (_s: string, from: Date) => {
+      requestedFrom.push(from);
+      return [];
+    }),
+  } as unknown as YahooClient;
+
+  const service = new HistoryService(
+    closes as never,
+    instruments as never,
+    {} as never,
+    {} as never,
+    yahoo,
+  );
+  return { service, requestedFrom };
+}
+
+describe('HistoryService.ensureFresh', () => {
+  const days = (from: Date, to: Date) =>
+    Math.round((to.getTime() - from.getTime()) / 86_400_000);
+
+  /**
+   * The gap that could never close. The top-up used a FIXED seven-day
+   * window, so leaving the app unopened for ten days fetched only the last
+   * seven — days eight to ten were never fetched, and never would be, since
+   * every later top-up reached back seven days too. A permanent hole, and a
+   * 150-day average computed across one is quietly wrong.
+   */
+  it('reaches back past the newest stored bar when the history has fallen far behind', async () => {
+    const now = new Date('2026-09-20T15:00:00Z');
+    const { service, requestedFrom } = makeFreshService({
+      newestDate: '2026-09-01', // 19 days stale
+      instruments: [CRWV],
+    });
+
+    await service.ensureFresh(now);
+
+    expect(requestedFrom.length).toBeGreaterThan(0);
+    // Must start before the newest bar we hold, not seven days before today.
+    expect(requestedFrom[0].getTime()).toBeLessThan(
+      new Date('2026-09-01T00:00:00Z').getTime(),
+    );
+    expect(days(requestedFrom[0], now)).toBeGreaterThan(7);
+  });
+
+  /**
+   * A current history still asks for about a week, not a long re-fetch. Dated
+   * on a Friday with Thursday's bar stored: a weekend with Friday's bar is a
+   * different case entirely, and correctly does nothing at all.
+   */
+  it('asks for about a week when the history is current', async () => {
+    const now = new Date('2026-09-18T15:00:00Z');
+    const { service, requestedFrom } = makeFreshService({
+      newestDate: '2026-09-17',
+      instruments: [CRWV],
+    });
+
+    await service.ensureFresh(now);
+
+    expect(requestedFrom.length).toBeGreaterThan(0);
+    expect(days(requestedFrom[0], now)).toBeLessThanOrEqual(9);
+  });
+
+  /** A weekend holding Friday's bar is finished business — nothing to fetch. */
+  it('does nothing on a Sunday holding Friday data', async () => {
+    const { service, requestedFrom } = makeFreshService({
+      newestDate: '2026-09-18',
+      instruments: [CRWV],
+    });
+
+    await service.ensureFresh(new Date('2026-09-20T15:00:00Z'));
+
+    expect(requestedFrom).toHaveLength(0);
+  });
+});
