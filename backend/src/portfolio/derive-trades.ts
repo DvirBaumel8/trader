@@ -1,5 +1,10 @@
 import { compareFills, type DerivedTxn } from './derive.js';
 import { computeRisk, type StopLevelInput } from './risk.js';
+import {
+  earliestRevisionRows,
+  isClearedRevision,
+  latestRevisionRows,
+} from '../transactions/stop-revisions.js';
 
 /**
  * One stop tier as recorded by a specific revision. `stopLevels` on a
@@ -21,6 +26,14 @@ export interface StopRevisionInput extends StopLevelInput {
   id: string;
   /** 0 is the first revision ever recorded; increasing thereafter. */
   revisionSeq: number;
+  /**
+   * True on the lone tombstone row that records a plan being EMPTIED. An
+   * empty revision cannot be zero rows — that leaves `revisionSeq`
+   * unadvanced and every reader keeps serving the previous revision — so
+   * "no stops" is one row carrying this flag. Only `stop-revisions.ts`
+   * should ever test it.
+   */
+  cleared?: boolean;
   /**
    * When this revision was recorded, ISO 8601. Null means "unknown" — true
    * only of revision 0 rows written before revisions were tracked. See
@@ -66,9 +79,12 @@ function stripRevisionMeta(l: StopRevisionInput): StopLevelInput {
  * reporting none — see stop-level.entity.ts.
  */
 export function selectEntryStops(levels: StopRevisionInput[]): StopLevelInput[] {
-  if (levels.length === 0) return [];
-  const minSeq = Math.min(...levels.map((l) => l.revisionSeq));
-  const earliest = levels.filter((l) => l.revisionSeq === minSeq);
+  const earliest = earliestRevisionRows(levels);
+  if (earliest.length === 0) return [];
+  // Revision 0 can never be a tombstone — a plan cannot be emptied before it
+  // is set — but reading one as "no entry stop" is the honest fallback if it
+  // ever were, rather than reporting a tier that says nothing.
+  if (isClearedRevision(earliest)) return [];
   if (earliest.some((l) => l.createdAt === null)) return [];
   return earliest.map(stripRevisionMeta);
 }
@@ -80,9 +96,9 @@ export function selectEntryStops(levels: StopRevisionInput[]): StopLevelInput[] 
  * most recent stop the owner recorded, just not provably the first one.
  */
 export function selectCurrentStops(levels: StopRevisionInput[]): StopLevelInput[] {
-  if (levels.length === 0) return [];
-  const maxSeq = Math.max(...levels.map((l) => l.revisionSeq));
-  return levels.filter((l) => l.revisionSeq === maxSeq).map(stripRevisionMeta);
+  const latest = latestRevisionRows(levels);
+  if (isClearedRevision(latest)) return [];
+  return latest.map(stripRevisionMeta);
 }
 
 /**
@@ -97,10 +113,9 @@ export function selectCurrentStops(levels: StopRevisionInput[]): StopLevelInput[
 function selectCurrentStopsWithIds(
   levels: StopRevisionInput[],
 ): Array<StopLevelInput & { id: string }> {
-  if (levels.length === 0) return [];
-  const maxSeq = Math.max(...levels.map((l) => l.revisionSeq));
-  return levels
-    .filter((l) => l.revisionSeq === maxSeq)
+  const latest = latestRevisionRows(levels);
+  if (isClearedRevision(latest)) return [];
+  return latest
     .map((l) => ({
       id: l.id,
       kind: l.kind,
@@ -112,9 +127,8 @@ function selectCurrentStopsWithIds(
 
 /** When the latest revision was recorded, or null if that revision predates revision tracking. */
 function latestRevisionCreatedAt(levels: StopRevisionInput[]): Date | null {
-  if (levels.length === 0) return null;
-  const maxSeq = Math.max(...levels.map((l) => l.revisionSeq));
-  const latest = levels.filter((l) => l.revisionSeq === maxSeq);
+  const latest = latestRevisionRows(levels);
+  if (latest.length === 0) return null;
   if (latest.some((l) => l.createdAt === null)) return null;
   // Every row in one revision is written in the same batch (see
   // writeStopRevision), so any one of their timestamps is representative.

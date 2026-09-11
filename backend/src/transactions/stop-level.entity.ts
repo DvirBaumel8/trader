@@ -60,6 +60,17 @@ export class StopLevel {
   ordinal: number;
 
   /**
+   * True on the lone row that records this revision EMPTYING the plan. An
+   * empty revision cannot be zero rows — that leaves `revisionSeq`
+   * unadvanced and every reader keeps serving the previous revision — so a
+   * cleared plan is one tombstone carrying this flag, with a null price, a
+   * zero quantity, and `kind` left at 'FIXED' so the validated wire enum
+   * needs no third member. Only `stop-revisions.ts` should test it.
+   */
+  @Column('boolean', { default: false })
+  cleared: boolean;
+
+  /**
    * Groups the tiers written together into one revision, and orders
    * revisions for a transaction: 0 is the first ever recorded, increasing
    * from there. The *entry* stop that defines risk and R is the rows with

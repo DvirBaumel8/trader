@@ -100,16 +100,28 @@ export function StopPlanEditor({
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => {
-          setRows(fromTiers(tiers));
-          setOpen(true);
-        }}
-        className="w-full rounded-xl border border-border bg-surface-1 px-3 py-2 text-sm text-muted"
-      >
-        {tiers.length === 0 ? 'Add a stop' : 'Edit stops'}
-      </button>
+      <div className="space-y-1.5">
+        {/*
+          An empty plan is a state the owner can now deliberately reach, so
+          absence is stated rather than left to be inferred from a button that
+          happens to read "Add a stop". His own self-identified failure mode is
+          a high-conviction position carrying no stop at all, which makes this
+          worth a line rather than a silence.
+        */}
+        {tiers.length === 0 && (
+          <p className="text-xs text-down">No stop on this position.</p>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setRows(fromTiers(tiers));
+            setOpen(true);
+          }}
+          className="w-full rounded-xl border border-border bg-surface-1 px-3 py-2 text-sm text-muted"
+        >
+          {tiers.length === 0 ? 'Add a stop' : 'Edit stops'}
+        </button>
+      </div>
     );
   }
 
@@ -164,7 +176,8 @@ export function StopPlanEditor({
       </div>
       <p className="text-[11px] leading-tight text-muted">
         Saving records a new revision. The plan you set at entry is kept, so
-        your risk and R stay measured against it.
+        your risk and R stay measured against it — including if you remove
+        every tier and leave the position unprotected.
       </p>
     </div>
   );

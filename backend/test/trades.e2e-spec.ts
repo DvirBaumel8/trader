@@ -399,11 +399,48 @@ describe('Trades (e2e)', () => {
       expect(detail.body.trade.riskAmount).not.toBeNull();
     });
 
-    it('refuses to empty a stop plan, rather than silently keeping it', async () => {
+    it('empties a stop plan, and says so when read back', async () => {
       // stop_levels is append-only and a revision IS its rows, so an empty
-      // list writes nothing, leaves revisionSeq unadvanced, and the PREVIOUS
-      // revision stays live. Before this guard the save appeared to succeed
-      // while the tier remained priced into the at-risk figure.
+      // list used to write nothing, leave revisionSeq unadvanced, and let the
+      // PREVIOUS revision stay live and priced into at-risk. That was
+      // rejected outright for a while. An emptied plan is now one tombstone
+      // row, so the revision advances like any other.
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'entry with a stop',
+          occurredAt: '2026-01-03T14:30:00.000Z',
+          trade: {
+            symbol: 'NVDA',
+            quantity: 100,
+            price: 200,
+            fee: 0,
+            stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+          },
+        })
+        .expect(201);
+
+      const tradeId = `NVDA:2026-01-03T14:30:00.000Z`;
+      const cleared = await http(app, token)
+        .patch(`/portfolio/trades/${encodeURIComponent(tradeId)}/stops`)
+        .send({ levels: [] })
+        .expect(200);
+      expect(cleared.body).toEqual({ ok: true, levels: 0 });
+
+      const after = await http(app, token)
+        .get(`/portfolio/trades/${encodeURIComponent(tradeId)}`)
+        .expect(200);
+      // No tier, and no tombstone leaking out as one.
+      expect(after.body.stopLevels).toEqual([]);
+    });
+
+    /**
+     * R is anchored to risk at ENTRY (see the stop-executions design), so
+     * clearing the live plan must not reach back and erase what the trade
+     * originally risked. Revision 0 is never touched by a clear.
+     */
+    it('leaves the entry stop, and therefore R, intact after a clear', async () => {
       await http(app, token)
         .post('/journal')
         .send({
@@ -424,14 +461,46 @@ describe('Trades (e2e)', () => {
       await http(app, token)
         .patch(`/portfolio/trades/${encodeURIComponent(tradeId)}/stops`)
         .send({ levels: [] })
-        .expect(400);
+        .expect(200);
 
-      // The tier is untouched, not half-removed.
+      const after = await http(app, token)
+        .get(`/portfolio/trades/${encodeURIComponent(tradeId)}`)
+        .expect(200);
+      expect(after.body.trade.riskAmount).not.toBeNull();
+    });
+
+    it('can set a plan again after clearing it', async () => {
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'entry with a stop',
+          occurredAt: '2026-01-03T14:30:00.000Z',
+          trade: {
+            symbol: 'NVDA',
+            quantity: 100,
+            price: 200,
+            fee: 0,
+            stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+          },
+        })
+        .expect(201);
+
+      const tradeId = `NVDA:2026-01-03T14:30:00.000Z`;
+      await http(app, token)
+        .patch(`/portfolio/trades/${encodeURIComponent(tradeId)}/stops`)
+        .send({ levels: [] })
+        .expect(200);
+      await http(app, token)
+        .patch(`/portfolio/trades/${encodeURIComponent(tradeId)}/stops`)
+        .send({ levels: [{ kind: 'FIXED', price: 190, quantity: 100 }] })
+        .expect(200);
+
       const after = await http(app, token)
         .get(`/portfolio/trades/${encodeURIComponent(tradeId)}`)
         .expect(200);
       expect(after.body.stopLevels).toHaveLength(1);
-      expect(after.body.stopLevels[0].price).toBe(180);
+      expect(after.body.stopLevels[0].price).toBe(190);
     });
 
     it('404s an unknown trade id', async () => {

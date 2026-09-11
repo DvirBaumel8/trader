@@ -431,24 +431,13 @@ export class TradesService {
     );
     if (!openingTxn) throw new NotFoundException('Unknown trade');
 
-    // An empty plan cannot be recorded. `stop_levels` is append-only and a
-    // revision IS its rows, so "no stops" has no representation - writing
-    // zero rows leaves revisionSeq unadvanced and selectCurrentStops keeps
-    // returning the PREVIOUS revision. The save would appear to succeed while
-    // the tier stayed live and stayed priced into the at-risk figure the
-    // owner acts on. Rejecting loudly beats lying quietly; removing every
-    // stop goes through the journal entry, which CLAUDE.md already names as
-    // the one correction path.
-    if (levels.length === 0) {
-      const existing = await this.stopLevels.find({
-        where: { transactionId: openingTxn.id },
-      });
-      if (existing.length > 0) {
-        throw new BadRequestException(
-          'A stop plan cannot be emptied here. Edit the journal entry that opened this trade to remove its stops.',
-        );
-      }
-    }
+    // An empty plan used to be rejected here: `stop_levels` is append-only and
+    // a revision IS its rows, so zero rows left revisionSeq unadvanced and the
+    // PREVIOUS revision stayed live and priced into at-risk. The message sent
+    // the owner to the journal entry instead — which called the same writer
+    // and failed the same way, only silently. An emptied plan is now one
+    // tombstone row (see the AddStopPlanCleared migration), so there is
+    // nothing left to guard against and both paths work.
 
     await this.journal.reviseStopLevels(openingTxn.id, levels);
 

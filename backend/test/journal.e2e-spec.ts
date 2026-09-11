@@ -204,6 +204,45 @@ describe('Journal (e2e)', () => {
     });
   });
 
+  describe('clearing a stop plan', () => {
+    const stopsOf = async () => {
+      const res = await http(app, token).get('/journal').expect(200);
+      return res.body[0].trade.stopLevels;
+    };
+
+    /**
+     * The guard on POST /portfolio/trades/:id/stops says to come here
+     * instead. This is that path, and it silently wrote nothing: an empty
+     * plan means zero rows, so `revisionSeq` never advanced and every reader
+     * taking max(revisionSeq) kept returning the PREVIOUS revision — the old
+     * stop stayed live and stayed priced into at-risk.
+     */
+    it('removes the last stop when an edit sends an empty plan', async () => {
+      const created = await trade(100, 10, '2026-01-05T12:00:00.000Z', {
+        stopLevels: [{ kind: 'FIXED', price: 9, quantity: 100 }],
+      }).expect(201);
+      expect(await stopsOf()).toHaveLength(1);
+
+      await http(app, token)
+        .patch(`/journal/${created.body.id}`)
+        .send({
+          kind: 'TRADE',
+          body: 'x',
+          occurredAt: '2026-01-05T12:00:00.000Z',
+          trade: {
+            symbol: 'NVDA',
+            quantity: 100,
+            price: 10,
+            fee: 0,
+            stopLevels: [],
+          },
+        })
+        .expect(200);
+
+      expect(await stopsOf()).toEqual([]);
+    });
+  });
+
   it('returns an empty tag list initially', async () => {
     const res = await http(app, token)
       .get('/journal/tags')

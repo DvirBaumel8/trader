@@ -137,7 +137,16 @@ unaffected; `main` deploys automatically on push.
    Swapping data providers should touch one file.
 7. **Never show a stale price as if it were fresh.** On provider failure, serve
    the cached quote flagged `stale` and surface that in the UI.
-8. **Price by session.** `select-price.ts` chooses pre-market, regular or
+8. **A stop revision is never zero rows.** `stop_levels` is append-only and a
+   revision IS its rows, so an emptied plan is one tombstone row carrying
+   `cleared`, not an absence. Writing zero rows leaves `revisionSeq`
+   unadvanced and every reader taking `max(revisionSeq)` serves the PREVIOUS
+   revision — a removed stop that stays live and stays priced into at-risk.
+   `transactions/stop-revisions.ts` is the only code that picks a revision or
+   tests the flag; nothing else should compute `max(revisionSeq)` itself.
+   Clearing never touches revision 0, so risk-at-entry and R survive it.
+
+9. **Price by session.** `select-price.ts` chooses pre-market, regular or
    after-hours based on Yahoo's `marketState`, so the portfolio is current
    outside regular hours. Extended-hours prints are thinner and can gap, so
    they are always labelled in the UI, never passed off as the close.

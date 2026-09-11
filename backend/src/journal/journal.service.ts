@@ -13,6 +13,10 @@ import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
+import {
+  isClearedRevision,
+  latestRevisionRows,
+} from '../transactions/stop-revisions.js';
 import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { autoAttributeTier } from '../portfolio/derive-trades.js';
 import { Instrument } from '../instruments/instrument.entity.js';
@@ -214,12 +218,10 @@ export class JournalService {
       ]);
     }
     const currentLevels = (txnId: string): StopLevel[] => {
-      const all = levelsByTxn.get(txnId) ?? [];
-      if (all.length === 0) return [];
-      const maxSeq = Math.max(...all.map((l) => l.revisionSeq));
-      return all
-        .filter((l) => l.revisionSeq === maxSeq)
-        .sort((a, b) => a.ordinal - b.ordinal);
+      const latest = latestRevisionRows(levelsByTxn.get(txnId) ?? []);
+      // A cleared plan reads as no tiers, never as the tombstone row.
+      if (isClearedRevision(latest)) return [];
+      return [...latest].sort((a, b) => a.ordinal - b.ordinal);
     };
 
     const executionsByTxn = new Map<string, StopExecution[]>();
@@ -790,17 +792,41 @@ export class JournalService {
       await manager.find(StopLevel, { where: { transactionId } })
     ).sort((a, b) => a.ordinal - b.ordinal);
 
+    const latestRevision = latestRevisionRows(current);
     const maxSeq =
-      current.length === 0
-        ? -1
-        : Math.max(...current.map((l) => l.revisionSeq));
-    const latestRevision = current.filter((l) => l.revisionSeq === maxSeq);
+      latestRevision.length === 0 ? -1 : latestRevision[0].revisionSeq;
 
     if (maxSeq === -1 && requested.length === 0) return; // Nothing to record.
     if (maxSeq !== -1 && sameTierSet(latestRevision, requested)) return;
+    // Already empty, and asked to be empty again: a second tombstone would
+    // advance the revision without changing anything it records.
+    if (requested.length === 0 && isClearedRevision(latestRevision)) return;
 
     const nextSeq = maxSeq + 1;
     const now = new Date();
+
+    /**
+     * Emptying the plan. One tombstone row, because zero rows is not a
+     * revision — see the AddStopPlanCleared migration. Revision 0 is left
+     * alone, so the entry stop and the R it defines survive being cleared.
+     */
+    if (requested.length === 0) {
+      await manager.save(
+        manager.create(StopLevel, {
+          transactionId,
+          kind: 'FIXED',
+          price: null,
+          trailPercent: null,
+          quantity: 0,
+          ordinal: 0,
+          revisionSeq: nextSeq,
+          createdAt: now,
+          cleared: true,
+        }),
+      );
+      return;
+    }
+
     let ordinal = 0;
     for (const level of requested) {
       await manager.save(
@@ -874,8 +900,10 @@ export class JournalService {
     }
     const live: StopLevel[] = [];
     for (const group of byTxn.values()) {
-      const maxSeq = Math.max(...group.map((l) => l.revisionSeq));
-      live.push(...group.filter((l) => l.revisionSeq === maxSeq));
+      const latest = latestRevisionRows(group);
+      // A cleared plan has no tier that can have fired.
+      if (isClearedRevision(latest)) continue;
+      live.push(...latest);
     }
 
     const matchedId = autoAttributeTier(
