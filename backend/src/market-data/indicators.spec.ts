@@ -58,10 +58,10 @@ describe('computeIndicators', () => {
   });
 
   it('takes the 52-week high and low from intraday extremes, not closes', () => {
-    // 200 bars, deliberately fewer than the 252-bar window, so the extremes
-    // set below are inside it. With 300 the window would drop the first 48
-    // and this test would silently assert nothing.
-    const bars = flat(200, 100);
+    // Exactly a year: enough for the window to be reported at all (fewer
+    // than 252 bars is now null rather than a shorter high wearing the
+    // 52-week label), and no more, so the extremes set below stay inside it.
+    const bars = flat(252, 100);
     bars[10] = { ...bars[10], high: 150 };
     bars[20] = { ...bars[20], low: 50 };
     const r = computeIndicators(bars, 100);
@@ -99,5 +99,37 @@ describe('computeIndicators', () => {
     expect(r.atr14).toBeNull();
     expect(r.relativeVolume).toBeNull();
     expect(r.barsAvailable).toBe(0);
+  });
+});
+
+describe('the 52-week high and low', () => {
+  /**
+   * `slice(-252)` on a short history silently returns ALL of it, so a stock
+   * with 43 bars reported its two-month high as a 52-week high — and
+   * percentFromHigh52w, which is the breakout-proximity signal, was computed
+   * from it. A number that is not the thing it claims to be, which is exactly
+   * what this codebase refuses to print. Same rule as the moving averages:
+   * without the history, say nothing.
+   */
+  it('is null when there is not a year of history to take it from', () => {
+    const r = computeIndicators(flat(43, 100), 100);
+    expect(r.high52w).toBeNull();
+    expect(r.low52w).toBeNull();
+    expect(r.percentFromHigh52w).toBeNull();
+    expect(r.percentFromLow52w).toBeNull();
+  });
+
+  it('is reported once a year of bars exists', () => {
+    const bars = [...flat(251, 100), ...flat(1, 130)];
+    const r = computeIndicators(bars, 130);
+    expect(r.high52w).toBeCloseTo(130, 6);
+    expect(r.low52w).toBeCloseTo(100, 6);
+  });
+
+  /** Only the last year counts, even when more history is held. */
+  it('ignores a high older than a year', () => {
+    const bars = [...flat(50, 500), ...flat(252, 100)];
+    const r = computeIndicators(bars, 100);
+    expect(r.high52w).toBeCloseTo(100, 6);
   });
 });

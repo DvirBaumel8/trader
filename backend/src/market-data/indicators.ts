@@ -69,8 +69,23 @@ export function computeIndicators(
   const sma150 = sma(sorted, 150);
   const sma200 = sma(sorted, 200);
 
-  const highs = year.map((b) => b.high).filter((h): h is number => h !== null);
-  const lows = year.map((b) => b.low).filter((l): l is number => l !== null);
+  /**
+   * A year, or nothing.
+   *
+   * `slice(-252)` on a shorter history quietly returns all of it, so a stock
+   * with 43 bars reported its two-month high as its 52-WEEK high — and
+   * `percentFromHigh52w`, the breakout-proximity signal, was computed from
+   * that. A plausible number that is not the thing it claims to be, which is
+   * the failure this codebase exists to avoid. Same rule the moving averages
+   * already follow: without the history, say nothing.
+   */
+  const hasFullYear = sorted.length >= TRADING_DAYS_IN_YEAR;
+  const highs = hasFullYear
+    ? year.map((b) => b.high).filter((h): h is number => h !== null)
+    : [];
+  const lows = hasFullYear
+    ? year.map((b) => b.low).filter((l): l is number => l !== null)
+    : [];
   const high52w = highs.length > 0 ? Math.max(...highs) : null;
   const low52w = lows.length > 0 ? Math.min(...lows) : null;
 

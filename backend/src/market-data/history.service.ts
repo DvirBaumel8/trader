@@ -15,6 +15,24 @@ export const BENCHMARKS = ['SPY', 'QQQ'] as const;
  * picks up a new intraday high while he is watching it; long enough that a
  * page polling every 60s does not hit Yahoo every time.
  */
+/**
+ * Calendar days of history fetched before the first trade (and before today,
+ * for a ticker priced on first use).
+ *
+ * It was 45, which is about 31 trading days — and that is why every long
+ * indicator was quietly null or wrong. A 50-day average needs 50 bars, the
+ * 150-day average he actually trades needs 150, and the 52-week high needs
+ * 252; with 43 bars in the database, NONE of them could be computed. The
+ * 52-week high was worse than null: it silently took the extreme of whatever
+ * history existed and labelled it 52-week.
+ *
+ * 500 calendar days is about 345 trading days — a year of window plus room
+ * for the 200-day average to be computed from the oldest bar in it. Yahoo
+ * serves daily history indefinitely and for free, so the only cost is a
+ * slower first backfill and roughly 500 rows per instrument.
+ */
+const RUNWAY_DAYS = 500;
+
 const FRESHEN_INTERVAL_MS = 10 * 60 * 1000;
 
 /** Days of overlap re-fetched, so a revised recent bar is corrected. */
@@ -66,7 +84,7 @@ export class HistoryService {
     // context before an entry, and Yahoo serves daily history indefinitely
     // for free, so this costs nothing but a slightly longer first backfill.
     const from = new Date(earliest);
-    from.setDate(from.getDate() - 45);
+    from.setDate(from.getDate() - RUNWAY_DAYS);
 
     const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
     const wanted = new Set(
@@ -117,13 +135,13 @@ export class HistoryService {
     });
     if (already > 0) return;
 
-    // Same 45-day runway as backfill(), anchored to now rather than the
+    // Same runway as backfill(), anchored to now rather than the
     // trade's own date — this seam doesn't have that date available. A
     // heavily backdated first trade may still show as unpriced for its
     // earliest days until the next full backfill; unpricedSymbols in the
     // performance response says so rather than hiding it.
     const from = new Date();
-    from.setDate(from.getDate() - 45);
+    from.setDate(from.getDate() - RUNWAY_DAYS);
 
     try {
       await this.fetchAndStore(instrument, symbol, from);
