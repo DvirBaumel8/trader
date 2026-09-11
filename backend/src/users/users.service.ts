@@ -29,6 +29,19 @@ export class UsersService {
    * already fetched once per session. It is read-only — `updateSettings` does
    * not take it.
    */
+  /**
+   * The user this request belongs to.
+   *
+   * The seam for multi-user. Every service that used to call
+   * `ensureDefaultUser()` calls this instead, so becoming multi-user is a
+   * change to how this ONE method resolves a user rather than a change to
+   * eleven services. Until an authenticated identity is available it returns
+   * the single owner, which is exactly today's behaviour.
+   */
+  async currentUser(): Promise<User> {
+    return this.ensureDefaultUser();
+  }
+
   async getSettings() {
     const user = await this.ensureDefaultUser();
     return { defaultFee: user.defaultFee, reasons: reasonVocabulary() };

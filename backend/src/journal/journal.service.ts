@@ -294,9 +294,17 @@ export class JournalService {
               amount: d.amount,
             }
           : null,
+        // WATCH tags belong to the watchlist and share the `tags` table with
+        // setups and mistakes. A journal entry can never legitimately carry
+        // one, so they are filtered here rather than cast away — if one ever
+        // did appear, dropping it is the honest reading and the type says so.
         tags: (tagIdsByEntry.get(e.id) ?? [])
           .map((id) => tagById.get(id))
           .filter((t): t is Tag => t !== undefined)
+          .filter(
+            (t): t is Tag & { type: 'SETUP' | 'MISTAKE' } =>
+              t.type === 'SETUP' || t.type === 'MISTAKE',
+          )
           .map((t) => ({ id: t.id, type: t.type, label: t.label })),
         reasons: e.reasons ?? [],
       };
@@ -337,9 +345,15 @@ export class JournalService {
   }
 
   async listTags() {
-    const user = await this.users.ensureDefaultUser();
+    const user = await this.users.currentUser();
+    // Journal tags only. WATCH tags share this table but belong to the
+    // watchlist, and listing them here would put them in the journal's own
+    // filter bar.
     return this.tags.find({
-      where: { userId: user.id },
+      where: [
+        { userId: user.id, type: 'SETUP' },
+        { userId: user.id, type: 'MISTAKE' },
+      ],
       order: { type: 'ASC', label: 'ASC' },
     });
   }

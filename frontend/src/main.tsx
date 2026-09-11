@@ -11,6 +11,7 @@ import { TickerProbe } from './routes/TickerProbe';
 import { Seed } from './routes/Seed';
 import { Journal } from './routes/Journal';
 import { Ideas } from './routes/Ideas';
+import { Watchlist } from './routes/Watchlist';
 import { Login } from './routes/Login';
 import { TradeDetail } from './routes/TradeDetail';
 import './index.css';
@@ -30,6 +31,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="stops" element={<Stops />} />
             <Route path="journal" element={<Journal />} />
             <Route path="ideas" element={<Ideas />} />
+            <Route path="watchlist" element={<Watchlist />} />
             <Route path="trades/:id" element={<TradeDetail />} />
             <Route path="seed" element={<Seed />} />
             <Route path="probe" element={<TickerProbe />} />

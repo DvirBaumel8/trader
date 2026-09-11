@@ -33,6 +33,6 @@ import { UsersModule } from '../users/users.module.js';
     TradeReviewService,
   ],
   controllers: [LlmController],
-  exports: [TradeReviewService],
+  exports: [TradeReviewService, TradeIdeaService],
 })
 export class LlmModule {}

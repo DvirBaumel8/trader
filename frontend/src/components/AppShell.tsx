@@ -60,6 +60,9 @@ export function AppShell() {
         <NavLink to="/stops" className={linkClass}>
           Stops
         </NavLink>
+        <NavLink to="/watchlist" className={linkClass}>
+          Watch
+        </NavLink>
         <NavLink to="/ideas" className={linkClass}>
           Ideas
         </NavLink>

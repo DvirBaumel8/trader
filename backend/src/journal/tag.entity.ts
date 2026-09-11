@@ -7,7 +7,11 @@ import {
   Unique,
 } from 'typeorm';
 
-export type TagType = 'SETUP' | 'MISTAKE';
+/**
+ * 'WATCH' tags belong to watchlist items rather than journal entries — one
+ * vocabulary store, joined from two places, rather than a second tags table.
+ */
+export type TagType = 'SETUP' | 'MISTAKE' | 'WATCH';
 
 /** Reusable across entries, created on the fly from the composer. */
 @Entity('tags')

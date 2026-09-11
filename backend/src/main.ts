@@ -21,6 +21,7 @@ async function bootstrap() {
       req.url.startsWith('/portfolio') ||
       req.url.startsWith('/performance') ||
       req.url.startsWith('/journal') ||
+      req.url.startsWith('/watchlist') ||
       req.url.startsWith('/auth') ||
       req.url.startsWith('/ai') ||
       req.url.startsWith('/settings') ||
