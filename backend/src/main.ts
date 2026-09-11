@@ -5,10 +5,10 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import express from 'express';
 import { AppModule } from './app.module.js';
-import { initDatabaseIfOffline } from './database/in-memory-db.js';
+import { ensureDatabaseReady } from './database/startup.js';
 
 async function bootstrap() {
-  await initDatabaseIfOffline();
+  await ensureDatabaseReady();
 
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
