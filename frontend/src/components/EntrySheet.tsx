@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { useSettings } from '../api/settings';
+import { fillContext, type HeldPosition } from '../lib/fillContext';
+import { useDebounced } from '../lib/useDebounced';
 import { clearDraft } from '../lib/draftStorage';
 import { readPersisted, writePersisted } from '../lib/persistentState';
 import {
@@ -55,6 +58,7 @@ function draftFromEntry(entry: Entry, defaultFee: number): EntryDraft {
     dividendAmount: entry.dividend ? String(entry.dividend.amount) : '',
     setups: entry.tags.filter((t) => t.type === 'SETUP').map((t) => t.label),
     mistakes: entry.tags.filter((t) => t.type === 'MISTAKE').map((t) => t.label),
+    reasons: entry.reasons ?? [],
   };
 }
 
@@ -98,12 +102,63 @@ export function EntrySheet({
   const resumeHandled = useRef(false);
   const queryClient = useQueryClient();
 
+  /**
+   * True once the owner has touched the quantity field himself. From then on
+   * the suggestion never appears again for this entry — a number he typed is
+   * never replaced by one the app guessed.
+   */
+  const [quantityTouched, setQuantityTouched] = useState(false);
+
+  const { data: settings } = useSettings();
+
+  /**
+   * The same cache entry the Dashboard and the Balance tab already fill, so
+   * the composer usually costs no request at all. Positions are derived on
+   * the backend; nothing here computes them.
+   */
+  const { data: portfolio } = useQuery({
+    queryKey: ['portfolio'],
+    queryFn: () => api<{ positions: HeldPosition[] }>('/portfolio'),
+    enabled: open && draft.kind === 'TRADE',
+    staleTime: 30_000,
+  });
+
+  // Debounced so a half-typed ticker doesn't flash somebody else's position.
+  const symbol = useDebounced(draft.symbol);
+  const context = fillContext(portfolio?.positions, symbol, draft.side);
+
+  /**
+   * The quantity shown. Derived rather than written into the draft: the
+   * suggestion is an offer, not an edit, so nothing has to be undone if it is
+   * wrong, and there is no effect racing the owner's typing. Editing never
+   * suggests — the derived position already contains this entry's own fill,
+   * so the number would be wrong.
+   */
+  const suggested = editing || quantityTouched ? null : context.suggested;
+  const quantityValue = draft.quantity !== '' ? draft.quantity : (suggested ?? '');
+
+  /**
+   * Which chips to show follows the same rule as the suggestion. Codes from
+   * the other list are kept in the draft but neither shown nor saved, so
+   * flipping Buy/Sell by mistake loses nothing when it is flipped back.
+   */
+  // Optional all the way down on purpose: a frontend that loads against an
+  // API older than the vocabulary shows no chips rather than a blank sheet.
+  const reasonOptions =
+    (context.closing
+      ? settings?.reasons?.closing
+      : settings?.reasons?.opening) ?? [];
+  const selectedReasons = draft.reasons.filter((code) =>
+    reasonOptions.some((option) => option.code === code),
+  );
+
   // When opened on an existing entry the draft mirrors it. Editing must never
   // clobber an unsaved new entry, so only the new-entry draft is persisted.
   useEffect(() => {
     if (!open) return;
     if (editing) {
       setDraft(draftFromEntry(editing, defaultFee));
+      setQuantityTouched(false);
       return;
     }
     // The one exception to starting blank: this same form coming back after
@@ -117,6 +172,7 @@ export function EntrySheet({
     // Every other open is a NEW entry, and starts empty. The stored draft goes
     // with it, so nothing can resurface later.
     setDraft(emptyDraft(defaultFee));
+    setQuantityTouched(false);
     clearDraft(DRAFT_KEY);
   }, [open, editing, defaultFee, resuming]);
 
@@ -149,7 +205,10 @@ export function EntrySheet({
             draft.kind === 'TRADE'
               ? {
                   symbol: draft.symbol.trim().toUpperCase(),
-                  quantity: signedQuantity(draft),
+                  quantity: signedQuantity({
+                    ...draft,
+                    quantity: quantityValue,
+                  }),
                   price: Math.abs(parseFloat(draft.price || '0')),
                   fee: Math.abs(parseFloat(draft.fee || '0')),
                   plannedTarget: draft.target
@@ -182,6 +241,9 @@ export function EntrySheet({
                   amount: Math.abs(parseFloat(draft.cashAmount || '0')),
                 }
               : undefined,
+          // Only a trade has reasons. Omitted elsewhere rather than sent
+          // empty, so an edit can never silently clear what is stored.
+          reasons: draft.kind === 'TRADE' ? selectedReasons : undefined,
           dividend:
             draft.kind === 'DIVIDEND'
               ? {
@@ -195,6 +257,7 @@ export function EntrySheet({
       if (!editing) {
         clearDraft(DRAFT_KEY);
         setDraft(emptyDraft(defaultFee));
+        setQuantityTouched(false);
       }
       await invalidate();
       onClose();
@@ -267,8 +330,11 @@ export function EntrySheet({
                 type="number"
                 inputMode="decimal"
                 placeholder="qty"
-                value={draft.quantity}
-                onChange={(e) => set({ quantity: e.target.value })}
+                value={quantityValue}
+                onChange={(e) => {
+                  setQuantityTouched(true);
+                  set({ quantity: e.target.value });
+                }}
                 className={inputClass}
               />
               <input
@@ -289,11 +355,25 @@ export function EntrySheet({
               />
             </div>
 
+            {context.closing && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuantityTouched(true);
+                  set({ quantity: String(Math.abs(context.held)) });
+                }}
+                className="text-xs text-muted underline underline-offset-4"
+              >
+                {Math.abs(context.held).toLocaleString('en-US')} held · tap to
+                use
+              </button>
+            )}
+
             <StopLevelEditor
               rows={draft.stops}
               onChange={(stops) => set({ stops })}
               entryPrice={draft.price}
-              quantity={draft.quantity}
+              quantity={quantityValue}
               side={draft.side}
             />
 
@@ -361,6 +441,35 @@ export function EntrySheet({
             className={inputClass}
           />
         </label>
+
+        {draft.kind === 'TRADE' && reasonOptions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {reasonOptions.map((option) => {
+              const on = selectedReasons.includes(option.code);
+              return (
+                <button
+                  key={option.code}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() =>
+                    set({
+                      reasons: on
+                        ? draft.reasons.filter((c) => c !== option.code)
+                        : [...draft.reasons, option.code],
+                    })
+                  }
+                  className={`rounded-lg border px-3 py-2 text-xs transition-colors ${
+                    on
+                      ? 'border-accent/40 bg-accent/10 text-accent'
+                      : 'border-border text-muted'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <textarea
           rows={3}

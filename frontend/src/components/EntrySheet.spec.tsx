@@ -126,3 +126,149 @@ describe('EntrySheet, composing two new entries in a row', () => {
     expect(screen.getByPlaceholderText('qty')).toHaveValue(25);
   });
 });
+
+/** Routes the mocked api by path, so a test can stock the portfolio. */
+function stubApi(positions: { symbol: string; quantity: number }[]) {
+  (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+    if (path === '/portfolio') return Promise.resolve({ positions });
+    if (path === '/settings')
+      return Promise.resolve({
+        defaultFee: 4,
+        reasons: {
+          opening: [
+            { code: 'ENTRY_BREAKOUT', label: 'Breakout' },
+            { code: 'ENTRY_SMA_150', label: '150 SMA' },
+          ],
+          closing: [
+            { code: 'EXIT_STOP_EXECUTED', label: 'Stop executed' },
+            { code: 'EXIT_RISK_OFF', label: 'Risk off' },
+          ],
+        },
+      });
+    return Promise.resolve({ id: 'created-1' });
+  });
+}
+
+const bodyOf = (call: unknown[]) =>
+  JSON.parse((call[1] as { body: string }).body);
+
+describe('EntrySheet, selling something already held', () => {
+  it('prefills the quantity with the whole position', async () => {
+    stubApi([{ symbol: 'NVDA', quantity: 500 }]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('qty')).toHaveValue(500),
+    );
+  });
+
+  it('offers the magnitude when buying back a short', async () => {
+    stubApi([{ symbol: 'LMND', quantity: -300 }]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'LMND');
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('qty')).toHaveValue(300),
+    );
+  });
+
+  it('never overwrites a quantity the owner typed himself', async () => {
+    stubApi([{ symbol: 'NVDA', quantity: 500 }]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('qty'), '200');
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+
+    await screen.findByText(/500 held/);
+    expect(screen.getByPlaceholderText('qty')).toHaveValue(200);
+  });
+
+  it('leaves the quantity alone when the fill opens rather than closes', async () => {
+    stubApi([{ symbol: 'NVDA', quantity: 500 }]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+
+    await screen.findByRole('button', { name: 'Breakout' });
+    expect(screen.getByPlaceholderText('qty')).toHaveValue(null);
+  });
+});
+
+describe('EntrySheet reason chips', () => {
+  it('offers exit reasons on a closing fill', async () => {
+    stubApi([{ symbol: 'NVDA', quantity: 500 }]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+
+    await screen.findByRole('button', { name: 'Stop executed' });
+    expect(
+      screen.queryByRole('button', { name: 'Breakout' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers entry reasons on a fill that opens a position', async () => {
+    stubApi([]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'TSLA');
+
+    await screen.findByRole('button', { name: 'Breakout' });
+    expect(
+      screen.queryByRole('button', { name: 'Stop executed' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('sends the codes of the chips that are on', async () => {
+    stubApi([{ symbol: 'NVDA', quantity: 500 }]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+    await user.click(await screen.findByRole('button', { name: 'Risk off' }));
+    await user.type(screen.getByPlaceholderText('price'), '100');
+    await user.click(screen.getByText('Save entry'));
+
+    await waitFor(() => {
+      const save = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/journal',
+      );
+      expect(save).toBeDefined();
+      expect(bodyOf(save as unknown[]).reasons).toEqual(['EXIT_RISK_OFF']);
+    });
+  });
+
+  it('turns a chip back off when tapped again', async () => {
+    stubApi([]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'TSLA');
+    const chip = await screen.findByRole('button', { name: 'Breakout' });
+    await user.click(chip);
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    await user.click(chip);
+    expect(chip).toHaveAttribute('aria-pressed', 'false');
+  });
+});

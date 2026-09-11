@@ -110,6 +110,8 @@ export interface EntryView {
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   dividend: { symbol: string; amount: number } | null;
   tags: { id: string; type: 'SETUP' | 'MISTAKE'; label: string }[];
+  /** Codes from `reasons.ts` — empty, never null, when none were given. */
+  reasons: string[];
 }
 
 export interface CreateEntryInput {
@@ -131,6 +133,11 @@ export interface CreateEntryInput {
   cash?: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number };
   dividend?: { symbol: string; amount: number };
   tags?: { type: 'SETUP' | 'MISTAKE'; label: string }[];
+  /**
+   * Codes from `reasons.ts`. Undefined leaves any stored reasons untouched on
+   * an edit; an empty array clears them.
+   */
+  reasons?: string[];
 }
 
 export interface ListFilters {
@@ -289,6 +296,7 @@ export class JournalService {
           .map((id) => tagById.get(id))
           .filter((t): t is Tag => t !== undefined)
           .map((t) => ({ id: t.id, type: t.type, label: t.label })),
+        reasons: e.reasons ?? [],
       };
     });
 
@@ -350,6 +358,7 @@ export class JournalService {
           kind: input.kind,
           body: input.body ?? '',
           occurredAt: new Date(input.occurredAt),
+          reasons: input.reasons ?? [],
         }),
       );
 
@@ -398,6 +407,10 @@ export class JournalService {
           kind: input.kind,
           body: input.body ?? '',
           occurredAt: new Date(input.occurredAt),
+          // Omitted means "leave them"; an empty array means "clear them".
+          // Sending empty for absent is how an edit silently wiped tags
+          // before 84f8101.
+          ...(input.reasons ? { reasons: input.reasons } : {}),
         },
       );
       await this.clearOwnedRows(manager, id);

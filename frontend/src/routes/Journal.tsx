@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { useSettings } from '../api/settings';
 import { EntryCard, type Entry } from '../components/EntryCard';
 import { TradeCard, type Trade } from '../components/TradeCard';
 import { Money } from '../components/Money';
@@ -347,10 +348,7 @@ export function Journal() {
   const [editMode, setEditMode] = useState(restored?.editingEntryId != null);
   const [editing, setEditing] = useState<Entry | null>(null);
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api<{ defaultFee: number }>('/settings'),
-  });
+  const { data: settings } = useSettings();
 
   // Only fetched when there is an entry to reopen, and only once — gated by
   // `restoreDone` below rather than by clearing `pendingEntryId` itself, so

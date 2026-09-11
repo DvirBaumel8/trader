@@ -20,6 +20,8 @@ export interface EntryDraft {
   dividendAmount: string;
   setups: string[];
   mistakes: string[];
+  /** Codes from the backend's reason vocabulary — why this fill was taken. */
+  reasons: string[];
 }
 
 /** The local calendar date, for a `<input type="date">`. */
@@ -58,6 +60,7 @@ export function emptyDraft(defaultFee: number): EntryDraft {
     dividendAmount: '',
     setups: [],
     mistakes: [],
+    reasons: [],
   };
 }
 

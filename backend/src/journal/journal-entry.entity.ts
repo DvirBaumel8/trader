@@ -34,6 +34,14 @@ export class JournalEntry {
   @Column({ type: 'timestamptz' })
   occurredAt: Date;
 
+  /**
+   * Codes from `reasons.ts` — why the fill was taken. Kept here rather than
+   * on the transaction because `update()` recreates that row and would drop
+   * them; see the AddEntryReasons migration.
+   */
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  reasons: string[];
+
   @CreateDateColumn()
   createdAt: Date;
 

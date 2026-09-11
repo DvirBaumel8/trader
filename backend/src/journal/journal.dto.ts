@@ -15,6 +15,7 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+import { REASON_CODES } from './reasons.js';
 
 /**
  * The largest magnitude a `numeric(20,8)` column accepts. Past this Postgres
@@ -170,6 +171,19 @@ export class CreateEntryDto {
   @ValidateNested({ each: true })
   @Type(() => TagDto)
   tags?: TagDto[];
+
+  /**
+   * Why the fill was taken, as codes from `reasons.ts`. Validated against the
+   * published vocabulary so a typo is a 400 rather than a row nothing can
+   * ever count. OMITTED means "leave whatever is there" and an empty array
+   * means "clear them" — the distinction tags had to learn the hard way in
+   * 84f8101, where sending empty silently wiped an edit.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsIn(REASON_CODES, { each: true })
+  reasons?: string[];
 }
 
 /**

@@ -1,3 +1,4 @@
+import { useSettings } from '../api/settings';
 import { Money } from './Money';
 import { formatQuantity } from './format';
 
@@ -35,6 +36,42 @@ export interface Entry {
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   dividend: { symbol: string; amount: number } | null;
   tags: { id: string; type: 'SETUP' | 'MISTAKE'; label: string }[];
+  /** Codes from the backend's reason vocabulary; labels are resolved for display. */
+  reasons?: string[];
+}
+
+/**
+ * Stored codes rendered with the labels the backend publishes. A code with no
+ * published label renders as nothing at all — a vocabulary that has since been
+ * reworded should leave a quiet gap, never shout its enum name at the owner.
+ */
+function ReasonChips({ codes }: { codes: string[] }) {
+  const { data: settings } = useSettings();
+  if (codes.length === 0) return null;
+
+  const byCode = new Map(
+    [
+      ...(settings?.reasons?.opening ?? []),
+      ...(settings?.reasons?.closing ?? []),
+    ].map((reason) => [reason.code, reason.label]),
+  );
+  const labels = codes
+    .map((code) => byCode.get(code))
+    .filter((label): label is string => label !== undefined);
+  if (labels.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1 pt-0.5">
+      {labels.map((label) => (
+        <span
+          key={label}
+          className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent"
+        >
+          {label}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function ChevronIcon() {
@@ -116,6 +153,8 @@ function EntryBody({ entry }: { entry: Entry }) {
             {entry.body}
           </p>
         )}
+
+        <ReasonChips codes={entry.reasons ?? []} />
 
         {entry.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 pt-0.5">

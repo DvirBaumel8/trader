@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity.js';
+import { reasonVocabulary } from '../journal/reasons.js';
 
 @Injectable()
 export class UsersService {
@@ -22,9 +23,15 @@ export class UsersService {
     return this.users.save(this.users.create({ displayName: 'me' }));
   }
 
+  /**
+   * The reason vocabulary rides along here rather than on an endpoint of its
+   * own: it is a static list the composer needs once per session, and this is
+   * already fetched once per session. It is read-only — `updateSettings` does
+   * not take it.
+   */
   async getSettings() {
     const user = await this.ensureDefaultUser();
-    return { defaultFee: user.defaultFee };
+    return { defaultFee: user.defaultFee, reasons: reasonVocabulary() };
   }
 
   async updateSettings(defaultFee: number) {

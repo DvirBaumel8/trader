@@ -85,7 +85,7 @@ because an entry was written, never through a "add transaction" endpoint.
 | `GET`/`DELETE /ai/trade-ideas`, `/ai/trade-ideas/:id` | History of those opinions. |
 | `POST /ai/portfolio-summary` | Returns `configured: false` and persists nothing when no provider key is set. |
 | `GET`/`DELETE /ai/summaries`, `/ai/summaries/:id` | History of those summaries. |
-| `GET`/`PATCH /settings` | Currently just `defaultFee`. |
+| `GET`/`PATCH /settings` | `defaultFee`, plus a read-only `reasons` vocabulary (`opening`/`closing`) the composer renders its chips from. `PATCH` takes only `defaultFee`. |
 | `GET /health` | Status plus a database check. Needs a token. |
 | `GET /health/ping` | Public and deliberately DB-free — the keep-warm pinger hits it every 5 minutes. |
 

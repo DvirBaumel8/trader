@@ -44,12 +44,14 @@ describe('Journal (e2e)', () => {
     price: number,
     occurredAt: string,
     extra: Record<string, unknown> = {},
+    reasons?: string[],
   ) =>
     post({
       kind: 'TRADE',
       body: 'x',
       occurredAt,
       trade: { symbol: 'NVDA', quantity, price, fee: 0, ...extra },
+      ...(reasons ? { reasons } : {}),
     });
 
   it('returns an empty timeline before anything is logged', async () => {
@@ -115,6 +117,91 @@ describe('Journal (e2e)', () => {
       .expect(200);
     expect(res.body).toHaveLength(1);
     expect(res.body[0].trade.symbol).toBe('NVDA');
+  });
+
+  describe('reasons', () => {
+    const reasonsOf = async (token: string) => {
+      const res = await http(app, token).get('/journal').expect(200);
+      return res.body[0].reasons;
+    };
+
+    it('keeps the reasons a trade was journalled with', async () => {
+      await trade(100, 10, '2026-01-05T12:00:00.000Z', {}, [
+        'ENTRY_BREAKOUT',
+        'ENTRY_VOLUME',
+      ]).expect(201);
+      expect(await reasonsOf(token)).toEqual([
+        'ENTRY_BREAKOUT',
+        'ENTRY_VOLUME',
+      ]);
+    });
+
+    it('gives an entry journalled without any an empty list, never null', async () => {
+      await trade(100, 10, '2026-01-05T12:00:00.000Z').expect(201);
+      expect(await reasonsOf(token)).toEqual([]);
+    });
+
+    /**
+     * The tags lesson (84f8101): a field the client omits must be left alone,
+     * not silently cleared. Editing the price of a trade from a form that
+     * knows nothing about reasons must not erase why it was taken.
+     */
+    it('leaves reasons alone on an edit that does not mention them', async () => {
+      const created = await trade(100, 10, '2026-01-05T12:00:00.000Z', {}, [
+        'ENTRY_NEWS',
+      ]).expect(201);
+      await http(app, token)
+        .patch(`/journal/${created.body.id}`)
+        .send({
+          kind: 'TRADE',
+          body: 'edited',
+          occurredAt: '2026-01-05T12:00:00.000Z',
+          trade: { symbol: 'NVDA', quantity: 100, price: 11, fee: 0 },
+        })
+        .expect(200);
+      expect(await reasonsOf(token)).toEqual(['ENTRY_NEWS']);
+    });
+
+    it('clears them when an edit sends an empty list', async () => {
+      const created = await trade(100, 10, '2026-01-05T12:00:00.000Z', {}, [
+        'ENTRY_NEWS',
+      ]).expect(201);
+      await http(app, token)
+        .patch(`/journal/${created.body.id}`)
+        .send({
+          kind: 'TRADE',
+          body: 'edited',
+          occurredAt: '2026-01-05T12:00:00.000Z',
+          trade: { symbol: 'NVDA', quantity: 100, price: 10, fee: 0 },
+          reasons: [],
+        })
+        .expect(200);
+      expect(await reasonsOf(token)).toEqual([]);
+    });
+
+    it('refuses a reason it does not publish', async () => {
+      await trade(100, 10, '2026-01-05T12:00:00.000Z', {}, [
+        'EXIT_FEELING_LUCKY',
+      ]).expect(400);
+    });
+  });
+
+  /**
+   * The vocabulary rides on settings rather than an endpoint of its own
+   * because it is a static list the composer needs once per session, and
+   * settings is already fetched once per session.
+   */
+  it('ships both reason lists with the settings the composer already fetches', async () => {
+    const res = await http(app, token).get('/settings').expect(200);
+    expect(res.body.defaultFee).toBeDefined();
+    expect(res.body.reasons.opening).toContainEqual({
+      code: 'ENTRY_BREAKOUT',
+      label: 'Breakout',
+    });
+    expect(res.body.reasons.closing).toContainEqual({
+      code: 'EXIT_STOP_EXECUTED',
+      label: 'Stop executed',
+    });
   });
 
   it('returns an empty tag list initially', async () => {

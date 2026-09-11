@@ -33,6 +33,7 @@ function toInput(body: CreateEntryDto): CreateEntryInput {
     cash: body.cash,
     dividend: body.dividend,
     tags: body.tags,
+    reasons: body.reasons,
   };
 }
 
