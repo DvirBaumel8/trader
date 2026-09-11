@@ -23,6 +23,7 @@ import { fillPriceLines, formatFillsSummary } from '../lib/fillsSummary';
 import { resolvedStopLines } from '../lib/stopSummary';
 import { formatMoney } from './format';
 import {
+  clampToPlot,
   paddedRange,
   placeAnnotations,
   resolveOverlaps,
@@ -87,8 +88,6 @@ const CALLOUT_H = 32;
 /** Clear air between the candle it clears and the box. */
 const CALLOUT_GAP_PX = 14;
 
-const clampPx = (v: number, lo: number, hi: number) =>
-  hi < lo ? v : Math.max(lo, Math.min(hi, v));
 
 const BG = '#0a0e17';
 const TEXT = '#e6edf7';
@@ -665,7 +664,7 @@ export function TradeChart({
 
     const raw: (Callout & { side: 'above' | 'below'; width: number; height: number })[] = [];
     placements.forEach((pl, i) => {
-      const boxTime = cb[pl.labelIndex]?.date;
+      const boxTime = cb[pl.index]?.date;
       const tipTime = cb[pl.index]?.date;
       if (!boxTime || !tipTime) return;
 
@@ -691,8 +690,8 @@ export function TradeChart({
         // Clamped into the plot rather than dropped. A callout pushed out of
         // view by a pan is still worth showing at the edge it left through —
         // silently rendering nothing is how the first version looked broken.
-        boxX: clampPx(x, CALLOUT_W / 2 + 2, width - CALLOUT_W / 2 - 2),
-        boxY: clampPx(y, CALLOUT_H / 2 + 2, height - CALLOUT_H / 2 - 2),
+        boxX: clampToPlot(x, CALLOUT_W, width),
+        boxY: clampToPlot(y, CALLOUT_H, height),
         tipX: tx,
         tipY: ty,
         side: pl.side,
@@ -708,7 +707,7 @@ export function TradeChart({
     ).map((r) => ({
       ...r,
       boxX: r.x,
-      boxY: clampPx(r.y, CALLOUT_H / 2 + 2, height - CALLOUT_H / 2 - 2),
+      boxY: clampToPlot(r.y, CALLOUT_H, height),
     }));
 
     setCallouts(
@@ -804,7 +803,17 @@ export function TradeChart({
           an annotation that eats touches on a phone would be worse than no
           annotation.
         */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {/*
+          z-index 3 is load-bearing, not decoration. The library's canvases
+          are absolutely positioned at z-index 1 and 2, so an overlay left at
+          `auto` paints UNDERNEATH them — the callouts were in the DOM, at the
+          right coordinates, with opacity 1, and completely invisible.
+          elementFromPoint over a callout returned CANVAS.
+        */}
+        <div
+          className="pointer-events-none absolute inset-0 overflow-hidden"
+          style={{ zIndex: 3 }}
+        >
           <svg className="absolute inset-0 h-full w-full" aria-hidden="true">
             {callouts.map((c) => (
               <g key={`line-${c.key}`}>

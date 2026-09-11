@@ -40,14 +40,21 @@ export interface Placement extends Annotation {
    * chart's own range and always convertible to a coordinate.
    */
   clearancePrice: number;
-  /** Bar the box is centred on. Pulled inward from the edges; `index` is untouched. */
-  labelIndex: number;
 }
 
 export interface LayoutOptions {
   /** Half-width, in bars, of the AREA whose candles a label must clear. */
   windowBars: number;
-  /** Half-width, in bars, of the label box itself. */
+  /**
+   * How close, in bars, two callouts have to be before they are assumed to
+   * collide and sent to opposite sides. Only a heuristic: whether they REALLY
+   * overlap is decided later, in pixels, by `resolveOverlaps`.
+   *
+   * Keeping a label away from the left and right edges is a pixel job too —
+   * expressing it in bars pulled both of a right-edge trade's callouts onto
+   * the SAME bar, stacking them one above the other with long connector
+   * lines, because six bars is far wider than a 74px box.
+   */
   labelBars: number;
 }
 
@@ -98,7 +105,7 @@ export function placeAnnotations(
     // A neighbour close enough to collide takes its side with it; the next
     // callout goes opposite rather than stacking on top of it.
     const neighbour = placed.find(
-      (p) => Math.abs(p.labelIndex - index) < 2 * opts.labelBars,
+      (p) => Math.abs(p.index - index) < 2 * opts.labelBars,
     );
     if (neighbour && neighbour.side === side) {
       side = side === 'above' ? 'below' : 'above';
@@ -109,17 +116,32 @@ export function placeAnnotations(
       index,
       side,
       clearancePrice: side === 'above' ? local.high : local.low,
-      // Never hang off the left or right edge — the owner's step 4. The
-      // arrow still points at `index`; only the box moves.
-      labelIndex: clamp(
-        index,
-        Math.min(opts.labelBars, bars.length - 1),
-        Math.max(0, bars.length - 1 - opts.labelBars),
-      ),
     });
   }
 
   return placed;
+}
+
+/**
+ * Keep a box's centre inside the plot.
+ *
+ * The owner's step 4, in the space it belongs to. Expressed in bars it was
+ * hopeless: six bars is far wider than a 74px box, so a trade near the right
+ * edge had BOTH its callouts dragged onto the same bar and stacked one above
+ * the other. In pixels it moves a box only as far as it actually has to.
+ *
+ * A plot too small to hold the box at all leaves the value alone rather than
+ * returning a nonsense midpoint.
+ */
+export function clampToPlot(
+  value: number,
+  boxSize: number,
+  plotSize: number,
+  pad = 2,
+): number {
+  const lo = boxSize / 2 + pad;
+  const hi = plotSize - boxSize / 2 - pad;
+  return hi < lo ? value : Math.max(lo, Math.min(hi, value));
 }
 
 /** A positioned box, in container pixels. */

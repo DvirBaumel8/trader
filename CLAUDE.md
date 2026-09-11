@@ -304,6 +304,42 @@ a shared component, make it one — `EditModeToggle` and `CollapsibleCard` both
 exist because the same markup copied a third time is what caused the bug.
 Prefer the import over the paragraph.
 
+### Look at it before handing it over
+
+**Any change that alters what appears on screen gets opened in a real browser
+by whoever made it, before it is called done.** Not the type checker, not the
+test suite, not a screenshot from the owner — actual eyes on the actual
+rendered thing.
+
+This is not the same rule as "verify on the phone". That one is his, and it
+stands. This one is the agent's: he should be confirming that a working thing
+suits him, not discovering that it never rendered.
+
+The cost of not doing it is measured. The trade-chart callouts were delivered
+three times and were invisible all three: once because the label price sat
+off the scale, once because coordinates were requested a frame before the
+chart laid itself out, and finally because the library's canvases are
+`z-index: 1` and `2` while the overlay was left at `auto` — it had been
+rendering correctly, underneath the canvas, the whole time. Every unit test
+passed through all three. Each round cost him a deploy and a screenshot.
+
+**How, when there is no page to visit yet** — a component in isolation, or a
+flow that needs data the dev database lacks:
+
+1. Write a throwaway entry point in `frontend/` (`probe-x.html` plus a small
+   `src/probe-x.tsx` that renders the component with fixture props).
+2. The Vite dev server serves it at `/probe-x.html`. Open it with the Chrome
+   tools and LOOK at it; `document.elementFromPoint` over an element that
+   should be visible is what found the z-index bug in seconds after three
+   rounds of guessing.
+3. Check it at phone width too — set the wrapper to 390px and reload, because
+   a resize and a load are different code paths.
+4. Delete the probe files in the same commit that fixes the bug.
+
+A pure unit test cannot see any of this. All three failures were in the seam
+between our code and a third-party renderer, which is exactly where a test
+double agrees with you and the browser does not.
+
 ### The shape of these misses
 
 Three have now landed the same way, and the pattern is worth recognising
@@ -314,6 +350,7 @@ before writing the fourth:
 | Journal's edit-mode delete | Ideas, then AiSummary copied Ideas |
 | AiSummary's collapsible answer | TradeReviewCard |
 | Risk arithmetic on the backend | the frontend's own copy, twice |
+| Verifying UI in a browser | the chart callouts, three deploys running |
 
 Every one is **a newer screen re-solving a problem an older screen had already
 solved**, and every one degraded in the copy: the delete became permanent, the

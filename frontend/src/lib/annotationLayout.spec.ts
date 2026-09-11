@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clampToPlot,
   paddedRange,
   placeAnnotations,
   resolveOverlaps,
@@ -48,16 +49,22 @@ describe('placeAnnotations', () => {
     expect(p.clearancePrice).toBe(190);
   });
 
-  it('pulls a label at the left edge inward so the box stays on the plot', () => {
-    const [p] = placeAnnotations(flat(21), [{ index: 0, price: 105 }], opts);
-    expect(p.index).toBe(0);
-    expect(p.labelIndex).toBeGreaterThanOrEqual(opts.labelBars);
-  });
-
-  it('pulls a label at the right edge inward too', () => {
-    const [p] = placeAnnotations(flat(21), [{ index: 20, price: 105 }], opts);
-    expect(p.index).toBe(20);
-    expect(p.labelIndex).toBeLessThanOrEqual(20 - opts.labelBars);
+  /**
+   * Two annotations near the right edge must stay over their OWN bars. An
+   * earlier version clamped in bar space, which dragged both onto the same
+   * bar and stacked them with long connector lines.
+   */
+  it('leaves each callout over the bar it annotates', () => {
+    const [a, b] = placeAnnotations(
+      flat(30),
+      [
+        { index: 25, price: 105 },
+        { index: 28, price: 105 },
+      ],
+      opts,
+    );
+    expect(a.index).toBe(25);
+    expect(b.index).toBe(28);
   });
 
   it('still points at exactly the price it was given', () => {
@@ -151,5 +158,25 @@ describe('paddedRange', () => {
 
   it('falls back to the whole window when nothing is annotated', () => {
     expect(paddedRange(30, [], 8)).toEqual({ from: 0, to: 29 });
+  });
+});
+
+describe('clampToPlot', () => {
+  /** Step 4, in the space it belongs to: keep the box on the plot. */
+  it('leaves a box that already fits exactly where it is', () => {
+    expect(clampToPlot(200, 74, 400)).toBe(200);
+  });
+
+  it('pulls a box back from the left edge, and no further', () => {
+    expect(clampToPlot(4, 74, 400)).toBe(39);
+  });
+
+  it('pulls a box back from the right edge', () => {
+    expect(clampToPlot(398, 74, 400)).toBe(361);
+  });
+
+  /** A plot too small to hold the box must not produce a nonsense midpoint. */
+  it('gives up rather than inventing a position in a plot too small', () => {
+    expect(clampToPlot(10, 74, 20)).toBe(10);
   });
 });
