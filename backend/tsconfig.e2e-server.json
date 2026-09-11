@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist-e2e",
+    "rootDir": "."
+  },
+  "include": ["src", "test/yahoo-stub.ts"],
+  "exclude": ["**/*spec.ts", "dist", "dist-e2e", "node_modules"]
+}

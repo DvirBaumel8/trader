@@ -426,6 +426,41 @@ So the check before building a screen is not "does this work?" — it is
 differently?"** If the answer is a second implementation, that is the bug,
 before a single line is wrong.
 
+## Browser tests
+
+```bash
+npm run test:browser      # builds the frontend and the test server, then runs
+```
+
+Ten Playwright specs, on a WebKit iPhone because that is the device the owner
+uses and where this app's bugs have lived. Deliberately few: asking which of
+one day's real bugs a browser test would have caught gave an uncomfortable
+answer — one and a half of six — so this covers only what is invisible to
+every other kind of test (navigation, a screen that renders but does nothing)
+and leaves the rest to the unit and API suites, which are faster and sharper.
+
+**Every run starts on an empty database and drops it afterwards.** `trader_e2e`
+is dropped and recreated by `e2e/prepare-database.mjs`, which runs as the
+first half of the test server's start command — not as a Playwright
+`globalSetup`, because Playwright starts `webServer` BEFORE globalSetup and
+the server now (rightly) refuses to boot without a database. Recreating rather
+than truncating means a crashed run cannot leave rows behind. The same
+`DATABASE_URL` refusal the other suites carry applies here too.
+
+**Specs create their own accounts** through `signUpAndSignIn`. Now that the
+app is multi-user, that is the cleanest isolation available: specs share one
+database and still cannot see each other's data, so they need no truncation
+between them and no ordering rules.
+
+**The server is `backend/src/main.e2e.ts`**, excluded from `tsconfig.build.json`
+so it never reaches the deployed image. Its only difference from `main.ts` is
+a stubbed `YahooClient` — not optional, because every write path creates an
+instrument from a live quote, and the no-network rule applies here as much as
+anywhere. It must be built through `Test.createTestingModule`:
+`NestFactory.create` has no `overrideProvider`, and the first version of that
+file imported the stub without applying it, so the suite quietly hit the live
+API and asserted against whatever NVDA cost that minute.
+
 ## Mobile gotchas learned the hard way
 
 - **The iOS decimal keypad has no minus key.** Never require a typed `-`; use an

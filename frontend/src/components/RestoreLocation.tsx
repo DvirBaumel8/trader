@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { loadUiState, saveUiState } from '../lib/uiState';
 
+const LOGIN_PATH = '/login';
+
 /**
  * Puts the user back on the screen they left.
  *
@@ -25,6 +27,10 @@ export function RestoreLocation() {
     if (!saved) return;
     if (location.pathname !== '/') return;
     if (saved.path === '/') return;
+    // Never restore to the sign-in screen. It is not a place he was working,
+    // and sending a signed-in user back to a password form is the opposite of
+    // putting him where he left off.
+    if (saved.path === LOGIN_PATH) return;
 
     navigate(saved.path, { replace: true });
   }, [navigate, location.pathname]);
@@ -32,6 +38,11 @@ export function RestoreLocation() {
   // Keep the remembered path current as the user moves around, so a discard
   // at any moment restores to the right screen.
   useEffect(() => {
+    // The sign-in screen is never somewhere to come back to, so it is not
+    // recorded either — belt to the braces above, and it keeps a stale
+    // '/login' out of storage for anyone who already has one.
+    if (location.pathname === LOGIN_PATH) return;
+
     const saved = loadUiState();
     saveUiState({
       path: location.pathname,

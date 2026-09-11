@@ -20,3 +20,8 @@ backend/.vitest-reports/
 # so leaving it tracked meant ~100 generated files turning up in an unrelated
 # diff. Read it locally; there is no reason for it in the history.
 coverage/
+
+# Playwright
+test-results/
+playwright-report/
+backend/dist-e2e/
