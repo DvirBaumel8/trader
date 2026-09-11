@@ -21,6 +21,7 @@ import {
 import { replayFrame } from '../lib/tradeReplay';
 import { fillPriceLines, formatFillsSummary } from '../lib/fillsSummary';
 import { resolvedStopLines } from '../lib/stopSummary';
+import { shortDay } from '../lib/chartDates';
 import { formatMoney } from './format';
 import {
   clampToPlot,
@@ -84,7 +85,7 @@ const LAYOUT = { windowBars: 5, labelBars: 6 } as const;
 
 /** The callout box, in pixels. Matches the padding the markup applies. */
 const CALLOUT_W = 74;
-const CALLOUT_H = 32;
+const CALLOUT_H = 42;
 /** Clear air between the candle it clears and the box. */
 const CALLOUT_GAP_PX = 14;
 
@@ -158,9 +159,28 @@ function placeFills(bars: Bar[], fills: Fill[]) {
       // to contain it gets blamed on seeding, which is simply false.
       const outOfRange = !snapped && (f.price < bar.low || f.price > bar.high);
 
+      /**
+       * The NEWEST bar is still being written, so it is never evidence of
+       * seeding.
+       *
+       * Relocation exists for a seeded opening fill, stamped with the seed
+       * date and an average cost no single day traded at. A fill on today's
+       * bar looks identical — its price can sit outside a range that has not
+       * finished forming — and treating it the same way moves a real fill to
+       * a date it did not happen on.
+       *
+       * It did exactly that: ORCL sold at 151.29 on Sep 11, today's bar read
+       * 154.37–165.99, and the exit was redrawn on Sep 3, whose range happened
+       * to contain 151.29. The backend now keeps today's bar fresh
+       * (`isHistoryBehind`), which fixes the cause; this is the belt to that
+       * braces, because today's bar is partial between refreshes no matter
+       * how often it is fetched.
+       */
+      const onNewestBar = index === candleBars.length - 1;
+
       let markerBar = bar;
       let relocated = false;
-      if (outOfRange) {
+      if (outOfRange && !onNewestBar) {
         const backIndex = backfillIndexForPrice(candleBars, index, f.price);
         if (backIndex !== -1) {
           markerBar = candleBars[backIndex];
@@ -183,6 +203,16 @@ function placeFills(bars: Bar[], fills: Fill[]) {
 interface Callout {
   key: string;
   title: string;
+  /**
+   * The fill's OWN date, never the bar it happens to be drawn over.
+   *
+   * A boxed label reading EXIT $151.29 over a candle is a far stronger claim
+   * than an arrow was: it asserts WHEN. Naming the real date means the chart
+   * cannot imply a date it does not mean, and if a marker is ever moved
+   * again, the discrepancy is visible rather than silent — which is how this
+   * was caught, by the owner reading a date off the chart and doubting it.
+   */
+  date: string;
   price: string;
   color: string;
   /** Top-left of the box. */
@@ -201,26 +231,42 @@ interface Callout {
  * happened beats what was planned — and otherwise the stop, which is the
  * live decision on an open position.
  */
+interface CalloutSpec {
+  annotation: Annotation;
+  title: string;
+  /** The fill's real date, shown on the label. Empty for a stop, which has none. */
+  date: string;
+  color: string;
+}
+
 function calloutAnnotations(
-  entry: { index: number; price: number } | null,
-  exit: { index: number; price: number } | null,
+  entry: { index: number; price: number; date: string } | null,
+  exit: { index: number; price: number; date: string } | null,
   stopPrice: number | null,
   lastIndex: number,
-): { annotation: Annotation; title: string; color: string }[] {
-  const out: { annotation: Annotation; title: string; color: string }[] = [];
+): CalloutSpec[] {
+  const out: CalloutSpec[] = [];
   if (entry) {
     out.push({
-      annotation: entry,
+      annotation: { index: entry.index, price: entry.price },
       title: 'ENTRY',
+      date: shortDay(entry.date),
       color: UP,
     });
   }
   if (exit) {
-    out.push({ annotation: exit, title: 'EXIT', color: DOWN });
+    out.push({
+      annotation: { index: exit.index, price: exit.price },
+      title: 'EXIT',
+      date: shortDay(exit.date),
+      color: DOWN,
+    });
   } else if (stopPrice !== null) {
+    // A stop is a standing level, not an event, so it has no date to name.
     out.push({
       annotation: { index: lastIndex, price: stopPrice },
       title: 'STOP',
+      date: '',
       color: AMBER,
     });
   }
@@ -385,6 +431,20 @@ export function TradeChart({
       borderDownColor: DOWN,
       wickUpColor: UP,
       wickDownColor: DOWN,
+      /**
+       * The library's own "last value" line is off.
+       *
+       * It draws a dotted line at the most recent close with an axis tag, in
+       * the series colour — which on this chart is indistinguishable from the
+       * dashed/dotted lines we draw for stops. On ORCL it put a red dotted
+       * line at 157.00 that reads as a stop level and is actually just
+       * Thursday's close, with nothing on screen to say which it was.
+       *
+       * Every line on this chart should be one we drew and can name. An
+       * unexplained one that mimics a risk level is worse than no line.
+       */
+      lastValueVisible: false,
+      priceLineVisible: false,
       autoscaleInfoProvider: () => ({
         priceRange: { minValue, maxValue },
       }),
@@ -637,11 +697,22 @@ export function TradeChart({
     const closing = [...shown].reverse().find((p) => p.fill.side === 'SELL') ?? null;
     const indexOf = (date: string) => cb.findIndex((b) => b.date === date);
 
+    // `index` is where it is DRAWN (markerBar, which relocation may move);
+    // `date` is when it actually happened. Keeping them separate is the
+    // whole point — the label names the second, never the first.
     const entry = opening
-      ? { index: indexOf(opening.markerBar.date), price: opening.fill.price }
+      ? {
+          index: indexOf(opening.markerBar.date),
+          price: opening.fill.price,
+          date: opening.fill.executedAt.slice(0, 10),
+        }
       : null;
     const exit = closing
-      ? { index: indexOf(closing.markerBar.date), price: closing.fill.price }
+      ? {
+          index: indexOf(closing.markerBar.date),
+          price: closing.fill.price,
+          date: closing.fill.executedAt.slice(0, 10),
+        }
       : null;
     const stops = resolvedStopLines(stopLevels);
     const stopPrice = frame.stopLinesVisible && stops.length > 0 ? stops[0].price : null;
@@ -685,6 +756,7 @@ export function TradeChart({
       raw.push({
         key: `${wanted[i].title}-${pl.index}`,
         title: wanted[i].title,
+        date: wanted[i].date,
         price: formatMoney(pl.price),
         color: wanted[i].color,
         // Clamped into the plot rather than dropped. A callout pushed out of
@@ -711,9 +783,10 @@ export function TradeChart({
     }));
 
     setCallouts(
-      spaced.map(({ key, title, price, color, boxX, boxY, tipX, tipY }) => ({
+      spaced.map(({ key, title, date, price, color, boxX, boxY, tipX, tipY }) => ({
         key,
         title,
+        date,
         price,
         color,
         boxX,
@@ -859,6 +932,11 @@ export function TradeChart({
               <span className="mt-0.5 text-[11px] font-semibold leading-none tabular-nums text-text">
                 {c.price}
               </span>
+              {c.date && (
+                <span className="mt-0.5 text-[9px] leading-none text-muted">
+                  {c.date}
+                </span>
+              )}
             </div>
           ))}
         </div>

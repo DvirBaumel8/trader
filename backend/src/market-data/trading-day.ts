@@ -61,7 +61,31 @@ export function lastExpectedSession(now: Date): string {
 }
 
 /**
- * True when the newest stored bar is older than the last expected session.
+ * True when the stored history is worth re-fetching.
+ *
+ * Two reasons, and the second one was missing for a long time.
+ *
+ * **Sessions are missing.** The newest stored bar is older than the last
+ * expected session — the plain case.
+ *
+ * **The newest bar IS the current session, and is therefore provisional.**
+ * Yahoo serves today's bar partially formed and revises it all day;
+ * `lastExpectedSession` says so itself ("Today counts even mid-session").
+ * But this function used a strict `<`, so the instant today's bar was
+ * written, the history read as up to date and was never fetched again for
+ * the rest of the day. Today's high and low then described only the minutes
+ * before the first fetch.
+ *
+ * That is not academic. ORCL's Sep 11 bar was stored as 154.37–165.99 early
+ * in the session; the owner then sold at 151.29, the stored bar never
+ * learned of it, and the trade chart — seeing a fill outside its own day's
+ * range — concluded the fill must be a seeded one and redrew the exit on
+ * Sep 3, eight days before it happened. A trailing stop ratcheting off that
+ * same frozen high has the same problem, which is the bug `ensureFresh` was
+ * written to fix in the first place.
+ *
+ * Re-fetching is cheap and already rate-limited by `ensureFresh`'s own
+ * debounce, so the cost of being right here is bounded.
  *
  * Accepts a `Date` as well as a string, and that is not politeness: the first
  * version of this took a string, and a raw `MAX(date)` query handed it a
@@ -77,5 +101,11 @@ export function isHistoryBehind(
   if (latestStored === null) return true;
   const latest =
     latestStored instanceof Date ? marketDate(latestStored) : latestStored;
-  return latest < lastExpectedSession(now);
+  // Sessions are missing outright.
+  if (latest < lastExpectedSession(now)) return true;
+  // The newest bar is TODAY's, so it is still being written. Deliberately
+  // compared against today's date rather than the last expected session: on a
+  // Sunday the newest bar is Friday's and Friday's bar is finished, so
+  // re-fetching it every ten minutes all weekend would be pure waste.
+  return latest === marketDate(now);
 }

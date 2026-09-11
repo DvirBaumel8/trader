@@ -41,8 +41,17 @@ describe('isHistoryBehind', () => {
     expect(isHistoryBehind('2026-09-02', at('2026-09-04T14:30:00Z'))).toBe(true);
   });
 
-  it('is not behind when today already has a bar', () => {
-    expect(isHistoryBehind('2026-09-04', at('2026-09-04T14:30:00Z'))).toBe(false);
+  /**
+   * Changed meaning deliberately, and this is the bug it now pins.
+   *
+   * Today's bar is provisional — Yahoo revises it all session. Treating its
+   * existence as "up to date" froze it at whatever it held on the first fetch
+   * of the day. ORCL's Sep 11 bar stayed 154.37–165.99 while the owner sold
+   * at 151.29; the trade chart then saw a fill outside its own day's range,
+   * concluded it must be a seeded fill, and redrew the exit on Sep 3.
+   */
+  it('is behind when the only bar for today is the one still being written', () => {
+    expect(isHistoryBehind('2026-09-04', at('2026-09-04T14:30:00Z'))).toBe(true);
   });
 
   it('is behind when there is no history at all', () => {
@@ -56,12 +65,22 @@ describe('isHistoryBehind', () => {
     // which is false, so the history never refreshed.
     const stored = new Date('2026-09-02T04:00:00Z'); // midnight in New York
     expect(isHistoryBehind(stored, at('2026-09-04T14:30:00Z'))).toBe(true);
+    // Today's bar, as a Date: provisional, so still worth re-fetching.
     expect(
       isHistoryBehind(new Date('2026-09-04T04:00:00Z'), at('2026-09-04T14:30:00Z')),
-    ).toBe(false);
+    ).toBe(true);
   });
 
+  /**
+   * The weekend is why "provisional" is tested against TODAY rather than
+   * against the last expected session. Friday's bar is finished once Friday
+   * is over; re-fetching it every ten minutes all weekend would be waste.
+   */
   it('is not behind on a Sunday holding Friday data', () => {
     expect(isHistoryBehind('2026-09-04', at('2026-09-06T16:00:00Z'))).toBe(false);
+  });
+
+  it('is not behind on a Saturday holding Friday data either', () => {
+    expect(isHistoryBehind('2026-09-04', at('2026-09-05T16:00:00Z'))).toBe(false);
   });
 });

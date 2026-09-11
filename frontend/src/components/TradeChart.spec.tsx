@@ -59,6 +59,7 @@ vi.mock('lightweight-charts', () => {
 });
 
 import { TradeChart } from './TradeChart';
+import { shortDay } from '../lib/chartDates';
 
 const bars = Array.from({ length: 25 }, (_, i) => ({
   date: `2026-08-${String(i + 1).padStart(2, '0')}`,
@@ -115,6 +116,43 @@ describe('TradeChart callouts', () => {
       await new Promise((r) => setTimeout(r, 300));
     });
     expect(screen.queryByText('ENTRY')).not.toBeInTheDocument();
+  });
+
+  it('names the date each fill actually happened on', async () => {
+    render(<TradeChart bars={bars} fills={fills} stopLevels={[]} />);
+    expect(await screen.findByText('Aug 6')).toBeInTheDocument();
+    expect(await screen.findByText('Aug 20')).toBeInTheDocument();
+  });
+
+  /**
+   * The bug the owner caught by reading a date off the chart and doubting it.
+   *
+   * Today's bar is still being written, so a real fill can sit outside its
+   * range — ORCL sold at 151.29 while the stored Sep 11 bar read
+   * 154.37–165.99. That used to be read as the signature of a seeded fill,
+   * and the exit was relocated back to Sep 3, whose range happened to contain
+   * the price. The chart asserted an exit eight days before it happened.
+   */
+  it('does not relocate a fill that sits outside the still-forming last bar', async () => {
+    const lastDay = bars[bars.length - 1].date;
+    const belowTheDayLow = bars[bars.length - 1].low - 5;
+    render(
+      <TradeChart
+        bars={bars}
+        fills={[
+          fills[0],
+          {
+            side: 'SELL',
+            quantity: 300,
+            price: belowTheDayLow,
+            executedAt: `${lastDay}T20:00:00.000Z`,
+          },
+        ]}
+        stopLevels={[]}
+      />,
+    );
+    // Labelled with its own day, not dragged back to an earlier one.
+    expect(await screen.findByText(shortDay(lastDay))).toBeInTheDocument();
   });
 
   it('draws no callouts for a trade with no fills at all', async () => {
