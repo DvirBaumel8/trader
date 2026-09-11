@@ -9,6 +9,40 @@ this says what is outstanding.
 
 ## Bugs — correctness
 
+- [ ] **The e2e suite flakes about 1 run in 20, and the cause is still
+  unknown.** Investigated at length; recording what was ruled out so the next
+  attempt does not repeat it.
+
+  **Signature.** Always the same shape: a request 404s for a row created
+  moments earlier in the same test. Seen in `journal.e2e-spec.ts` (PATCH an
+  entry just POSTed) and twice in `trades.e2e-spec.ts` (PATCH stops on a trade
+  just journalled). The file varies between runs; `ticker-facts` and
+  `trade-idea` have also failed earlier in the day.
+
+  **Ruled out — do not re-test these.**
+  - *Not file parallelism.* `fileParallelism: false` is honoured. Measured
+    with `--reporter=json`: twelve files, zero overlapping starts, each
+    beginning ~380ms after the previous one ended.
+  - *Not the file under test.* `journal.e2e-spec.ts` alone: 0 failures in 25
+    runs. It only flakes as part of the full suite.
+  - *Not multiple owner rows.* `trader_test` holds exactly one user after a
+    run.
+
+  **Where the evidence points.** Both failing queries filter by `userId`
+  (`findOne({ id, userId })` and `txns.find({ userId, instrumentId })`), so
+  the likely story is a request resolving to a different user than the one
+  that wrote the row — `currentUser()` falling back to `ensureDefaultUser()`
+  when the AsyncLocalStorage context is missing, with more than one user
+  present. `accounts.e2e-spec.ts` leaves its last test's users behind (its
+  cleanup is in `beforeEach`, so the final test's rows are never deleted), and
+  it runs FIRST, so every later file runs with extra users in the table.
+
+  **Cheapest next step**, if it is ever worth the time: have
+  `accounts.e2e-spec.ts` clean up in `afterAll` as well, and see whether the
+  rate changes. That is one line and tests the leading hypothesis without
+  instrumenting anything.
+
+
 - [ ] **Trade chart: shipped, awaiting the owner's eye.** He reported prices
   that looked wrong and sent screenshots; the data was correct throughout and
   the placement was not. Markers were anchored to the bar, so an arrow
