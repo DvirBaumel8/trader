@@ -69,6 +69,14 @@ export class WatchlistItem {
    * backend whenever the target itself changes, so a new target always
    * announces itself.
    */
+  /**
+   * When the target was set — the start of the window "has it reached it"
+   * searches. Deliberately not `updatedAt`: editing a note or a tag moves
+   * that, which would silently restart the window and erase a recorded hit.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  targetSetAt: Date | null;
+
   @Column({ type: 'timestamptz', nullable: true })
   acknowledgedAt: Date | null;
 

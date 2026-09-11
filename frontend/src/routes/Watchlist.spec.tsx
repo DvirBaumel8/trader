@@ -31,6 +31,7 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
   distanceToTarget: 20,
   reached: false,
   alerting: false,
+  reachedOn: null,
   note: '',
   tags: [],
   ...over,
@@ -72,6 +73,19 @@ describe('Watchlist target alerts', () => {
   });
 
   /** Hit but acknowledged: the row still says so, the banner does not shout. */
+  /**
+   * The hit may be history: he asked to be told if the price reached his
+   * target at any point since he set it, so a spike that has already pulled
+   * back still counts — and the banner has to say WHEN, or the claim cannot
+   * be checked against a chart.
+   */
+  it('names the day the target was hit, not just that it was', async () => {
+    renderWatchlist([
+      row({ reached: true, alerting: true, reachedOn: '2026-09-09', price: 95 }),
+    ]);
+    expect(await screen.findByText(/on Sep 9/)).toBeInTheDocument();
+  });
+
   it('keeps showing a hit quietly after it is acknowledged', async () => {
     renderWatchlist([row({ reached: true, alerting: false })]);
     expect(await screen.findByText('target hit')).toBeInTheDocument();

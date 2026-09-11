@@ -26,7 +26,7 @@ describe('Watchlist (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE watchlist_item_tags, watchlist_items, entry_tags, tags RESTART IDENTITY CASCADE',
+      'TRUNCATE watchlist_item_tags, watchlist_items, entry_tags, tags, daily_closes RESTART IDENTITY CASCADE',
     );
   });
 
@@ -125,6 +125,64 @@ describe('Watchlist (e2e)', () => {
 
       const retargeted = await add({ symbol: 'NVDA', targetPrice: price }).expect(201);
       expect(retargeted.body.alerting).toBe(true);
+    });
+
+    /**
+     * The requirement in his own words: tell me if the price reached the
+     * target FROM THE MOMENT I SET IT TO NOW. A ticker that touched the level
+     * and pulled back has reached it; only-compare-the-live-price said it had
+     * not, which is the one answer this feature must never give.
+     */
+    it('reports a target the price touched earlier and then retreated from', async () => {
+      const created = await add({ symbol: 'NVDA' }).expect(201);
+      const price = created.body.price as number;
+
+      // A target well above today's price: not reached on the live quote.
+      const target = price * 1.5;
+      const res = await add({ symbol: 'NVDA', targetPrice: target }).expect(201);
+      expect(res.body.reached).toBe(false);
+
+      // But the stock DID trade up there, on a day since the target was set.
+      const instrument = await dataSource.query(
+        `select id from instruments where symbol = 'NVDA'`,
+      );
+      await dataSource.query(
+        `insert into daily_closes ("instrumentId", date, open, high, low, close, "adjClose")
+         values ($1, current_date, $2, $3, $2, $2, $2)`,
+        [instrument[0].id, price, target + 1],
+      );
+
+      const after = await http(app, token).get('/watchlist').expect(200);
+      expect(after.body[0].reached).toBe(true);
+      expect(after.body[0].reachedOn).toBeTruthy();
+    });
+
+    /** A touch BEFORE he set the target is not a hit — the window starts then. */
+    it('ignores a touch that happened before the target existed', async () => {
+      const created = await add({ symbol: 'NVDA' }).expect(201);
+      const price = created.body.price as number;
+      const instrument = await dataSource.query(
+        `select id from instruments where symbol = 'NVDA'`,
+      );
+      // A spike a week ago, before any target was set.
+      await dataSource.query(
+        `insert into daily_closes ("instrumentId", date, open, high, low, close, "adjClose")
+         values ($1, current_date - 7, $2, $3, $2, $2, $2)`,
+        [instrument[0].id, price, price * 3],
+      );
+
+      const res = await add({ symbol: 'NVDA', targetPrice: price * 2 }).expect(201);
+      expect(res.body.reached).toBe(false);
+      expect(res.body.reachedOn).toBeNull();
+    });
+
+    /** He asked for it to be optional, and it is. */
+    it('watches a ticker with no target at all', async () => {
+      const res = await add({ symbol: 'NVDA' }).expect(201);
+      expect(res.body.targetPrice).toBeNull();
+      expect(res.body.reached).toBe(false);
+      expect(res.body.alerting).toBe(false);
+      expect(res.body.reachedOn).toBeNull();
     });
 
     /** Omitted means "leave it"; null means "remove it". */

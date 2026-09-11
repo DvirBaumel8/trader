@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { directionFor, distanceToTarget, targetReached, bestCandidate } from './score.js';
+import {
+  bestCandidate,
+  directionFor,
+  distanceToTarget,
+  firstReachedOn,
+  targetReached,
+} from './score.js';
 
 describe('directionFor', () => {
   it('reads a target above the price as "tell me when it gets there"', () => {
@@ -88,5 +94,53 @@ describe('bestCandidate', () => {
   it('has no opinion when nothing has a target', () => {
     expect(bestCandidate([{ symbol: 'NVDA', distanceToTarget: null }])).toBeNull();
     expect(bestCandidate([])).toBeNull();
+  });
+});
+
+describe('firstReachedOn', () => {
+  const bars = [
+    { date: '2026-09-01', high: 105, low: 95 },
+    { date: '2026-09-02', high: 118, low: 104 },
+    { date: '2026-09-03', high: 112, low: 99 },
+  ];
+
+  /**
+   * The owner's actual requirement: did it reach the target at ANY point
+   * since he set it — not "is it there right now". A stock that touched his
+   * level and pulled back has still reached it, and the first version, which
+   * only compared the live price, called that a miss.
+   */
+  it('finds the day an upward target was touched, even intraday', () => {
+    expect(firstReachedOn(bars, 115, 'ABOVE')).toBe('2026-09-02');
+  });
+
+  it('finds the day a downward target was touched', () => {
+    expect(firstReachedOn(bars, 96, 'BELOW')).toBe('2026-09-01');
+  });
+
+  it('reports the FIRST crossing, not the latest', () => {
+    expect(firstReachedOn(bars, 104, 'ABOVE')).toBe('2026-09-01');
+  });
+
+  it('says nothing when the level was never touched', () => {
+    expect(firstReachedOn(bars, 130, 'ABOVE')).toBeNull();
+    expect(firstReachedOn(bars, 80, 'BELOW')).toBeNull();
+  });
+
+  it('ignores bars with no range recorded', () => {
+    expect(
+      firstReachedOn([{ date: '2026-09-01', high: null, low: null }], 100, 'ABOVE'),
+    ).toBeNull();
+  });
+
+  it('has nothing to say without a target or a direction', () => {
+    expect(firstReachedOn(bars, null, 'ABOVE')).toBeNull();
+    expect(firstReachedOn(bars, 100, null)).toBeNull();
+  });
+
+  /** A high that exactly equals the target counts — he asked to be told AT it. */
+  it('counts a touch exactly on the level', () => {
+    expect(firstReachedOn(bars, 118, 'ABOVE')).toBe('2026-09-02');
+    expect(firstReachedOn(bars, 95, 'BELOW')).toBe('2026-09-01');
   });
 });

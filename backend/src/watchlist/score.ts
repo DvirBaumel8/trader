@@ -12,7 +12,47 @@ export function directionFor(price: number, target: number): TargetDirection {
   return target >= price ? 'ABOVE' : 'BELOW';
 }
 
-/** Has the price got to where he asked to be told about? */
+/** A daily bar, as `daily_closes` stores it. */
+export interface PriceBar {
+  date: string;
+  high: number | null;
+  low: number | null;
+}
+
+/**
+ * The first day the price actually touched the target, or null if it never
+ * did.
+ *
+ * This is the owner's requirement, stated plainly: tell me whether the stock
+ * reached my price at ANY point since I set it — not whether it happens to be
+ * there right now. A ticker that spiked through his level and pulled back has
+ * reached it, and comparing only the live price calls that a miss, which is
+ * the one thing the feature must not do.
+ *
+ * Uses the bar's HIGH and LOW, not its close: the target was touched if the
+ * stock traded there at all that day. Bars with no range recorded are skipped
+ * rather than treated as a non-event, since "unknown" is not "no".
+ *
+ * At the level counts as reaching it — he asked to be told when it gets
+ * there, and exactly there is there.
+ */
+export function firstReachedOn(
+  bars: PriceBar[],
+  target: number | null,
+  direction: TargetDirection | null,
+): string | null {
+  if (target === null || direction === null) return null;
+  for (const bar of bars) {
+    if (direction === 'ABOVE') {
+      if (bar.high !== null && bar.high >= target) return bar.date;
+    } else if (bar.low !== null && bar.low <= target) {
+      return bar.date;
+    }
+  }
+  return null;
+}
+
+/** Has the price got to where he asked to be told about, right now? */
 export function targetReached(
   price: number | null,
   target: number | null,

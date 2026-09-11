@@ -8,6 +8,7 @@ import { inputClasses } from '../components/ui/inputClasses';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
 import { CollapsibleCard } from '../components/ui/CollapsibleCard';
 import { usePersistentState } from '../lib/persistentState';
+import { shortDay } from '../lib/chartDates';
 
 const inputClass = inputClasses('md');
 const WATCHLIST_KEY = ['watchlist'];
@@ -23,6 +24,7 @@ interface WatchRow {
   distanceToTarget: number | null;
   reached: boolean;
   alerting: boolean;
+  reachedOn: string | null;
   note: string;
   tags: { id: string; label: string }[];
 }
@@ -132,6 +134,15 @@ export function Watchlist() {
                   {r.targetDirection === 'ABOVE' ? 'rose to' : 'fell to'}{' '}
                   {formatMoney(r.targetPrice)}
                 </span>
+                {/*
+                  The day it happened, because the hit may be history: he
+                  asked to be told if it reached his price at any point since
+                  he set it, so "now" alone would misdescribe a spike that has
+                  already pulled back.
+                */}
+                {r.reachedOn && (
+                  <span className="text-muted"> on {shortDay(r.reachedOn)}</span>
+                )}
                 {r.price !== null && (
                   <span className="text-muted"> · now {formatMoney(r.price)}</span>
                 )}

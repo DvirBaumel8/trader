@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WatchlistItem } from './watchlist-item.entity.js';
 import { WatchlistItemTag } from './watchlist-tag.entity.js';
+import { DailyClose } from '../market-data/daily-close.entity.js';
 import { Tag } from '../journal/tag.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { WatchlistService } from './watchlist.service.js';
@@ -19,7 +20,13 @@ import { LlmModule } from '../llm/llm.module.js';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([WatchlistItem, WatchlistItemTag, Tag, Instrument]),
+    TypeOrmModule.forFeature([
+      WatchlistItem,
+      WatchlistItemTag,
+      Tag,
+      Instrument,
+      DailyClose,
+    ]),
     InstrumentsModule,
     MarketDataModule,
     UsersModule,
