@@ -37,19 +37,64 @@ self-sustaining. Preserve it.
 - **Frontend**: React 19 + Vite 8 + Tailwind v4 + TanStack Query + React Router
 - **Market data**: `yahoo-finance2` v4 (free, no API key)
 - **Tests**: Vitest on both sides
+- **Layout**: an npm-workspaces monorepo — the root `package.json` declares
+  `backend` and `frontend` as workspaces, and root scripts delegate with
+  `--prefix`. Install with `npm run install:all`, not a bare `npm install`,
+  or a workspace's own dependencies can be missed (`pg-mem` was, and three
+  files stopped typechecking).
 
 ## Running it
 
+There are **two ways to run this**, and they are not interchangeable.
+
+**Iterating — two processes, hot reload, the one to use while writing code:**
+
 ```bash
-npm run dev          # both apps; backend :3000, frontend :5173
-npm test             # backend unit + e2e, then frontend
+npm run start:dev --prefix backend   # nest watch, :3000
+npm run dev --prefix frontend        # vite, :5173 — open THIS one
+```
+
+Vite runs with `host: true` and proxies `/api/*` to `localhost:3000`, so the
+phone on the same Wi-Fi loads `http://<mac-lan-ip>:5173`.
+
+**Production-shaped — one process, no hot reload:**
+
+```bash
+npm run dev     # builds the backend, then serves it AND frontend/dist on :3000
+```
+
+Root `npm run dev` is NOT the two-process dev server any more. It is
+`build:backend && node backend/dist/main.js`, and `main.ts` serves
+`frontend/dist` statically with an SPA fallback. Use it to check what
+production will actually do; never expect a file save to show up.
+
+```bash
+npm test             # root: backend unit, then frontend — NOT e2e
 npm run build        # production build of both
 ```
 
-The dev server binds to `0.0.0.0` and Vite runs with `host: true`, so the phone on
-the same Wi-Fi can load it. The frontend only ever calls **relative** `/api/...`
-paths, which Vite proxies to the backend — so the identical build works from
-`localhost` and from a LAN address. **Never hardcode a host in frontend code.**
+**`npm test` at the root does not run the e2e suite.** Root `test` delegates to
+each workspace's `test`, and the backend's is `vitest run` (unit only). Run
+`npm run test:e2e --prefix backend` separately. CI has the same gap.
+
+**Never hardcode a host in frontend code.** `api/client.ts` builds every URL as
+`VITE_API_BASE_URL + /api + path` — empty base in dev (so Vite's proxy handles
+it), the Render origin in production.
+
+### The `/api` prefix, and the allowlist behind it
+
+Backend routes are served under a **global prefix of `/api`**
+(`setGlobalPrefix('api')` in `main.ts`, with `health` and `health/ping`
+excluded). Ahead of it sits a rewrite middleware that maps legacy unprefixed
+paths onto it — and it works off a **hardcoded list** of route prefixes:
+`portfolio`, `performance`, `journal`, `auth`, `ai`, `settings`,
+`instruments`, `market-data`, `history`.
+
+**Adding a controller with a new top-level path means adding it to that list**,
+or unprefixed requests to it fall through to the SPA fallback and return
+`index.html` with a 200 — which reads as a JSON parse error in the client, not
+as a routing mistake. The e2e suite cannot catch this: it builds the app
+through `Test.createTestingModule` and never runs `main.ts`.
 
 ## Deployment
 
@@ -78,7 +123,16 @@ unaffected; `main` deploys automatically on push.
    from the real one twice, and the second drift reported $1,200 at risk on a
    plan actually worth $750. A stateless endpoint (`POST /portfolio/stop-risk`)
    serves the live figure instead. `docs/backlog.md` lists what has not moved
-   yet.
+   yet. The same rule covers *vocabulary*: the entry/exit reason chips are
+   defined in `journal/reasons.ts` and served on `GET /settings`, so the
+   frontend renders a list it is handed and never keeps its own copy.
+
+   The one deliberate exception is `lib/fillContext.ts`, which repeats the
+   backend's "does this fill reduce a position?" sign test to choose which
+   chips to show and what quantity to offer. The enforcing copy in
+   `validateExitAttribution` stays authoritative; drift here shows the wrong
+   chips, never a wrong number. Keep it that way — if it ever decides
+   something a number depends on, move it.
 6. **`yahoo.client.ts` is the only file allowed to import `yahoo-finance2`.**
    Swapping data providers should touch one file.
 7. **Never show a stale price as if it were fresh.** On provider failure, serve
@@ -129,33 +183,63 @@ backend/src/
                  daily_closes backfill (OHLC + adjClose) for held instruments and benchmarks
   instruments/   ticker validation and storage
   journal/       journal entry, tag and stop-level entities; the only write path
-                 into transactions and cash flows
+                 into transactions and cash flows. reasons.ts holds the entry/exit
+                 reason vocabulary — the one definition, served on GET /settings
   transactions/  transaction + cash flow entities
   portfolio/     derive.ts (pure), derive-trades.ts (pure), risk.ts (pure),
                  service, controller — including /portfolio/trades/:id
   performance/   series.ts (pure): valuation -> time-weighted return -> rebased series
+  llm/           AI summary, plus the trade review (context, prompt, parse, service)
+  database/      migrations (registered by hand in data-source.ts), in-memory-db.ts
 frontend/src/
-  api/           fetch wrapper over /api
-  components/    formatters, display primitives, BenchmarkChart, TradeChart
-  lib/           pure logic (sorting, draft persistence, candle/date scaling)
+  api/           client.ts (fetch wrapper, prefixes /api), settings.ts (shared query)
+  components/    formatters, display primitives, BenchmarkChart, TradeChart,
+                 EntrySheet (the composer), TradeReviewCard
+  lib/           pure logic (sorting, draft persistence, candle/date scaling,
+                 fillContext.ts: does this fill open or close a position?)
   routes/        Dashboard, Journal, TradeDetail, Seed, TickerProbe (dev only, not in nav)
 ```
 
 ## Reading the dev server's logs
 
-`npm run dev` tees both processes to `logs/api.log` and `logs/web.log`
-(git-ignored, overwritten each start). Read those rather than asking the
-owner to copy something out of his terminal — a backend error he reports is
-almost always already there, e.g. `grep -n "Gemini call attempt" logs/api.log`
-for LLM failures. The files only exist once `npm run dev` has been started
-since this was added.
+The old root `npm run dev` teed both processes to `logs/api.log` and
+`logs/web.log`. **The monorepo restructure removed that** — root `dev` is now
+`build:backend && node backend/dist/main.js` and tees nothing. The files may
+still exist on disk from an older run; check their timestamps before trusting
+a line in them, because a stale log that looks current is worse than no log.
 
-## Do not run `nest build` while `npm run dev` is running
+If a session needs them back, tee explicitly rather than assuming:
 
-Both write `backend/dist`, and the build wipes it out from under the watcher,
-crashing the backend with `Cannot find module dist/main`. It looks like an
-application bug and is not. To typecheck without disturbing the dev server use
-`npx tsc --noEmit -p tsconfig.json` from `backend/`. This has bitten twice.
+```bash
+npm run start:dev --prefix backend 2>&1 | tee logs/api.log
+```
+
+The principle stands: read the logs rather than asking the owner to copy
+something out of his terminal — a backend error he reports is almost always
+already there, e.g. `grep -n "Gemini call attempt" logs/api.log` for LLM
+failures.
+
+## Do not run a build while a watcher is running
+
+`nest build`, `npm run build`, and **root `npm run dev`** all write
+`backend/dist`. Any of them run while `npm run start:dev --prefix backend` is
+watching wipes `dist` out from under it, crashing the backend with `Cannot
+find module dist/main`. It looks like an application bug and is not. This has
+bitten twice, and root `npm run dev` is now a third way to do it — it *is* a
+build.
+
+To typecheck without disturbing anything, from `backend/`:
+
+```bash
+npx tsc --noEmit -p tsconfig.json         # everything, specs included
+npx tsc -p tsconfig.build.json --noEmit   # exactly what the build compiles
+```
+
+The second is the one that answers "will the deploy fail?" —
+`tsconfig.build.json` excludes `**/*spec.ts`, so a type error in a spec fails
+the first and not the second. That difference is live right now: four errors
+in `llm.controller.spec.ts` and one in `trade-review.service.spec.ts` fail a
+plain `tsc` while the build and both suites stay green.
 
 ## Mobile gotchas learned the hard way
 
@@ -189,6 +273,12 @@ application bug and is not. To typecheck without disturbing the dev server use
   (`lightweight-charts`, after a hand-rolled-SVG attempt was reversed on
   device) is reachable from the Journal's Trades tab and from a Portfolio
   position.
+
+- **Since the phases** — shipped incrementally, not as a numbered phase:
+  the trade review (an LLM read of one closed trade: `llm/trade-review-*`,
+  `TradeReviewCard`), the monorepo restructure with static serving, and the
+  composer's **fill context** — a closing fill prefills the quantity you hold
+  and offers exit reason chips, an opening one offers entry chips.
 
 ## Documentation map
 
