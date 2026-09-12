@@ -124,14 +124,37 @@ prevent.
 - **No position sizing.** The trade-idea design already settled that the app
   derives size from a stop, and the model never states a dollar figure.
 - **No "buy this" instruction.** It ranks attention, not actions.
-- **No paid data.** If the free consensus is unavailable for a ticker — ETFs
-  and thin names often have none — the ranking says so for that ticker rather
-  than scoring it on two views while implying three.
+- **No paid data.** Where the free consensus is unavailable, see "Limits and
+  missing data" below: the ticker is still ranked, the missing view counts as
+  neutral, and the absence is stated.
+
+## Limits and missing data
+
+**The watchlist is capped at 50 tickers.** Enforced as a refusal on the 51st
+with a message naming the limit — never a silent truncation, and never a
+ranking that quietly covers only part of the list. The cap also bounds the
+prompt, which is what made one call for the whole list viable.
+
+**A missing view counts as neutral, not as a mark against.** An ETF or a thin
+name often has no analyst coverage at all. Excluding it, or ranking it last,
+would demote it for a fact about DATA AVAILABILITY rather than about the
+stock. So the absent view neither helps nor hurts: the ticker is still ranked,
+on the views that do exist.
+
+**But the absence is always stated.** A ticker ranked on two views sitting
+beside one ranked on three, with nothing to distinguish them, is a judgement
+wearing a confidence it has not earned — the same failure invariant 7 names
+for prices. Its line says so plainly: "no analyst coverage — ranked on the
+tape and your record alone."
+
+This is the one place a number survives, and only inside the prompt: the model
+is told to treat an absent view as the middle of its range rather than as a
+zero, because a zero would be a silent penalty. Nothing numeric reaches the
+screen.
 
 ## Open questions for the plan
 
-- How many tickers can go in one prompt before it becomes unwieldy, and what
-  happens to a watchlist of fifty. A cap with a stated rule is acceptable; a
-  silent truncation is not.
-- Whether a ticker with no analyst coverage is ranked at all, or listed
-  separately as "not enough to judge".
+- Whether the 50-ticker cap should also apply to what the prompt carries if a
+  future watchlist is larger — it cannot be, while the cap is enforced at the
+  write path, but the ranking should still fail loudly rather than truncate if
+  the two ever disagree.
