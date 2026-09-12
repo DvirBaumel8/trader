@@ -15,6 +15,7 @@ import { AddStopPlanCleared1788998400000 } from './migrations/1788998400000-AddS
 import { AddWatchlist1789084800000 } from './migrations/1789084800000-AddWatchlist.js';
 import { AddUserAccounts1789171200000 } from './migrations/1789171200000-AddUserAccounts.js';
 import { AddWatchlistTargetSetAt1789257600000 } from './migrations/1789257600000-AddWatchlistTargetSetAt.js';
+import { AddWatchlistRankings1789344000000 } from './migrations/1789344000000-AddWatchlistRankings.js';
 
 // Migrations are imported explicitly rather than via a glob string. A glob
 // silently matched zero files under some execution contexts in a sibling
@@ -37,6 +38,7 @@ const dataSource = new DataSource({
     AddWatchlist1789084800000,
     AddUserAccounts1789171200000,
     AddWatchlistTargetSetAt1789257600000,
+    AddWatchlistRankings1789344000000,
   ],
   synchronize: false,
 });
