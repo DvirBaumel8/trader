@@ -190,13 +190,10 @@ export class MarketDataService {
    * is a different thing from a STALE one: nothing downstream needs to know
    * the consensus is old, because it moves over weeks, not the session.
    */
-  async getConsensus(
-    symbol: string,
-    force = false,
-  ): Promise<RawConsensus | null> {
+  async getConsensus(symbol: string): Promise<RawConsensus | null> {
     const key = symbol.toUpperCase();
     const cached = this.consensusCache.get(key);
-    if (!force && cached && Date.now() - cached.fetchedAt < CONSENSUS_TTL_MS) {
+    if (cached && Date.now() - cached.fetchedAt < CONSENSUS_TTL_MS) {
       return cached.value;
     }
     try {
