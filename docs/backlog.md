@@ -7,38 +7,6 @@ be read as "what's left," not a history of what happened (that's `git log`).
 **Read this before picking up work.** `CLAUDE.md` says what the project is;
 this says what is outstanding.
 
-## Built but not merged
-
-- [ ] **The watchlist ranking is finished and sitting on
-  `feat/watchlist-ranking`, unmerged.** 22 commits, 39 files, +2,795/-162 as of
-  2026-09-12. Every task passed its own review, the whole-branch review returned
-  "ready to merge", and the suites are green: backend unit 502, backend e2e 164,
-  frontend 290, browser 11, both typechecks and the production build clean.
-
-  **Why it is not merged:** `main` deploys to production automatically, and that
-  is the owner's decision to make, not the agent's. Nothing is blocking it
-  technically.
-
-  **What it does.** Ranks the watchlist best-to-worst for "what should I buy
-  next" by giving one model call three views of each ticker and asking it to
-  reconcile them: the street (analyst consensus, fetched — not invented), the
-  tape (the indicators the app already computes, including the 150-day), and him
-  (his book, his record, and his own prior trades in that exact ticker). No
-  numeric score: the order carries the comparison. Cached, with the age always on
-  screen and a manual refresh. Design:
-  `docs/superpowers/specs/2026-09-12-watchlist-ranking-design.md`; plan and its
-  recorded deviations: `docs/superpowers/plans/2026-09-12-watchlist-ranking.md`.
-
-  **It needs a key to say anything.** With no `GEMINI_API_KEY` (or
-  `LLM_API_KEY`) in the API's environment the screen says so plainly and the
-  refresh control is hidden — correct behaviour, but it means the feature is
-  inert until the key is set in Render.
-
-  **Two entries in this file live only on that branch** and vanish if it is ever
-  abandoned rather than merged: the broker-integration writeup and the
-  consensus-outage bug. Both are duplicated onto `main` in the same commit as
-  this note, so nothing is lost either way.
-
 ## Bugs — correctness
 
 - [ ] **A failed consensus fetch is indistinguishable from "nobody covers this
@@ -164,6 +132,8 @@ this says what is outstanding.
 
 ## UI
 
+- [ ] **Watchlist add takes ticker + target only; tags and note hide behind edit mode.** Raised 2026-09-12 (him): after adding, tags and the note need the pencil, the row, and Save — undiscoverable. The upsert endpoint already accepts note and tags, so the fix is frontend-only: expand the just-added row's editor (or widen the form). No API change.
+
 - [ ] **"Avg risk" does not explain itself.** Raised 2026-09-12: he saw the
   tile on the Journal header and did not know what it meant. That is the
   finding — not a bug in the number, which is correct (see the answer in
@@ -269,32 +239,9 @@ when the question was "should I add to this winner?".
   it reason only about the position in question. Worth deciding before the
   Ideas tab is trusted for sizing.
 
-- [ ] **Ideas answers are slow — the waiting before the model was removed;
-  the model's own time is untouched.** The request used to do four
-  independent things one after another before the prompt was even built:
-  the ticker facts (itself two serial provider round trips), then the record
-  and the book, then the profile off disk. Nothing needed anything from
-  anything else. They now run together, in both places — `getPortfolio`
-  alone is documented at 1.1s and 2.6s in real use, and the quote and the
-  history were a further two round trips in series.
+- [ ] **Ideas answers are slow — the model's own time is untouched.** The pre-model work (ticker facts, record, book, profile) was parallelised, with the old error-ordering semantics pinned by `ticker-facts.service.spec.ts` and `trade-idea.service.spec.ts`.
 
-  Error semantics were preserved deliberately rather than incidentally:
-  running concurrently means several failures can settle at once, so both
-  services check results in the order they used to run. An unknown ticker is
-  still a 404 and not whatever the database happened to throw. Pinned by
-  `ticker-facts.service.spec.ts` and `trade-idea.service.spec.ts`, including
-  the ordering itself — the 503 paths had no coverage at all before, and the
-  restructure introduced a real bug there that only tsc caught.
-
-  **Not done, and needs the owner:** the model call itself. It is already
-  `gemini-3.6-flash`, so there is little headroom in "a smaller model for
-  the first pass". Measuring what remains needs a real key — the suite
-  blanks `LLM_API_KEY` on purpose — so the end-to-end saving here is
-  reasoned from the recorded `getPortfolio` timings, not measured. Streaming
-  is the other lever and is a UI change, not a latency one: it would make
-  the wait *legible* rather than shorter. The prompt is also worth a look —
-  the stored facts snapshot grew from ~1,600 to ~4,600 characters when the
-  book and record were added.
+  **Not done, and needs the owner:** the model call itself. It is already `gemini-3.6-flash`, so there is little headroom in a smaller first pass, and measuring needs a real key — the suite blanks `LLM_API_KEY` on purpose. Streaming is the other lever and is a UI change, not a latency one: it would make the wait *legible* rather than shorter. The facts snapshot grew from ~1,600 to ~4,600 characters with no measurement of what the growth bought.
 
 ## Features requested, not yet designed
 
@@ -476,17 +423,4 @@ Raised as a block; each needs its own slice.
   `PATCH`, 409 on mismatch, and a frontend conflict UI) — real complexity for
   a single-user app mostly used from one device at a time. Worth a deliberate
   decision on whether this earns it, not a default yes.
-- [ ] `getPortfolio` (`portfolio.service.ts`) is still ~227 lines — it fetches,
-  derives, prices, and assembles a response in one method. `computeAtRisk`
-  moved to `risk.ts` as a pure, unit-tested function; the trailing-stop
-  high-water-price resolution moved to `TradesService.resolveHighWaterPrice`,
-  shared with `getTrade()` — which turned up a real bug along the way:
-  `getTrade()` had never folded in extended-hours extremes at all, so a
-  trade's own detail page could resolve a TRAILING stop to a different price
-  than the Stops page for the same position. Fixed, with an e2e regression
-  test (`trades.e2e-spec.ts`, extended high above both the daily bar and the
-  live quote) — and `test/yahoo-stub.ts` gained an `extendedExtremes` option
-  since nothing could test this path before. What's left in `getPortfolio` is
-  now mostly fetch-and-assemble (positions array, at-risk, stop tiers) — real
-  further splitting would mean pulling pricing/assembly into its own method
-  or file, not obviously a win over reading it top to bottom as one story.
+- [ ] `getPortfolio` (`portfolio.service.ts`) is still ~227 lines, now mostly fetch-and-assemble (positions array, at-risk, stop tiers) after `computeAtRisk` moved to `risk.ts` and the trailing-stop high-water resolution moved to `TradesService.resolveHighWaterPrice` (shared with `getTrade()`). Further splitting is not obviously a win over reading it top to bottom — parked unless it grows.
