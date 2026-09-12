@@ -48,6 +48,13 @@ Stub reasoning: AAPL ranked ahead of NVDA in this fixed browser-test answer.`;
  * server process allows.
  *
  * Excluded from tsconfig.build.json, so it never reaches the deployed image.
+ *
+ * The `LlmClient` stub answers EVERY call with `RANKING_STUB_ANSWER`, whatever
+ * the caller asked for. Harmless for the one browser spec that reaches it
+ * today (the watchlist ranking), but the first spec that also drives the AI
+ * portfolio summary or the trade-idea opinion through this server will get a
+ * `[RANK]` block back instead of prose — widen this stub (e.g. branch on the
+ * system prompt) before adding one.
  */
 async function bootstrap() {
   await ensureDatabaseReady();

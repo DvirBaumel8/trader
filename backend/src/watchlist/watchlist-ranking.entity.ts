@@ -36,7 +36,7 @@ export class WatchlistRanking {
   @Column('text')
   payload: string;
 
-  /** The three views the model was given, as JSON. */
+  /** The three views the model was given, as the rendered prompt text — the same thing the model actually read, verbatim, not a JSON re-encoding of it. */
   @Column('text')
   factsSnapshot: string;
 

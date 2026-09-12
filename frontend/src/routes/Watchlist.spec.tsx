@@ -388,7 +388,7 @@ describe('Watchlist ranking', () => {
     });
 
     const badge = await screen.findByText('stale');
-    expect(screen.queryByText('ranking')).not.toBeInTheDocument();
+    expect(screen.queryByText('fresh')).not.toBeInTheDocument();
     expect(badge.className).toMatch(/text-down/);
   });
 });

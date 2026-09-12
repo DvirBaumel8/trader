@@ -150,7 +150,7 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
                   : 'rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent'
               }
             >
-              {ranking.stale ? 'stale' : 'ranking'}
+              {ranking.stale ? 'stale' : 'fresh'}
             </span>
             <span className="text-[10px] text-muted">
               {formatAge(ranking.rankedAt)}
