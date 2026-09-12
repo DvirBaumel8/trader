@@ -91,6 +91,60 @@ function renderWatchlist(
   );
 }
 
+describe('Watchlist add form', () => {
+  /**
+   * Tags and a note were only reachable through edit mode after a row
+   * already existed — the pencil, the row, and Save, for a field the
+   * upsert endpoint has always accepted on the very first write.
+   */
+  it('offers tags and a note up front, not only after adding', async () => {
+    renderWatchlist([]);
+    expect(screen.getByPlaceholderText(/tags/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/why you are watching/)).toBeInTheDocument();
+  });
+
+  it('sends the note and tags typed before adding, in the same request', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([]);
+    await user.type(screen.getByPlaceholderText('NVDA'), 'nvda');
+    await user.type(screen.getByPlaceholderText(/tags/), 'semis, breakout');
+    await user.type(
+      screen.getByPlaceholderText(/why you are watching/),
+      'earnings run',
+    );
+    await user.click(screen.getByRole('button', { name: 'Watch' }));
+
+    await waitFor(() => {
+      const call = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) =>
+          c[0] === '/watchlist' && (c[1] as { method?: string })?.method === 'POST',
+      );
+      expect(call).toBeDefined();
+      const body = JSON.parse((call![1] as { body: string }).body);
+      expect(body.symbol).toBe('NVDA');
+      expect(body.note).toBe('earnings run');
+      expect(body.tags).toEqual(['semis', 'breakout']);
+    });
+  });
+
+  it('clears note and tags after a successful add, like the ticker field', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([]);
+    await user.type(screen.getByPlaceholderText(/tags/), 'semis');
+    await user.type(
+      screen.getByPlaceholderText(/why you are watching/),
+      'earnings run',
+    );
+    await user.type(screen.getByPlaceholderText('NVDA'), 'nvda');
+    await user.click(screen.getByRole('button', { name: 'Watch' }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/tags/)).toHaveValue('');
+    });
+    expect(screen.getByPlaceholderText(/why you are watching/)).toHaveValue('');
+  });
+});
+
 describe('Watchlist target alerts', () => {
   /** The feature he called super important: tell me what hit, when I arrive. */
   it('announces a ticker that reached its target', async () => {
@@ -151,7 +205,12 @@ describe('Watchlist rows', () => {
     expect(await screen.findByText('NVIDIA')).toBeInTheDocument();
   });
 
-  /** Edit was missing entirely: the list was add-and-delete only. */
+  /**
+   * Edit was missing entirely: the list was add-and-delete only. Tags and
+   * note now also appear on the add form itself (see "Watchlist add form"
+   * below), so this asserts a SECOND set exists once the row's own editor is
+   * open, rather than merely that one exists somewhere on the page.
+   */
   it('offers an editor for target, tags and note in edit mode', async () => {
     const user = userEvent.setup();
     renderWatchlist([row()]);
@@ -159,8 +218,8 @@ describe('Watchlist rows', () => {
     await user.click(screen.getByRole('button', { name: 'Edit watchlist' }));
 
     expect(screen.getByPlaceholderText('target (blank to clear)')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/tags/)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/why you are watching/)).toBeInTheDocument();
+    expect(screen.getAllByPlaceholderText(/tags/)).toHaveLength(2);
+    expect(screen.getAllByPlaceholderText(/why you are watching/)).toHaveLength(2);
   });
 
   /** Clearing the field must REMOVE the target, not leave the old one. */

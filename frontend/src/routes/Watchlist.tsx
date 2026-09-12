@@ -39,6 +39,8 @@ export function Watchlist() {
   const queryClient = useQueryClient();
   const [symbol, setSymbol] = useState('');
   const [target, setTarget] = useState('');
+  const [note, setNote] = useState('');
+  const [tags, setTags] = useState('');
   const [editMode, setEditMode] = useState(false);
   // Survives iOS discarding the tab mid-typing, like every other form here.
   const [tagFilter, setTagFilter] = usePersistentState<string | null>(
@@ -55,7 +57,12 @@ export function Watchlist() {
     queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
 
   const addMutation = useMutation({
-    mutationFn: (body: { symbol: string; targetPrice?: number }) =>
+    mutationFn: (body: {
+      symbol: string;
+      targetPrice?: number;
+      note?: string;
+      tags?: string[];
+    }) =>
       api<WatchRow>('/watchlist', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -63,6 +70,8 @@ export function Watchlist() {
     onSuccess: async () => {
       setSymbol('');
       setTarget('');
+      setNote('');
+      setTags('');
       await invalidate();
     },
   });
@@ -95,6 +104,15 @@ export function Watchlist() {
       symbol: ticker,
       ...(target.trim() !== '' && Number.isFinite(parsed) && parsed > 0
         ? { targetPrice: Math.abs(parsed) }
+        : {}),
+      ...(note.trim() !== '' ? { note: note.trim() } : {}),
+      ...(tags.trim() !== ''
+        ? {
+            tags: tags
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean),
+          }
         : {}),
     });
   }
@@ -147,31 +165,51 @@ export function Watchlist() {
         </section>
       )}
 
-      <form onSubmit={submit} className="flex gap-2">
+      <form onSubmit={submit} className="space-y-2">
+        <div className="flex gap-2">
+          <input
+            placeholder="NVDA"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            className={inputClass}
+          />
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="target"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            className={inputClass}
+          />
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={addMutation.isPending || !symbol.trim()}
+          >
+            {addMutation.isPending ? 'Adding…' : 'Watch'}
+          </Button>
+        </div>
+        {/*
+          Same fields RowEditor offers after the fact, moved up front —
+          they were always accepted by this same endpoint, just undiscoverable
+          without the pencil, the row, and Save. Optional, so a quick add
+          stays quick: leave them blank and nothing changes about that path.
+        */}
         <input
-          placeholder="NVDA"
-          autoCapitalize="characters"
-          autoCorrect="off"
-          spellCheck={false}
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value)}
-          className={inputClass}
+          placeholder="tags, comma separated"
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          className={inputClasses('sm')}
         />
         <input
-          type="number"
-          inputMode="decimal"
-          placeholder="target"
-          value={target}
-          onChange={(e) => setTarget(e.target.value)}
-          className={inputClass}
+          placeholder="why you are watching it (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className={inputClasses('sm')}
         />
-        <Button
-          variant="primary"
-          type="submit"
-          disabled={addMutation.isPending || !symbol.trim()}
-        >
-          {addMutation.isPending ? 'Adding…' : 'Watch'}
-        </Button>
       </form>
       {addMutation.isError && (
         <p className="text-xs text-down">
