@@ -1,24 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { LlmClient, LlmFailure, type LlmFailureKind } from './llm.client.js';
 import { buildPortfolioContext } from './portfolio-context.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts.js';
 import { AiSummaryService } from './ai-summary.service.js';
+import { readTraderProfile } from './trader-profile.js';
 import { PortfolioService } from '../portfolio/portfolio.service.js';
 import { TradesService } from '../portfolio/trades.service.js';
 import { PerformanceService } from '../performance/performance.service.js';
-
-// Resolved relative to this compiled file (backend/dist/llm/llm.service.js)
-// rather than process.cwd(), so it also works on Render: the repo ships
-// whole (see render.yaml's `rootDir: backend`), the profile just lives one
-// level above `backend/`, and this stays correct in dev too since Nest
-// always runs from dist, never ts-node in place.
-const PROFILE_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../docs/trader-profile.md',
-);
 
 export interface PortfolioSummaryResult {
   configured: boolean;
@@ -110,7 +98,7 @@ export class LlmService {
           : null,
     });
 
-    const profile = await this.readProfile();
+    const profile = await readTraderProfile();
     const system = buildSystemPrompt(profile);
     const previous = await this.summaries.findLatest();
     const user = buildUserPrompt(facts, previous);
@@ -162,16 +150,6 @@ export class LlmService {
         errorKind: kind,
         id: null,
       };
-    }
-  }
-
-  private async readProfile(): Promise<string | null> {
-    try {
-      return await readFile(PROFILE_PATH, 'utf-8');
-    } catch {
-      // Missing file (not yet interviewed, or a deploy without docs/) is a
-      // normal state, not an error — prompts.ts renders an honest fallback.
-      return null;
     }
   }
 }

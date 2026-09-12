@@ -13,14 +13,7 @@ import {
 } from './trade-review-context.js';
 import { buildTradeReviewPrompt } from './trade-review-prompt.js';
 import { parseReviewMeta, stripReviewMeta } from './trade-review-parse.js';
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const PROFILE_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../docs/trader-profile.md',
-);
+import { readTraderProfile } from './trader-profile.js';
 
 export interface TradeReviewResult {
   configured: boolean;
@@ -137,7 +130,7 @@ export class TradeReviewService {
       };
     }
 
-    const profileText = await this.readProfile();
+    const profileText = await readTraderProfile();
     const { system, user: userPrompt } = buildTradeReviewPrompt(
       facts,
       profileText,
@@ -196,14 +189,6 @@ export class TradeReviewService {
         error: ERROR_COPY[kind],
         errorKind: kind,
       };
-    }
-  }
-
-  private async readProfile(): Promise<string | null> {
-    try {
-      return await readFile(PROFILE_PATH, 'utf-8');
-    } catch {
-      return null;
     }
   }
 }
