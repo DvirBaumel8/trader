@@ -61,12 +61,12 @@ export function FilterBar({
           Filter{active ? ' ·' : ''}
         </button>
 
-        <label className="min-w-0 flex-1">
+        <label className="relative min-w-0 flex-1">
           <span className="sr-only">Sort</span>
           <select
             value={sort}
             onChange={(e) => onSortChange(e.target.value as SortValue)}
-            className="w-full appearance-none rounded-lg border border-border bg-surface-1 px-2.5 py-1 text-xs text-muted outline-none"
+            className="w-full appearance-none rounded-lg border border-border bg-surface-1 py-1 pr-7 pl-2.5 text-xs text-muted outline-none"
           >
             {SORTS.map((s) => (
               <option key={s.value} value={s.value}>
@@ -74,6 +74,15 @@ export function FilterBar({
               </option>
             ))}
           </select>
+          {/*
+            Missed when this was written: Dashboard's and Stops' own
+            SortPickers pair `appearance-none` with this chevron, because
+            removing the native arrow with nothing to replace it is what made
+            this render as inert text in a box rather than a control.
+          */}
+          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-muted">
+            ▼
+          </span>
         </label>
 
         {active && (
