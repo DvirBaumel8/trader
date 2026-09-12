@@ -1,4 +1,5 @@
 import type { TickerFacts } from '../market-data/ticker-facts.service.js';
+import { price, pct, level, renderIndicatorLines } from './indicator-lines.js';
 
 /**
  * The user turn for a pre-trade opinion: the facts the app computed, then the
@@ -20,35 +21,18 @@ export function buildTradeIdeaPrompt(
   context?: { book: string; record: string },
 ): string {
   const i = facts.indicators;
-  const price = (n: number) =>
-    n.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  const pct = (n: number | null) =>
-    n === null ? 'n/a' : `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
-  const level = (n: number | null) => (n === null ? 'n/a' : price(n));
 
   const lines = [
     `FACTS about ${facts.symbol}${facts.name ? ` (${facts.name})` : ''} — computed by the app, quote these, do not recalculate`,
     '',
     `- Price now: ${price(facts.price)}${facts.extended ? ' (extended-hours print)' : ''}`,
     `- P/E: ${facts.peRatio !== null ? facts.peRatio.toFixed(1) : 'n/a'}`,
-    `- 20-day average: ${level(i.sma20)} (price is ${pct(i.percentFromSma20)} from it)`,
-    `- 50-day average: ${level(i.sma50)} (price is ${pct(i.percentFromSma50)} from it)`,
-    // His own trend indicator, and it was absent from this prompt entirely
-    // while 20, 50 and 200 were all present — so every opinion so far judged
-    // trend against averages he does not use. Named as his, so the model
-    // weights it accordingly rather than treating it as one line of five.
-    `- 150-day average (HIS trend indicator): ${level(i.sma150)} (price is ${pct(i.percentFromSma150)} from it)`,
-    `- 200-day average: ${level(i.sma200)} (price is ${pct(i.percentFromSma200)} from it)`,
-    `- 52-week high: ${level(i.high52w)} (price is ${pct(i.percentFromHigh52w)} from it)`,
-    `- 52-week low: ${level(i.low52w)} (price is ${pct(i.percentFromLow52w)} from it)`,
-    `- ATR(14): ${level(i.atr14)}${i.atrPercentOfPrice !== null ? ` — ${(i.atrPercentOfPrice * 100).toFixed(1)}% of price` : ''}`,
-    `- Volume today: ${i.relativeVolume !== null ? `${i.relativeVolume.toFixed(2)}x its 20-day average` : 'n/a'}`,
-    `- History available: ${i.barsAvailable} daily bars`,
+    // The rest of the tape — moving averages (his own 150-day trend
+    // indicator named as his, not just one line of five), 52-week range,
+    // ATR, relative volume and how much history backs it — is shared with
+    // the watchlist ranking's per-candidate block so the two features never
+    // describe the same indicators in different words. See indicator-lines.ts.
+    ...renderIndicatorLines(i),
   ];
 
   // How it has actually traded, not just where it sits. "Up 8% today off the
