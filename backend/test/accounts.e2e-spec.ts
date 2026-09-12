@@ -58,6 +58,12 @@ describe('Accounts (e2e)', () => {
   });
 
   afterAll(async () => {
+    // beforeEach only cleans up before the NEXT test, so the last test's
+    // rows survive the run and leak into whichever spec file runs after
+    // this one — the leading hypothesis for the suite's ~1-in-20 flake.
+    await dataSource.query(
+      `DELETE FROM users WHERE email IS NOT NULL OR "googleId" IS NOT NULL`,
+    );
     await app.close();
   });
 

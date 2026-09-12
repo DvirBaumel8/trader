@@ -94,24 +94,70 @@ this says what is outstanding.
   - *Not file parallelism.* `fileParallelism: false` is honoured. Measured
     with `--reporter=json`: twelve files, zero overlapping starts, each
     beginning ~380ms after the previous one ended.
-  - *Not the file under test.* `journal.e2e-spec.ts` alone: 0 failures in 25
-    runs. It only flakes as part of the full suite.
-  - *Not multiple owner rows.* `trader_test` holds exactly one user after a
-    run.
+  - *Not the file under test.* `journal.e2e-spec.ts` alone: 0 failures in
+    15 + 25 = 40 runs across two sessions. It only flakes as part of the
+    full suite.
+  - *Not multiple owner rows, at least not as the sole cause* — see below.
 
-  **Where the evidence points.** Both failing queries filter by `userId`
-  (`findOne({ id, userId })` and `txns.find({ userId, instrumentId })`), so
-  the likely story is a request resolving to a different user than the one
-  that wrote the row — `currentUser()` falling back to `ensureDefaultUser()`
-  when the AsyncLocalStorage context is missing, with more than one user
-  present. `accounts.e2e-spec.ts` leaves its last test's users behind (its
-  cleanup is in `beforeEach`, so the final test's rows are never deleted), and
-  it runs FIRST, so every later file runs with extra users in the table.
+  **The leftover-users hypothesis was tried, 2026-09-12, and did not confirm
+  it.** `accounts.e2e-spec.ts` now cleans up in `afterAll` too, not just
+  `beforeEach` (the one-line fix this file previously proposed). Across 24
+  full-suite runs after the fix: 2 failures (~8%), no visible improvement on
+  the ~5% rate the "1 in 20" estimate implies — the sample is too small to
+  call that conclusively unchanged, but it is not the clear drop the
+  hypothesis predicted. **Keep the fix regardless** — leaking rows past a
+  test file's own run is a real gap independent of whether it explains this
+  flake — but treat the userId/wrong-user theory as unconfirmed, not closed.
 
-  **Cheapest next step**, if it is ever worth the time: have
-  `accounts.e2e-spec.ts` clean up in `afterAll` as well, and see whether the
-  rate changes. That is one line and tests the leading hypothesis without
-  instrumenting anything.
+  **New evidence that the old theory is incomplete — three different
+  failure shapes now, not one.** None of these three (all from the same
+  ~35-run session) match the documented 404-on-a-just-written-row pattern:
+  - `journal.e2e-spec.ts > accepts a trade with an empty note`:
+    `expected 201, got 301 "Moved Permanently"` on a plain `POST /journal`.
+    A 301 is not something application code here ever issues (no redirect
+    call exists in `src/`).
+  - `journal.e2e-spec.ts > a dividend raises cash but not contributed
+    capital`: failed the same session, detail not captured — the harness
+    moved to the next check before it was re-caught.
+  - `portfolio.e2e-spec.ts`: not a single test but the **whole suite**
+    failed with `Error: socket hang up`, killing the file after only 8 of
+    its usual ~20+ requests. A suite-level crash is a different class of
+    failure from a wrong assertion — something aborted mid-request, which
+    smells like a connection getting closed out from under an in-flight
+    call rather than a logic bug returning the wrong data.
+
+  **Ruled out, 2026-09-12: Postgres connection exhaustion.** Polled
+  `pg_stat_activity` against `trader_test` every 200ms through a full clean
+  run: peaked at 11 connections against a `max_connections` of 100. Not
+  connection-pool pressure.
+
+  **Where this leaves it.** Three unrelated-looking symptoms (a stale
+  assertion value, a nonsense HTTP status, a mid-request crash) across three
+  different spec files, only under the full sequential suite, never in
+  isolation, and not explained by connection count. That combination reads
+  less like an application bug in any one query and more like something at
+  the Node/HTTP layer breaking between one spec file's app teardown and the
+  next one's startup — but that is a guess, not a finding.
+
+  **Next step, if resumed:** reach for evidence before another hypothesis.
+  A temporary `.on('response', ...)` listener added to `test/http.ts`'s
+  `http()` helper (removed again after use — it appends
+  `pid, method, path, status` to a file, since Nest's own request logger is
+  invisible in vitest's default reporter on a passing run) is what
+  distinguished these three shapes from each other this session; the
+  missing piece is the *cause* of the 301 and the hang-up, not just their
+  existence. Catching one under a debugger or with `NODE_DEBUG=http` to see
+  what actually arrived on the socket would say more than another blind
+  reproduction loop.
+
+  Both are still in `journal.e2e-spec.ts`, still only under the full suite,
+  which keeps the "something about running after other files" framing —
+  but a wrong-user 404 and a bad-status-code 301 are not obviously the same
+  defect. **Next step, if resumed:** stop assuming one root cause. Capture
+  a failing run's `RequestLoggingMiddleware` output (`Logger('Request')`,
+  logged per-request, currently invisible because vitest suppresses
+  passing-run console output) to see what actually hit the socket
+  immediately before a 301.
 
 
 - [ ] **Trade chart: shipped, awaiting the owner's eye.** He reported prices
@@ -156,19 +202,25 @@ this says what is outstanding.
   own average risk per position. If the fix is a pattern, make it one
   component and apply it to all of them rather than patching this tile.
 
-- [ ] **2 of 19 frontend lint warnings remain**, both `set-state-in-effect`
-  (`EntrySheet.tsx:105`, `Journal.tsx:378`). Left deliberately: both are
-  effects synchronizing local state with genuine external events (which
-  entry/draft session is active; an async fetch resolving) rather than
-  derivable-during-render state, and forcing either into a render-time or
-  remount pattern would touch the app's most iOS-draft-loss-prone code for a
-  cosmetic warning. The other 17 were fixed at the root: `BenchmarkChart.tsx`
-  and `TradeChart.tsx` (`Range`/`Point`/`RANGES` moved to
-  `lib/benchmarkRange.ts`; `TradeChart`'s replay `step` now resets via
-  remount — `TradeDetail` keys it on trade id — instead of a reset effect)
-  and `Journal.tsx`'s 12 `react(refs)` warnings (the `restored` value moved
-  from a mutated ref to a plain `useState` capture, with a `restoreDone` flag
-  replacing the "null the ref to mark consumed" trick).
+- [ ] **5 frontend lint warnings remain, not the 2 last recorded here** — the
+  count drifted after the chart file was split (`f996e1a`) and after Google
+  sign-in landed, and nobody re-ran `npm run lint --prefix frontend` since.
+  Re-verified 2026-09-12:
+
+  - Three `react(set-state-in-effect)`, same shape as before and still the
+    right call to leave: each synchronizes local state with a genuine
+    external event, not derivable-during-render state.
+    `EntrySheet.tsx:160` (which entry/draft session is active),
+    `Journal.tsx:359` (an async fetch resolving), and one not previously
+    listed, `Login.tsx:254` (whether the Google script tag is already on the
+    page).
+  - Two `react-hooks(exhaustive-deps)`, new since the chart split and not
+    previously triaged: `useCallouts.ts:117` and `:268` want `seriesRef`,
+    `chartRef` and `containerRef` in their dependency arrays. Almost
+    certainly fine to leave — refs are stable identities, the same reasoning
+    that applies to the set-state warnings above — but that is a guess, not
+    a decision made on purpose the way the other three were. Worth five
+    minutes to actually look and either silence with a reason or fix.
 - [ ] **Look hard at the UI as a whole.** More conventional components? Study
   comparable products and decide what the right shape actually is. A first
   pass against the owner's own screenshots produced three concrete findings;
