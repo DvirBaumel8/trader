@@ -37,11 +37,47 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
   ...over,
 });
 
-function renderWatchlist(rows: ReturnType<typeof row>[]) {
-  (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
-    if (path === '/watchlist') return Promise.resolve(rows);
-    return Promise.resolve({});
-  });
+const rankedTicker = (over: Partial<Record<string, unknown>> = {}) => ({
+  symbol: 'NVDA',
+  verdict: 'Strong uptrend, room to the 52w high.',
+  noAnalystCoverage: false,
+  ...over,
+});
+
+const rankingResponse = (over: Partial<Record<string, unknown>> = {}) => ({
+  configured: true,
+  rankedAt: '2026-09-12T09:00:00.000Z',
+  model: 'gemini-test',
+  order: [rankedTicker()],
+  reasoning: 'NVDA leads on trend strength and your own record in semis.',
+  missing: [],
+  stale: false,
+  ...over,
+});
+
+// The default for every test that isn't specifically about the ranking:
+// nothing computed yet. A default ranking with a real order would plant a
+// second "NVDA" (or whatever symbol) in the document for every unrelated
+// watchlist test to trip over.
+const noRankingYet = () =>
+  rankingResponse({ rankedAt: null, order: [], reasoning: null });
+
+function renderWatchlist(
+  rows: ReturnType<typeof row>[],
+  opts: { ranking?: unknown } = {},
+) {
+  (api as ReturnType<typeof vi.fn>).mockImplementation(
+    (path: string, init?: { method?: string }) => {
+      if (path === '/watchlist') return Promise.resolve(rows);
+      if (path === '/watchlist/ranking') {
+        return Promise.resolve(opts.ranking ?? noRankingYet());
+      }
+      if (path === '/watchlist/ranking/refresh' && init?.method === 'POST') {
+        return Promise.resolve(opts.ranking ?? noRankingYet());
+      }
+      return Promise.resolve({});
+    },
+  );
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <Watchlist />
@@ -168,5 +204,129 @@ describe('Watchlist rows', () => {
 
     expect(screen.getByText('NVDA')).toBeInTheDocument();
     expect(screen.queryByText('LMND')).not.toBeInTheDocument();
+  });
+});
+
+describe('Watchlist ranking', () => {
+  it('shows the ranked order, best first', async () => {
+    renderWatchlist([row()], {
+      ranking: rankingResponse({
+        order: [
+          rankedTicker({ symbol: 'NVDA', verdict: 'Best of the three.' }),
+          rankedTicker({ symbol: 'AMD', verdict: 'Weaker trend, still fine.' }),
+        ],
+      }),
+    });
+
+    const nvda = await screen.findByText('Best of the three.');
+    const amd = await screen.findByText('Weaker trend, still fine.');
+    // Document order carries the rank — position 1 renders before position 2.
+    expect(
+      nvda.compareDocumentPosition(amd) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('says when a ticker was ranked without analyst coverage', async () => {
+    renderWatchlist([row()], {
+      ranking: rankingResponse({
+        order: [rankedTicker({ noAnalystCoverage: true })],
+      }),
+    });
+
+    expect(
+      await screen.findByText(/no analyst coverage/i),
+    ).toBeInTheDocument();
+  });
+
+  it('says how old the ranking is', async () => {
+    const threeHoursAgo = new Date(
+      Date.now() - 3 * 60 * 60 * 1000,
+    ).toISOString();
+    renderWatchlist([row()], {
+      ranking: rankingResponse({ rankedAt: threeHoursAgo }),
+    });
+
+    expect(
+      await screen.findByText(/ranked 3 hours ago/i),
+    ).toBeInTheDocument();
+  });
+
+  it('hides the reasoning behind the app-wide collapsible card', async () => {
+    renderWatchlist([row()], {
+      ranking: rankingResponse({
+        reasoning: 'This exact sentence is the long-form reasoning.',
+      }),
+    });
+
+    await screen.findByText('NVDA');
+    expect(
+      screen.queryByText('This exact sentence is the long-form reasoning.'),
+    ).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole('button', { name: /show ranking/i }),
+    );
+
+    expect(
+      await screen.findByText(
+        'This exact sentence is the long-form reasoning.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('asks for a fresh ranking on demand', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([row()], { ranking: rankingResponse() });
+
+    await user.click(
+      await screen.findByRole('button', { name: /^refresh$/i }),
+    );
+
+    await waitFor(() => {
+      const call = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) =>
+          c[0] === '/watchlist/ranking/refresh' &&
+          (c[1] as { method?: string })?.method === 'POST',
+      );
+      expect(call).toBeDefined();
+    });
+  });
+
+  it('offers a rank button on demand when nothing has been computed yet', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([row()]); // default mock: no ranking yet
+
+    await user.click(
+      await screen.findByRole('button', { name: /rank watchlist/i }),
+    );
+
+    await waitFor(() => {
+      const call = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) =>
+          c[0] === '/watchlist/ranking/refresh' &&
+          (c[1] as { method?: string })?.method === 'POST',
+      );
+      expect(call).toBeDefined();
+    });
+  });
+
+  it('says plainly when no ranking has been computed yet', async () => {
+    const { container } = renderWatchlist([row()]); // default mock: no ranking yet
+
+    expect(await screen.findByText(/no ranking yet/i)).toBeInTheDocument();
+    // The Watching list below still renders its own <ul><li>; the absence
+    // this asserts is an ORDERED list of ranked rows, which only the
+    // ranking section would produce.
+    expect(container.querySelector('ol')).not.toBeInTheDocument();
+  });
+
+  it('surfaces a ticker the model failed to rank', async () => {
+    renderWatchlist([row()], {
+      ranking: rankingResponse({ missing: ['ZZZZ'] }),
+    });
+
+    expect(await screen.findByText(/not ranked/i)).toBeInTheDocument();
+    expect(screen.getByText(/ZZZZ/)).toBeInTheDocument();
   });
 });
