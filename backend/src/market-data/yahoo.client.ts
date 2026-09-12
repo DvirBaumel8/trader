@@ -35,6 +35,34 @@ export interface RawBar {
   volume: number | null;
 }
 
+export interface RawConsensus {
+  /** 1 = strong buy … 5 = sell. Null when no analyst covers it. */
+  recommendationMean: number | null;
+  /** e.g. 'strong_buy', 'buy', 'hold'. */
+  recommendationKey: string | null;
+  analystCount: number | null;
+  targetMean: number | null;
+  targetHigh: number | null;
+  targetLow: number | null;
+  /** Fractions, like every other percent in this codebase. 1.059 = +105.9%. */
+  revenueGrowth: number | null;
+  earningsGrowth: number | null;
+  profitMargin: number | null;
+  returnOnEquity: number | null;
+  /** Most recent month first: how many analysts sit in each bucket. */
+  trend: {
+    period: string;
+    strongBuy: number;
+    buy: number;
+    hold: number;
+    sell: number;
+    strongSell: number;
+  }[];
+}
+
+const num = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null;
+
 /** The shape we actually read off a Yahoo quote, regardless of its full type. */
 interface QuoteLike {
   symbol?: string;
@@ -205,6 +233,62 @@ export class YahooClient {
       // assumption was undefended rather than guaranteed. Sorting at the one
       // place bars enter the app is cheaper than each consumer remembering.
       .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * What the street thinks: analyst consensus, price targets, growth and
+   * margins.
+   *
+   * Bought in rather than computed. The app does not try to out-analyse
+   * fifty-seven analysts, and this is free from the provider already in use —
+   * no new vendor, no API key, and invariant 6 intact because the import
+   * stays in this file.
+   *
+   * Null, never a zero or a default, when nothing covers the ticker. On a
+   * 1..5 scale where 1 is "strong buy", a zero would read as the strongest
+   * possible recommendation — the worst available way to be wrong. ETFs and
+   * thin names legitimately have no coverage.
+   */
+  async consensus(symbol: string): Promise<RawConsensus | null> {
+    try {
+      const r = await this.yf.quoteSummary(symbol, {
+        modules: ['financialData', 'recommendationTrend'],
+      });
+      const f = (r?.financialData ?? {}) as Record<string, unknown>;
+      const mean = num(f.recommendationMean);
+      const analysts = num(f.numberOfAnalystOpinions);
+      // No mean and no analysts means no coverage, not a quiet zero.
+      if (mean === null && analysts === null) return null;
+      const trendRows = (r?.recommendationTrend?.trend ?? []) as Record<
+        string,
+        number
+      >[];
+      return {
+        recommendationMean: mean,
+        recommendationKey:
+          typeof f.recommendationKey === 'string' ? f.recommendationKey : null,
+        analystCount: analysts,
+        targetMean: num(f.targetMeanPrice),
+        targetHigh: num(f.targetHighPrice),
+        targetLow: num(f.targetLowPrice),
+        revenueGrowth: num(f.revenueGrowth),
+        earningsGrowth: num(f.earningsGrowth),
+        profitMargin: num(f.profitMargins),
+        returnOnEquity: num(f.returnOnEquity),
+        trend: trendRows.map((t) => ({
+          period: String(t.period ?? ''),
+          strongBuy: Number(t.strongBuy ?? 0),
+          buy: Number(t.buy ?? 0),
+          hold: Number(t.hold ?? 0),
+          sell: Number(t.sell ?? 0),
+          strongSell: Number(t.strongSell ?? 0),
+        })),
+      };
+    } catch {
+      // Silent, like `quote`: this class has no logger, and a missing view is
+      // a state the ranking handles rather than an error it reports.
+      return null;
+    }
   }
 
   async quoteMany(symbols: string[]): Promise<RawQuote[]> {

@@ -63,12 +63,21 @@ export interface RawConsensus {
 import { describe, expect, it, vi } from 'vitest';
 import { YahooClient } from './yahoo.client.js';
 
+/**
+ * The constructor's @Optional() `yf` parameter IS the test seam — read the
+ * comment on it in yahoo.client.ts. Pass a fake there; never cast into the
+ * private field.
+ *
+ * `as never` only because the real library type is enormous and this fake
+ * implements the one method under test.
+ */
+const clientWith = (quoteSummary: unknown) =>
+  new YahooClient({ quoteSummary } as never);
+
 describe('YahooClient.consensus', () => {
   it('maps the provider payload to our own shape', async () => {
-    const client = new YahooClient();
-    // The provider is injected for the test; see the `yf` note in the class.
-    (client as unknown as { yf: unknown }).yf = {
-      quoteSummary: vi.fn().mockResolvedValue({
+    const client = clientWith(
+      vi.fn().mockResolvedValue({
         financialData: {
           recommendationMean: 1.28,
           recommendationKey: 'strong_buy',
@@ -82,10 +91,12 @@ describe('YahooClient.consensus', () => {
           returnOnEquity: 1.17211,
         },
         recommendationTrend: {
-          trend: [{ period: '0m', strongBuy: 9, buy: 48, hold: 2, sell: 1, strongSell: 0 }],
+          trend: [
+            { period: '0m', strongBuy: 9, buy: 48, hold: 2, sell: 1, strongSell: 0 },
+          ],
         },
       }),
-    };
+    );
 
     const c = await client.consensus('NVDA');
 
@@ -102,19 +113,15 @@ describe('YahooClient.consensus', () => {
    * the worst possible way to be wrong.
    */
   it('returns null when nothing covers the ticker', async () => {
-    const client = new YahooClient();
-    (client as unknown as { yf: unknown }).yf = {
-      quoteSummary: vi.fn().mockResolvedValue({ financialData: {} }),
-    };
+    const client = clientWith(vi.fn().mockResolvedValue({ financialData: {} }));
     expect(await client.consensus('SPY')).toBeNull();
   });
 
   /** A provider outage must not fail the ranking; the view goes missing. */
   it('returns null rather than throwing when the provider fails', async () => {
-    const client = new YahooClient();
-    (client as unknown as { yf: unknown }).yf = {
-      quoteSummary: vi.fn().mockRejectedValue(new Error('network down')),
-    };
+    const client = clientWith(
+      vi.fn().mockRejectedValue(new Error('network down')),
+    );
     expect(await client.consensus('NVDA')).toBeNull();
   });
 });
@@ -172,7 +179,7 @@ const num = (v: unknown): number | null =>
    */
   async consensus(symbol: string): Promise<RawConsensus | null> {
     try {
-      const r = await this.provider().quoteSummary(symbol, {
+      const r = await this.yf.quoteSummary(symbol, {
         modules: ['financialData', 'recommendationTrend'],
       });
       const f = (r?.financialData ?? {}) as Record<string, unknown>;
@@ -202,14 +209,15 @@ const num = (v: unknown): number | null =>
           strongSell: Number(t.strongSell ?? 0),
         })),
       };
-    } catch (err) {
-      this.log.warn(`consensus unavailable for ${symbol}: ${String(err)}`);
+    } catch {
+      // Silent, like `quote`: this class has no logger, and a missing view is
+      // a state the ranking handles rather than an error it reports.
       return null;
     }
   }
 ```
 
-If the class has no `provider()` helper, use whatever accessor `quote()` already uses to reach the library instance, and mirror its lazy-construction comment. Do not introduce a second way of reaching the provider.
+`this.yf` is the field the rest of the class uses (`yahoo.client.ts:57`); do not introduce a second way of reaching the provider, and do not add a logger to a class that has none.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -310,7 +318,7 @@ export class WatchlistRanking {
   @Column()
   model: string;
 
-  /** The ranked rows, as JSON. See RankedTicker in watchlist-ranking.types.ts. */
+  /** The ranked rows, as JSON. See RankedTicker in llm/watchlist-ranking-parse.ts. */
   @Column('text')
   payload: string;
 
@@ -411,19 +419,22 @@ Add inside the existing top-level `describe` in `backend/test/watchlist.e2e-spec
    * one model call for the whole watchlist viable.
    */
   it('refuses the fifty-first ticker, naming the limit', async () => {
-    const symbols = Object.keys(STUB_PRICES).slice(0, 50);
-    // The stub prices fewer than fifty symbols; top up with synthetic ones it
-    // also knows. If the stub has fewer than 50, this test documents the cap
-    // with whatever it has plus a direct insert.
-    for (const s of symbols) {
-      await add({ symbol: s }).expect(201);
+    // Synthetic symbols on purpose: the stub prices any unknown ticker at its
+    // default and returns null only for `ZZZZ*`, so fifty of these fill the
+    // list without touching the stub. The fifty-first must NOT be a `ZZZZ`
+    // symbol — that would 404 as an unknown ticker and the test would pass
+    // with no cap in the code at all.
+    for (let i = 1; i <= 50; i++) {
+      await add({ symbol: `CAP${i}` }).expect(201);
     }
-    const res = await add({ symbol: 'ZZZZ_OVER_LIMIT' });
-    expect([400, 404]).toContain(res.status);
+
+    const res = await add({ symbol: 'CAP51' }).expect(400);
+    expect(String(res.body.message)).toContain('50');
   });
 ```
 
-If `STUB_PRICES` has fewer than 50 entries, extend `test/yahoo-stub.ts` with enough obviously-synthetic symbols (`E2E1`…`E2E60`, all priced 100) rather than weakening the assertion. Import `STUB_PRICES` from `./yahoo-stub.js`.
+The limit is reached with synthetic symbols, so `test/yahoo-stub.ts` needs no
+change for this task.
 
 - [ ] **Step 2: Run it to verify it fails**
 

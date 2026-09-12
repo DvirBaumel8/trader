@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBookSection,
   buildRecordSection,
+  renderHistoryLines,
   type BookInput,
   type RecordInput,
 } from './trade-idea-context.js';
@@ -49,6 +50,20 @@ describe('buildBookSection', () => {
 
   it('weights each position against account value', () => {
     expect(buildBookSection(book, 'X')).toContain('87.4%');
+  });
+
+  /**
+   * The watchlist ranking asks about every candidate at once, so there is no
+   * single ticker to call out — a null symbol used to render as a hole in
+   * the sentence ("I do NOT currently hold ."). It must now render neither
+   * callout at all, while the book totals and positions list are untouched.
+   */
+  it('omits the ALREADY HOLD / do NOT hold callout entirely with no single ticker', () => {
+    const out = buildBookSection(book, null);
+    expect(out).not.toContain('ALREADY HOLD');
+    expect(out).not.toContain('I do NOT currently hold');
+    expect(out).toContain('Positions (symbol, shares, price, value, % of account):');
+    expect(out).toContain('BITX');
   });
 });
 
@@ -149,5 +164,34 @@ describe('buildRecordSection', () => {
     expect(out).toContain('55%');
     expect(out).toContain('0.42R');
     expect(out).toContain('$3,398');
+  });
+
+  /**
+   * FIX for a hole in the sentence: `buildRecordSection(rec, null)` used to
+   * still run the per-ticker branch with an empty symbol, producing
+   * "I have never closed a trade in .". With no single ticker to ask about
+   * (the watchlist ranking's case), the whole per-ticker block is skipped —
+   * the overall stats and the recent-closed-trades list are unaffected.
+   */
+  it('emits no sentence with a hole in it when there is no single ticker', () => {
+    const out = buildRecordSection(record, null);
+    expect(out).not.toMatch(/in \.$/m);
+    expect(out).not.toContain('My history in');
+    expect(out).not.toContain('I have never closed a trade in');
+    expect(out).toContain('My last 2 closed trades');
+  });
+});
+
+describe('renderHistoryLines', () => {
+  it('renders his history in a ticker, shared verbatim by buildRecordSection and the ranking prompt', () => {
+    const lines = renderHistoryLines(record.trades, 'BITX');
+    expect(lines[0]).toBe('My history in BITX (2):');
+    expect(lines.some((l) => l.includes('still open'))).toBe(true);
+  });
+
+  it('says so plainly, in one line, when he has never traded the name', () => {
+    expect(renderHistoryLines(record.trades, 'LMND')).toEqual([
+      'I have never closed a trade in LMND.',
+    ]);
   });
 });

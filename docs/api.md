@@ -68,6 +68,19 @@ because an entry was written, never through a "add transaction" endpoint.
 | `PATCH /journal/:id` | Full replace. No optimistic locking — two concurrent edits both return 200 and the last commit wins (see `docs/backlog.md`). |
 | `DELETE /journal/:id` | Removes the entry and everything it owned. |
 
+### Watchlist — `watchlist/`
+
+| Route | Notes |
+|---|---|
+| `GET /watchlist` | The list: priced, and flagged when a ticker has reached its target. |
+| `GET /watchlist/tags` | Declared before `:id` routes, for the same reason journal's is. |
+| `GET /watchlist/ranking` | The newest stored ranking. Read-only — never calls the model. |
+| `POST /watchlist/ranking/refresh` | **Writes.** The only route here that calls the model: one call for the whole list, ranking every ticker against the others. Stores the result and returns it. |
+| `POST /watchlist` | Upserts a ticker by symbol — target price, note, tags. |
+| `POST /watchlist/opinion` | An LLM opinion on the ticker closest to its own target. |
+| `POST /watchlist/:id/acknowledge` | Dismisses a reached-target alert without forgetting it happened. |
+| `DELETE /watchlist/:id` | Stops watching a ticker. |
+
 ### Market data & history
 
 | Route | Notes |

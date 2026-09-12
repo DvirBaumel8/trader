@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { YahooClient, type RawQuote } from './yahoo.client.js';
+import { YahooClient, type RawConsensus, type RawQuote } from './yahoo.client.js';
 import type { MarketSession } from './select-price.js';
 
 export interface Quote {
@@ -26,6 +26,14 @@ interface CacheEntry {
 const DEFAULT_TTL_MS = 60_000;
 
 /**
+ * Much longer than a quote's TTL, deliberately. Analyst consensus (targets,
+ * recommendation, growth) moves over weeks as analysts revise estimates, not
+ * within a session like a price — refetching it every 60s the way a quote is
+ * would spend a provider round trip on a number that has not changed.
+ */
+const CONSENSUS_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Longer than a quote's TTL on purpose. A high-water mark since entry only
  * ever ratchets, and never by much in a minute — while the dashboard polls
  * every 60s, so tying this to the quote TTL would put an extra provider
@@ -44,6 +52,11 @@ export class MarketDataService {
   private readonly extremesCache = new Map<
     string,
     { fetchedAt: number; high: number | null; low: number | null }
+  >();
+  /** symbol -> the street's view, cached far longer than a quote — see CONSENSUS_TTL_MS. */
+  private readonly consensusCache = new Map<
+    string,
+    { value: RawConsensus | null; fetchedAt: number }
   >();
   private readonly yahoo: YahooClient;
   private readonly ttlMs: number;
@@ -163,6 +176,38 @@ export class MarketDataService {
       }
     }
     return out;
+  }
+
+  /**
+   * The street's view of a ticker — analyst consensus, price targets, growth
+   * and margins. `nothing outside market-data/ may import YahooClient
+   * itself` (invariant 6); this is the one door through which the watchlist
+   * ranking reaches it, exactly as `getQuote` is the door for a price.
+   *
+   * Null, cached or not, means no analyst covers the ticker — a real and
+   * common state (ETFs, thin names), never an error. A provider failure
+   * degrades to the cached value, same as `getQuote`, though a MISSING view
+   * is a different thing from a STALE one: nothing downstream needs to know
+   * the consensus is old, because it moves over weeks, not the session.
+   */
+  async getConsensus(symbol: string): Promise<RawConsensus | null> {
+    const key = symbol.toUpperCase();
+    const cached = this.consensusCache.get(key);
+    if (cached && Date.now() - cached.fetchedAt < CONSENSUS_TTL_MS) {
+      return cached.value;
+    }
+    try {
+      const value = await this.yahoo.consensus(key);
+      this.consensusCache.set(key, { value, fetchedAt: Date.now() });
+      return value;
+    } catch (err) {
+      // consensus() on the client already swallows its own failures and
+      // returns null; this catch is belt and braces against anything that
+      // still escapes. Either way, a missing view must never take the
+      // ranking down with it.
+      this.logger.warn(`consensus(${key}) failed: ${describe(err)}`);
+      return cached ? cached.value : null;
+    }
   }
 
   private store(key: string, raw: RawQuote): Quote {

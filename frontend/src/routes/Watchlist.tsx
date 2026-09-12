@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button';
 import { inputClasses } from '../components/ui/inputClasses';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
 import { CollapsibleCard } from '../components/ui/CollapsibleCard';
+import { WatchlistRanking } from '../components/WatchlistRanking';
 import { usePersistentState } from '../lib/persistentState';
 import { shortDay } from '../lib/chartDates';
 
@@ -225,6 +226,8 @@ export function Watchlist() {
           ))}
         </div>
       )}
+
+      <WatchlistRanking hasTickers={rows.length > 0} />
 
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-2">

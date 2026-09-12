@@ -19,6 +19,14 @@ import { useState, type ReactNode } from 'react';
  * The toggle is its own control rather than the whole header being clickable,
  * because a card may carry sibling actions (Re-evaluate) and a button inside
  * a button is invalid.
+ *
+ * Uncontrolled by default — `defaultOpen` seeds internal state and the
+ * caller never hears about a toggle. `open`/`onOpenChange` switch it to
+ * controlled: pass both when the CALLER needs to open or close the card
+ * itself in response to something other than the toggle — e.g. the
+ * watchlist ranking reopening its own reasoning the instant a refresh the
+ * owner just triggered comes back, which is exactly the "just asked for it"
+ * case this component's default already exists to serve.
  */
 export function CollapsibleCard({
   header,
@@ -26,6 +34,8 @@ export function CollapsibleCard({
   children,
   label,
   defaultOpen = true,
+  open: openProp,
+  onOpenChange,
 }: {
   /** Always visible, collapsed or not. Keep it to one line. */
   header: ReactNode;
@@ -35,8 +45,19 @@ export function CollapsibleCard({
   /** Noun for the toggle's accessible name: "Hide review". */
   label: string;
   defaultOpen?: boolean;
+  /** Controlled open state. Provide together with `onOpenChange`; omit both for the uncontrolled default. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const controlled = openProp !== undefined;
+  const open = controlled ? openProp : internalOpen;
+
+  function toggle() {
+    const next = !open;
+    if (controlled) onOpenChange?.(next);
+    else setInternalOpen(next);
+  }
 
   return (
     <div className="space-y-2 rounded-xl border border-dashed border-accent/40 bg-surface-1 p-3">
@@ -46,7 +67,7 @@ export function CollapsibleCard({
           {actions}
           <button
             type="button"
-            onClick={() => setOpen((v) => !v)}
+            onClick={toggle}
             aria-expanded={open}
             aria-label={`${open ? 'Hide' : 'Show'} ${label}`}
             className="text-[11px] font-medium text-muted hover:text-text"

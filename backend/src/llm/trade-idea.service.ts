@@ -19,10 +19,7 @@ import {
   computeTradeRisk,
   type TradeRiskResult,
 } from '../portfolio/trade-risk.js';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
-const PROFILE_PATH = join(process.cwd(), '..', 'docs', 'trader-profile.md');
+import { readTraderProfile } from './trader-profile.js';
 
 export interface TradeIdeaResult {
   configured: boolean;
@@ -99,7 +96,7 @@ export class TradeIdeaService {
         this.tickerFacts.get(upper),
         this.trades.getStats(),
         this.portfolio.getPortfolio(),
-        this.readProfile(),
+        readTraderProfile(),
       ]);
 
     // Checked in the order they used to run, so which failure a caller sees
@@ -194,14 +191,5 @@ export class TradeIdeaService {
       error: null,
       errorKind: null,
     };
-  }
-
-  /** The owner's trading profile, or null when the file is missing. */
-  private async readProfile(): Promise<string | null> {
-    try {
-      return await readFile(PROFILE_PATH, 'utf-8');
-    } catch {
-      return null;
-    }
   }
 }

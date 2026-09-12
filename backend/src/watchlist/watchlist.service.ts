@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { WatchlistItem } from './watchlist-item.entity.js';
@@ -52,6 +52,17 @@ export interface UpsertInput {
   note?: string;
   tags?: string[];
 }
+
+/**
+ * How many tickers may be watched at once.
+ *
+ * Fifty is a product decision, not a technical one, and it does two jobs: it
+ * keeps the list readable, and it bounds the ranking prompt, which is what
+ * makes one model call for the whole watchlist possible. Enforced as a
+ * refusal rather than a truncation — a ranking that silently covers part of a
+ * list is worse than a list that will not grow.
+ */
+export const WATCHLIST_LIMIT = 50;
 
 @Injectable()
 export class WatchlistService {
@@ -190,6 +201,12 @@ export class WatchlistService {
       where: { userId: user.id, instrumentId: instrument.id },
     });
     if (!item) {
+      const count = await this.items.count({ where: { userId: user.id } });
+      if (count >= WATCHLIST_LIMIT) {
+        throw new BadRequestException(
+          `The watchlist holds ${WATCHLIST_LIMIT} tickers at most. Remove one before adding another.`,
+        );
+      }
       item = this.items.create({
         userId: user.id,
         instrumentId: instrument.id,
