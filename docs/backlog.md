@@ -99,14 +99,12 @@ shapes from each other last time; the missing piece was always the
   bars-are-behind warning stays in the open: it is transient and it resolves,
   which is the only one worth interrupting a glance for.
 
-  **Decide: dates follow the device locale, money does not.** Every money
-  value is pinned to `en-US`; dates pass `[]` to `toLocaleDateString`, and
-  `lightweight-charts` gets no `localization` at all. On the owner's phone
-  that renders Hebrew month abbreviations under an otherwise English screen.
-  This is deliberate — `chartDates.spec.ts` says "order is the VIEWER's
-  locale to decide" — so it was left alone, but the consequence is mixed
-  script in a product meant to be charged for. Pinning both to English is
-  two lines; keeping device dates is also coherent. Not the agent's call.
+  **Decided, 2026-09-12: dates stay on the device locale.** Money is pinned
+  to `en-US`; dates follow whatever `toLocaleDateString` gives the viewer's
+  device, deliberately (`chartDates.spec.ts`: "order is the VIEWER's locale
+  to decide"). Raised as a possible mixed-script concern on the owner's own
+  phone (Hebrew month abbreviations next to English money) — he doesn't see
+  it as an issue. No change.
 
   **Watch: axis labels may now crowd.** The current-price badge already
   overlapped its neighbouring gridline label before any of this (visible on
