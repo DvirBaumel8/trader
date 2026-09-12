@@ -44,11 +44,6 @@ this says what is outstanding.
   discussion below — a live feed makes this measurable continuously instead
   of by hand.
 
-- [ ] **A glitch in the Trades screen filter.** Raised 2026-09-12 alongside
-  the totals request below: "there is a glitch in the UI with the filter."
-  Not yet reproduced or characterised — ask him what he sees, or reproduce on
-  a phone-width viewport, before touching it.
-
 - [ ] **The e2e suite flakes about 1 run in 20, and the cause is still
   unknown.** Investigated at length; recording what was ruled out so the next
   attempt does not repeat it.
@@ -401,47 +396,4 @@ is a sit-down with the owner, not something to complete alone and present.
 
 Raised as a block; each needs its own slice.
 
-- [ ] **TypeScript 7 is blocked — everything else on the upgrade list is
-  done.** `@types/node` 24→26, `@testing-library/jest-dom` 6→7, `jsdom` 27→30
-  and `vitest` + `@vitest/coverage-v8` 4→5 all landed clean (merged coverage
-  unchanged at 91.63% statements / 92.97% lines, so the blob-report merge
-  survived). `vite-tsconfig-paths` was **deleted, not upgraded**: the backend
-  declares no `paths` and no `baseUrl` and imports no aliases, so the plugin
-  resolved nothing — removing it also silenced the deprecation notice that
-  printed on every test run.
-
-  **TypeScript 7 was tried and reverted.** It is the native (Go) compiler and
-  ships no `lib.*.d.ts` files at all — they live inside the binary. `tsc
-  --noEmit` and the whole test suite pass on it (vitest transpiles with
-  esbuild/rolldown, not tsc), which makes it look fine, but the NestJS CLI
-  watcher builds its own program through the JS API and cannot find the
-  default libs: `npm run dev` dies with 11 × "Cannot find global type
-  'Array'" and `TS6053: lib.es2023.full.d.ts not found`. Both packages are
-  back on 6.x. **Recheck when `@nestjs/cli` states TS7 support** — verifying
-  with `tsc --noEmit` alone is not enough, the acceptance test is a clean
-  `npm run dev` recompile.
-
-- [ ] **Concurrent edits to the same journal entry: probed, not fixed.**
-  Confirmed by firing two overlapping `PATCH /journal/:id` requests: no
-  corruption (Postgres's own row locking keeps exactly one transaction row,
-  never zero or duplicated), but no conflict detection either — both
-  requests get a 200, and whichever's write commits last silently overwrites
-  the other with no signal to the loser that its save did not stick.
-
-  **It is worse than lost data: the race also creates lock contention.** The
-  e2e test written to document this was itself intermittently hanging the
-  suite — roughly one run in six, a later spec's `POST /journal` would block
-  past the 5s timeout waiting on locks the racing pair left behind. The test
-  was removed for that reason (a flaky suite costs more than executable
-  documentation of a gap already written up here), but the behaviour it
-  exposed is the real argument for fixing this: two overlapping edits do not
-  just silently drop one, they can stall unrelated writes.
-
-  **Do not re-add a test that races two writes at the same row** without
-  solving that — it destabilises everything that runs after it.
-
-  A real fix means optimistic concurrency (a version/`updatedAt` check on
-  `PATCH`, 409 on mismatch, and a frontend conflict UI) — real complexity for
-  a single-user app mostly used from one device at a time. Worth a deliberate
-  decision on whether this earns it, not a default yes.
 - [ ] `getPortfolio` (`portfolio.service.ts`) is still ~227 lines, now mostly fetch-and-assemble (positions array, at-risk, stop tiers) after `computeAtRisk` moved to `risk.ts` and the trailing-stop high-water resolution moved to `TradesService.resolveHighWaterPrice` (shared with `getTrade()`). Further splitting is not obviously a win over reading it top to bottom — parked unless it grows.
