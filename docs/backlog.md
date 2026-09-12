@@ -142,25 +142,6 @@ this says what is outstanding.
 
 ## UI
 
-- [ ] **5 frontend lint warnings remain, not the 2 last recorded here** — the
-  count drifted after the chart file was split (`f996e1a`) and after Google
-  sign-in landed, and nobody re-ran `npm run lint --prefix frontend` since.
-  Re-verified 2026-09-12:
-
-  - Three `react(set-state-in-effect)`, same shape as before and still the
-    right call to leave: each synchronizes local state with a genuine
-    external event, not derivable-during-render state.
-    `EntrySheet.tsx:160` (which entry/draft session is active),
-    `Journal.tsx:359` (an async fetch resolving), and one not previously
-    listed, `Login.tsx:254` (whether the Google script tag is already on the
-    page).
-  - Two `react-hooks(exhaustive-deps)`, new since the chart split and not
-    previously triaged: `useCallouts.ts:117` and `:268` want `seriesRef`,
-    `chartRef` and `containerRef` in their dependency arrays. Almost
-    certainly fine to leave — refs are stable identities, the same reasoning
-    that applies to the set-state warnings above — but that is a guess, not
-    a decision made on purpose the way the other three were. Worth five
-    minutes to actually look and either silence with a reason or fix.
 - [ ] **Look hard at the UI as a whole.** More conventional components? Study
   comparable products and decide what the right shape actually is. A first
   pass against the owner's own screenshots produced three concrete findings;
