@@ -8,6 +8,7 @@ import { Money } from '../components/Money';
 import { StatsHeader } from '../components/StatsHeader';
 import { EntrySheet } from '../components/EntrySheet';
 import { loadUiState, saveUiState } from '../lib/uiState';
+import { dayLabel } from '../lib/dayHeading';
 import { FeesChart } from '../components/FeesChart';
 import type { FeesResponse, Period } from '../lib/feeTypes';
 import { FilterBar, type SortValue } from '../components/FilterBar';
@@ -42,14 +43,6 @@ interface Balance {
   cash: number;
   contributedCapital: number;
   dividendsReceived: number;
-}
-
-function dayLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString([], {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
 }
 
 /** Groups entries under a date heading so the list reads as days, not a blur. */
