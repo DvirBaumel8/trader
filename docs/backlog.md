@@ -7,7 +7,70 @@ be read as "what's left," not a history of what happened (that's `git log`).
 **Read this before picking up work.** `CLAUDE.md` says what the project is;
 this says what is outstanding.
 
+## Built but not merged
+
+- [ ] **The watchlist ranking is finished and sitting on
+  `feat/watchlist-ranking`, unmerged.** 22 commits, 39 files, +2,795/-162 as of
+  2026-09-12. Every task passed its own review, the whole-branch review returned
+  "ready to merge", and the suites are green: backend unit 502, backend e2e 164,
+  frontend 290, browser 11, both typechecks and the production build clean.
+
+  **Why it is not merged:** `main` deploys to production automatically, and that
+  is the owner's decision to make, not the agent's. Nothing is blocking it
+  technically.
+
+  **What it does.** Ranks the watchlist best-to-worst for "what should I buy
+  next" by giving one model call three views of each ticker and asking it to
+  reconcile them: the street (analyst consensus, fetched — not invented), the
+  tape (the indicators the app already computes, including the 150-day), and him
+  (his book, his record, and his own prior trades in that exact ticker). No
+  numeric score: the order carries the comparison. Cached, with the age always on
+  screen and a manual refresh. Design:
+  `docs/superpowers/specs/2026-09-12-watchlist-ranking-design.md`; plan and its
+  recorded deviations: `docs/superpowers/plans/2026-09-12-watchlist-ranking.md`.
+
+  **It needs a key to say anything.** With no `GEMINI_API_KEY` (or
+  `LLM_API_KEY`) in the API's environment the screen says so plainly and the
+  refresh control is hidden — correct behaviour, but it means the feature is
+  inert until the key is set in Render.
+
+  **Two entries in this file live only on that branch** and vanish if it is ever
+  abandoned rather than merged: the broker-integration writeup and the
+  consensus-outage bug. Both are duplicated onto `main` in the same commit as
+  this note, so nothing is lost either way.
+
 ## Bugs — correctness
+
+- [ ] **A failed consensus fetch is indistinguishable from "nobody covers this
+  ticker".** Found by the watchlist ranking's final review, 2026-09-12, and
+  deliberately split out of that fix wave because it changes a prompt contract.
+
+  `YahooClient.consensus()` returns `null` both when a ticker genuinely has no
+  analyst coverage and when the provider call fails. `MarketDataService` passes
+  that null through, the prompt's `renderStreet` writes "no analyst coverage —
+  nobody covers this name", the model dutifully emits
+  `COVERAGE: no-analyst-coverage`, and the Watch tab prints "no analyst
+  coverage — ranked on the tape and your record alone" under the ticker.
+
+  **So a Yahoo outage does not degrade honestly — it asserts, on screen, that
+  NVDA has no analyst coverage.** That is invariant 7's failure inverted: not a
+  stale answer wearing a fresh face, but a *failure* wearing a fact's face.
+
+  Partially mitigated already: the refresh caps consensus fetches at 8 at a
+  time rather than firing up to fifty from a Render IP that `docs/DEPLOYMENT.md`
+  already records as having trouble with Yahoo fundamentals, and it logs when
+  the consensus comes back empty. That makes a blanket outage visible in
+  `logs/api.log`; it does not make it visible to him.
+
+  **The real fix is three states, not two**, and it touches four places, which
+  is why it is its own task: `YahooClient.consensus` must distinguish "resolved,
+  uncovered" from "failed" (throw, or a discriminated result);
+  `MarketDataService.getConsensus` must propagate it; `renderStreet` needs a
+  third branch saying the view is unavailable rather than absent; and the
+  prompt's `COVERAGE` vocabulary needs a third value that the parser accepts and
+  the UI captions differently. An existing test currently locks in the
+  null-collapse, so it changes too.
+
 
 - [ ] **The app's numbers disagree with his broker — balance, returns and
   history, all of it.** Raised 2026-09-12. He will bring the specific gaps;
@@ -237,6 +300,54 @@ when the question was "should I add to this winner?".
 
 Raised 2026-09-12. Each needs its own brainstorm before any plan — written
 here so nothing is lost, not as an instruction to start building.
+
+- [ ] **Broker integration — Interactive Brokers, read-only, via the Flex Web
+  Service.** Researched 2026-09-12 and deferred the same day; written up so
+  the research is not repeated. The owner trades through **Handy Trader**,
+  which is IBKR's own mobile app (Israeli clients reach it through Interactive
+  Israel, a gateway onto the IBKR engine). So the account is an IBKR account,
+  which is the best case available.
+
+  **The chosen route: the Flex Web Service.** A Flex Query is defined once in
+  Client Portal — which fields to include: executions, positions, cash
+  transactions, commissions, dividends, margin interest — and IBKR issues a
+  token. A server then fetches an XML report over two REST calls:
+  `SendRequest` (token + query id + `v=3`) returns a reference code, and
+  `GetStatement` returns the report a few seconds later. Read-only by
+  construction, no order permission anywhere near it, no daily login, no 2FA
+  prompt, no desktop process. Free. Rate-limited to roughly one request per
+  second, which a once-a-day pull never approaches.
+
+  **The two routes rejected.** The Client Portal Web API offers live data and
+  order placement but needs either a gateway process running continuously or
+  an OAuth flow plus regular re-authentication — the wrong shape for an API on
+  Render. The TWS API needs TWS or IB Gateway running on a machine that never
+  sleeps, which rules itself out. Third-party aggregators (SnapTrade, Plaid
+  Investments) are paid, and the brief says free while this serves one user.
+
+  **The design constraint that matters most.** The feed must NOT write
+  transactions. Invariants 1 and 2 exist because the journal is the only write
+  path into the portfolio, and that is what keeps the diary self-sustaining —
+  a feed that writes directly would end the journal, because he would stop
+  writing entries the moment the app already knew. The right shape is
+  *reconciliation*: the feed says "the broker shows a PLTR sell on the 9th you
+  have not journalled", and he journals it in one tap with the fields
+  pre-filled. The broker supplies the *what*; he keeps the *why*.
+
+  **Why this also closes the numbers gap.** It delivers exactly what the
+  reconciliation item at the top of this file needs: every execution with its
+  real commission, the cash transactions, and dividends and margin interest
+  the app does not model at all. The gap stops being something he spots by eye
+  and becomes a screen that tells him what does not match.
+
+  **Blocked on one check by him:** whether Client Portal → Settings → Account
+  Settings → **Flex Web Service** is available on his account and will issue a
+  token. Interactive Israel accounts are IBKR accounts so it should be, but if
+  Client Portal features are restricted for that channel the whole design
+  changes, and that is worth knowing before anything is built.
+
+  **Security:** the token reads full account history. It belongs in Render's
+  environment only — never in the repo, never pasted into a chat.
 
 - [ ] **Totals on the Trades screen, over a chosen period.** Today the Trades
   tab lists round trips and a stats header (win rate, average risk,
