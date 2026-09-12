@@ -1,8 +1,6 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { WatchlistRanking } from './watchlist-ranking.entity.js';
 import { WatchlistService, WATCHLIST_LIMIT } from './watchlist.service.js';
 import { Instrument } from '../instruments/instrument.entity.js';
@@ -18,27 +16,32 @@ import {
 } from '../llm/watchlist-ranking-prompt.js';
 import { parseRanking, type RankedTicker } from '../llm/watchlist-ranking-parse.js';
 import { buildBookSection, buildRecordSection } from '../llm/trade-idea-context.js';
+import { readTraderProfile } from '../llm/trader-profile.js';
+import { settleInChunks } from '../common/settle-in-chunks.js';
 import { PortfolioService } from '../portfolio/portfolio.service.js';
 import { TradesService } from '../portfolio/trades.service.js';
 import { UsersService } from '../users/users.service.js';
-
-const PROFILE_PATH = join(process.cwd(), '..', 'docs', 'trader-profile.md');
 
 /** Older than this, and the stored ranking is shown as stale rather than fresh. */
 const STALE_MS = 24 * 60 * 60 * 1000;
 
 /**
- * No real ticker is ever this. Passed to `buildBookSection` /
- * `buildRecordSection` in place of a symbol: those two helpers exist to
- * answer "should I add to THIS position", which is the trade-idea question
- * for one ticker — but a ranking asks about every watchlist ticker at once,
- * so there is no single symbol to highlight. Passing one that can never match
- * a real position or a real trade degrades their single-ticker callouts
- * ("I ALREADY HOLD X" / "my history in X") to their harmless generic form,
- * leaving the book totals, the open positions list and the closed-trade
- * history — the part this prompt actually wants — untouched.
+ * The watchlist has no single ticker to ask "do I already hold THIS one" or
+ * "my history in THIS one" about — it asks about every candidate at once —
+ * so `buildBookSection` / `buildRecordSection` are called with `null` for
+ * those two callouts. `RankingCandidate.trades` carries the per-ticker
+ * history a ranking DOES want, rendered separately per candidate by
+ * `watchlist-ranking-prompt.ts`'s own `renderHistory`.
  */
-const NO_SINGLE_TICKER = '';
+const NO_SINGLE_TICKER = null;
+
+/**
+ * How many `getConsensus` calls run at once. Firing all fifty watchlist
+ * tickers' worth at once is fifty concurrent `quoteSummary` requests to
+ * Yahoo from one Render IP — a project that already has recorded trouble
+ * with Yahoo fundamentals from there.
+ */
+const CONSENSUS_CONCURRENCY = 8;
 
 export interface RankingResponse {
   configured: boolean;
@@ -157,7 +160,7 @@ export class WatchlistRankingService {
         this.instruments.find({ where: { symbol: In(symbols) } }),
         this.trades.getStats(),
         this.portfolio.getPortfolio(),
-        this.readProfile(),
+        readTraderProfile(),
       ]);
 
     if (instrumentsResult.status === 'rejected') throw instrumentsResult.reason;
@@ -190,9 +193,10 @@ export class WatchlistRankingService {
     // The street, by contrast, IS fetched — and a miss here is a MISSING
     // VIEW for that one ticker, never a failure of the whole request. Kept
     // out of the allSettled block above (and never rethrown) for exactly
-    // that reason.
-    const consensusSettled = await Promise.allSettled(
-      symbols.map((s) => this.marketData.getConsensus(s)),
+    // that reason. Chunked at CONSENSUS_CONCURRENCY rather than fired all at
+    // once — see the constant's comment.
+    const consensusSettled = await settleInChunks(symbols, CONSENSUS_CONCURRENCY, (s) =>
+      this.marketData.getConsensus(s),
     );
     const consensusBySymbol = new Map(
       symbols.map((s, i) => {
@@ -200,6 +204,27 @@ export class WatchlistRankingService {
         return [s.toUpperCase(), r.status === 'fulfilled' ? r.value : null] as const;
       }),
     );
+
+    // Every consensus fetch that came back empty — whether nobody covers the
+    // ticker or the provider call itself failed; today's `getConsensus`
+    // cannot tell the two apart (see the design doc's backlogged three-state
+    // fix). Logged as a count so a blanket Yahoo outage — most or all of the
+    // list coming back empty at once — is visible in logs/api.log rather
+    // than reading as fifty ordinary "no coverage" tickers.
+    const emptyConsensusCount = [...consensusBySymbol.values()].filter(
+      (v) => v === null,
+    ).length;
+    if (emptyConsensusCount > 0) {
+      this.logger.warn(
+        `Watchlist ranking: consensus came back empty for ${emptyConsensusCount}/${symbols.length} tickers (no coverage or a provider failure — indistinguishable today)`,
+      );
+    }
+
+    // Cheap: `WatchlistService.list()` (inside `this.watchlist.list()` above)
+    // just called `getQuotes` for these same symbols, so this is a cache hit
+    // within its 60s TTL, not a second round trip. Needed for P/E, which
+    // lives on the quote/fundamentals, not on `IndicatorSet`.
+    const quotes = await this.marketData.getQuotes(symbols);
 
     const candidates: RankingCandidate[] = rows.map((row) => {
       const instrument = instrumentBySymbol.get(row.symbol.toUpperCase());
@@ -223,11 +248,13 @@ export class WatchlistRankingService {
           row.price === null
             ? emptyIndicators(rawBars.length)
             : computeIndicators(rawBars, row.price),
+        peRatio: quotes.get(row.symbol.toUpperCase())?.peRatio ?? null,
         consensus: consensusBySymbol.get(row.symbol.toUpperCase()) ?? null,
         targetPrice: row.targetPrice,
         distanceToTarget: row.distanceToTarget,
         tags: row.tags.map((t) => t.label),
         note: row.note,
+        trades: statsResult.value.trades,
       };
     });
 
@@ -264,6 +291,27 @@ export class WatchlistRankingService {
     }
 
     const parsed = parseRanking(raw, symbols);
+
+    // `parseRanking` never throws — prose that does not fit the `[RANK]`
+    // contract degrades to `order: []` with every candidate named in
+    // `missing`, documented in watchlist-ranking-parse.ts as "a routine
+    // outcome the caller can show as 'no ranking yet'". That is true for a
+    // FRESH ranking with nothing stored yet, but `refresh()` is called on
+    // top of a cache: saving this would make `current()` (newest row wins)
+    // serve an empty order and a `missing` list naming all fifty tickers in
+    // place of whatever good ranking was already on file — the exact
+    // failure the 503 above exists to prevent, reached through a door that
+    // didn't check. Treat an unparseable answer as a failed refresh, same
+    // as a thrown model call: log it, leave the previous row exactly as it
+    // was, and tell the caller to try again.
+    if (parsed.order.length === 0) {
+      this.logger.warn(
+        `Watchlist ranking unparseable (${raw.length} chars) — previous ranking kept`,
+      );
+      throw new ServiceUnavailableException(
+        'The watchlist ranking could not be computed right now.',
+      );
+    }
 
     const owner = await this.users.currentUser();
     const rankedAt = new Date();
@@ -320,14 +368,5 @@ export class WatchlistRankingService {
       missing: payload.missing,
       stale,
     };
-  }
-
-  /** The owner's trading profile, or null when the file is missing. */
-  private async readProfile(): Promise<string | null> {
-    try {
-      return await readFile(PROFILE_PATH, 'utf-8');
-    } catch {
-      return null;
-    }
   }
 }

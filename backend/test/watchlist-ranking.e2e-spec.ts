@@ -163,6 +163,35 @@ describe('Watchlist ranking (e2e)', () => {
     expect(res.body.order.map((t: { symbol: string }) => t.symbol)).toEqual(['NVDA']);
   });
 
+  /**
+   * The same guarantee as the test above, through the OTHER door.
+   * `parseRanking` never throws — prose that doesn't fit the `[RANK]`
+   * contract degrades to `order: []` rather than erroring, which is correct
+   * for a fresh ranking with nothing stored yet but was, before this fix,
+   * saved unconditionally by `refresh()`. That let one rambling answer
+   * supersede a good ranking: `current()` takes the newest row, so the
+   * owner would see a fresh badge, an empty list, and every ticker in
+   * `missing` — indistinguishable from "the model dropped everything"
+   * except that nothing actually failed on screen. A successful ranking is
+   * stored first, THEN the model is made to ramble on the very next call, so
+   * this proves both halves: the unparseable attempt surfaces as 503, not a
+   * silent 200 with an empty order, and the row it would have replaced is
+   * still exactly what `current()` serves afterwards.
+   */
+  it('keeps the previous ranking intact when a refresh call comes back unparseable', async () => {
+    await add({ symbol: 'NVDA' }).expect(201);
+    const first = await http(app, token).post('/watchlist/ranking/refresh').expect(201);
+    const firstRankedAt = first.body.rankedAt;
+    expect(firstRankedAt).toBeTruthy();
+
+    llmStub.complete.mockImplementationOnce(async () => 'the model rambled');
+    await http(app, token).post('/watchlist/ranking/refresh').expect(503);
+
+    const res = await http(app, token).get('/watchlist/ranking').expect(200);
+    expect(res.body.rankedAt).toBe(firstRankedAt);
+    expect(res.body.order.map((t: { symbol: string }) => t.symbol)).toEqual(['NVDA']);
+  });
+
   describe('when no model is configured', () => {
     let unconfiguredApp: INestApplication;
     let unconfiguredToken: string;
