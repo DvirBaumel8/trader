@@ -9,6 +9,37 @@ this says what is outstanding.
 
 ## Bugs — correctness
 
+- [ ] **A failed consensus fetch is indistinguishable from "nobody covers this
+  ticker".** Found by the watchlist ranking's final review, 2026-09-12, and
+  deliberately split out of that fix wave because it changes a prompt contract.
+
+  `YahooClient.consensus()` returns `null` both when a ticker genuinely has no
+  analyst coverage and when the provider call fails. `MarketDataService` passes
+  that null through, the prompt's `renderStreet` writes "no analyst coverage —
+  nobody covers this name", the model dutifully emits
+  `COVERAGE: no-analyst-coverage`, and the Watch tab prints "no analyst
+  coverage — ranked on the tape and your record alone" under the ticker.
+
+  **So a Yahoo outage does not degrade honestly — it asserts, on screen, that
+  NVDA has no analyst coverage.** That is invariant 7's failure inverted: not a
+  stale answer wearing a fresh face, but a *failure* wearing a fact's face.
+
+  Partially mitigated already: the refresh caps consensus fetches at 8 at a
+  time rather than firing up to fifty from a Render IP that `docs/DEPLOYMENT.md`
+  already records as having trouble with Yahoo fundamentals, and it logs when
+  the consensus comes back empty. That makes a blanket outage visible in
+  `logs/api.log`; it does not make it visible to him.
+
+  **The real fix is three states, not two**, and it touches four places, which
+  is why it is its own task: `YahooClient.consensus` must distinguish "resolved,
+  uncovered" from "failed" (throw, or a discriminated result);
+  `MarketDataService.getConsensus` must propagate it; `renderStreet` needs a
+  third branch saying the view is unavailable rather than absent; and the
+  prompt's `COVERAGE` vocabulary needs a third value that the parser accepts and
+  the UI captions differently. An existing test currently locks in the
+  null-collapse, so it changes too.
+
+
 - [ ] **The app's numbers disagree with his broker — balance, returns and
   history, all of it.** Raised 2026-09-12. He will bring the specific gaps;
   this is a joint investigation, not something to guess at alone.
