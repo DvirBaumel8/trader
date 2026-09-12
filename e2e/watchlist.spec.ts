@@ -60,4 +60,49 @@ test.describe('the watchlist', () => {
 
     await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0);
   });
+
+  /**
+   * The ranking is the one screen a browser test earns its keep on: the
+   * order it renders comes straight from the stubbed model's [RANK] blocks
+   * (`backend/src/main.e2e.ts`), so a wiring mistake between the parsed
+   * order and the list would show here and nowhere faster. The second half —
+   * the reasoning staying collapsed on a normal page view — is the assertion
+   * worth having: it is invisible to every unit test and it regressed once
+   * already during this feature's development.
+   */
+  test('ranks the watchlist and keeps the reasoning collapsed until opened', async ({
+    page,
+  }) => {
+    await page.getByPlaceholder('NVDA').fill('AAPL');
+    await page.getByRole('button', { name: 'Watch', exact: true }).click();
+    await expect(page.getByText('AAPL', { exact: true })).toBeVisible();
+
+    // By now "Rank watchlist" / "Edit watchlist" / "AI opinion on the best
+    // watchlist candidate" have all appeared, and each contains "Watch" —
+    // getByRole matches substrings, so the plain add-a-ticker spec above
+    // gets away without `exact` only because it never adds a second ticker.
+    await page.getByPlaceholder('NVDA').fill('NVDA');
+    await page.getByRole('button', { name: 'Watch', exact: true }).click();
+    await expect(page.getByText('NVDA', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Rank watchlist' }).click();
+
+    // The stub always answers AAPL first, NVDA second — see
+    // RANKING_STUB_ANSWER in main.e2e.ts.
+    const rankedItems = page.locator('ol li');
+    await expect(rankedItems).toHaveCount(2);
+    await expect(rankedItems.nth(0)).toContainText('AAPL');
+    await expect(rankedItems.nth(1)).toContainText('NVDA');
+
+    // A refresh just triggered opens the reasoning immediately — it was
+    // just asked for. A plain reload instead reads the CACHED ranking rather
+    // than triggering a new one, so the reasoning card returns to its
+    // resting, collapsed state — the case the assertion below is about.
+    await page.reload();
+    await expect(rankedItems.nth(0)).toContainText('AAPL');
+
+    await expect(page.getByText(/Stub reasoning/)).toHaveCount(0);
+    await page.getByRole('button', { name: 'Show ranking' }).click();
+    await expect(page.getByText(/Stub reasoning/)).toBeVisible();
+  });
 });

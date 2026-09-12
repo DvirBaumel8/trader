@@ -208,7 +208,12 @@ backend/src/
   portfolio/     derive.ts (pure), derive-trades.ts (pure), risk.ts (pure),
                  service, controller — including /portfolio/trades/:id
   performance/   series.ts (pure): valuation -> time-weighted return -> rebased series
-  llm/           AI summary, plus the trade review (context, prompt, parse, service)
+  llm/           AI summary, plus the trade review (context, prompt, parse, service),
+                 and the watchlist ranking prompt/parse
+  watchlist/     watchlist items and tags; watchlist_rankings caches the model's
+                 ranked order (watchlist-ranking.service.ts), served without a
+                 model call by GET /watchlist/ranking and recomputed by
+                 POST /watchlist/ranking/refresh
   database/      migrations (registered by hand in data-source.ts), in-memory-db.ts
 frontend/src/
   api/           client.ts (fetch wrapper, prefixes /api), settings.ts (shared query)
@@ -496,9 +501,13 @@ API and asserted against whatever NVDA cost that minute.
 
 - **Since the phases** — shipped incrementally, not as a numbered phase:
   the trade review (an LLM read of one closed trade: `llm/trade-review-*`,
-  `TradeReviewCard`), the monorepo restructure with static serving, and the
+  `TradeReviewCard`), the monorepo restructure with static serving, the
   composer's **fill context** — a closing fill prefills the quantity you hold
-  and offers exit reason chips, an opening one offers entry chips.
+  and offers exit reason chips, an opening one offers entry chips — and the
+  **watchlist ranking**: one model call ranks the whole watchlist best to
+  worst, reconciling the street's consensus, the tape and his own book and
+  record (`watchlist/watchlist-ranking.service.ts`, `llm/watchlist-ranking-*`,
+  `WatchlistRanking.tsx`).
 
 ## Documentation map
 
