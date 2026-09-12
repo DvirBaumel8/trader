@@ -71,6 +71,53 @@ VERDICT: cut off mid
     expect(() => parseRanking(truncated, ['PLTR'])).not.toThrow();
   });
 
+  /**
+   * The lazy-regex predecessor of this parser stopped at the FIRST
+   * `[/RANK]` it found — which, when A never got a closing tag of its own,
+   * is B's. The merged span then read A's own SYMBOL/VERDICT (first match
+   * wins) but B's COVERAGE (the only COVERAGE line in the merged body),
+   * silently attributing B's coverage flag to A. A must instead be rejected
+   * outright and reported in `missing`: not ranked beats ranked wrongly.
+   */
+  it('rejects a block left unclosed when the next one opens, rather than borrowing its neighbor’s fields', () => {
+    const adjacent = `
+[RANK]
+SYMBOL: A
+VERDICT: foo
+[RANK]
+SYMBOL: B
+VERDICT: bar
+COVERAGE: no-analyst-coverage
+[/RANK]
+`;
+    const r = parseRanking(adjacent, ['A', 'B']);
+    expect(r.order).toEqual([
+      { symbol: 'B', verdict: 'bar', noAnalystCoverage: true },
+    ]);
+    expect(r.missing).toEqual(['A']);
+  });
+
+  /**
+   * A real LLM failure mode is repetition: the model gets stuck emitting
+   * the same opening tag over and over with no closing tag ever. The
+   * original `[\s\S]*?` regex rescanned to the end of the remaining text on
+   * every such attempt — quadratic in input length, and since Node is
+   * single-threaded, a hang here stalls the whole API. This asserts the
+   * linear-scan replacement stays fast on exactly that input.
+   */
+  it('parses a long run of unclosed [RANK] tags quickly, not quadratically', () => {
+    const unit = '[RANK]\n';
+    const degenerate = unit.repeat(Math.ceil(200_000 / unit.length));
+
+    const start = Date.now();
+    const r = parseRanking(degenerate, ['NVDA']);
+    const elapsedMs = Date.now() - start;
+
+    expect(elapsedMs).toBeLessThan(500);
+    expect(r.order).toEqual([]);
+    expect(r.missing).toEqual(['NVDA']);
+  });
+
   it('treats an unrecognised COVERAGE value as full rather than throwing', () => {
     const weird = `
 [RANK]
