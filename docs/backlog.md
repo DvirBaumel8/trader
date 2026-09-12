@@ -353,4 +353,11 @@ is a sit-down with the owner, not something to complete alone and present.
 
 Raised as a block; each needs its own slice.
 
-- [ ] `getPortfolio` (`portfolio.service.ts`) is still ~227 lines, now mostly fetch-and-assemble (positions array, at-risk, stop tiers) after `computeAtRisk` moved to `risk.ts` and the trailing-stop high-water resolution moved to `TradesService.resolveHighWaterPrice` (shared with `getTrade()`). Further splitting is not obviously a win over reading it top to bottom — parked unless it grows.
+Nothing outstanding right now. `getPortfolio`'s size was reconsidered
+2026-09-12 and closed rather than parked: no duplication with
+`TradesService.getTrade()`'s high-water resolution (already shared via
+`resolveHighWaterPrice`), and the only real argument — unit-testability of
+its pure raw-rows-to-derived-shapes and position-assembly steps, given
+`portfolio.service.ts`'s ~0.5% unit coverage — was judged not worth the risk
+of touching code next to `derive.ts` for a marginal win. Revisit only if the
+method actually grows or a real duplication shows up, not on line count alone.
