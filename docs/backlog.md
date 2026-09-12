@@ -101,6 +101,28 @@ this says what is outstanding.
 
 ## UI
 
+- [ ] **"Avg risk" does not explain itself.** Raised 2026-09-12: he saw the
+  tile on the Journal header and did not know what it meant. That is the
+  finding — not a bug in the number, which is correct (see the answer in
+  conversation and `summariseTrades` in `derive-trades.ts`), but a figure
+  occupying prime screen space that its own owner cannot read.
+
+  The number is the average dollars at risk across every trade that set a
+  stop, open ones included, excluding plans whose risk computes to zero. The
+  sub-label says "N with a stop", which explains the denominator and not the
+  quantity.
+
+  **Decide with him:** either the tile gets a tap-to-explain (one line: "what
+  you typically put at risk per trade — the average of entry-to-stop across
+  N trades"), or the label changes to something self-evident. A tooltip is
+  the wrong shape on a phone; a tap that expands one line of prose is the
+  pattern already used elsewhere for caveats.
+
+  **Sweep, per step 4:** every other bare number on a header tile has the
+  same problem in waiting — win rate, expectancy in R, the Stops page's
+  own average risk per position. If the fix is a pattern, make it one
+  component and apply it to all of them rather than patching this tile.
+
 - [ ] **2 of 19 frontend lint warnings remain**, both `set-state-in-effect`
   (`EntrySheet.tsx:105`, `Journal.tsx:378`). Left deliberately: both are
   effects synchronizing local state with genuine external events (which
@@ -250,6 +272,51 @@ here so nothing is lost, not as an instruction to start building.
   app's computed figures rather than recomputing them (see "The model
   misquotes the app's own figures" above — a per-ticker answer is exactly
   where that failure would bite).
+
+## Research and working sessions (no code)
+
+Raised 2026-09-12. These produce documents and decisions, not features. Each
+is a sit-down with the owner, not something to complete alone and present.
+
+- [ ] **Competitor investigation.** Who else builds a trading journal, what
+  their product actually is, and what their front end does well. Deliverable:
+  one document per competitor — a short summary of the company and product —
+  plus a conclusions section and a list of proposed actions for us.
+
+  **Do the front end properly rather than from marketing pages.** Screenshots
+  and pricing pages say what a company wants to be seen as; the interaction
+  is where the lessons are. Where a product has a free tier or a public demo,
+  use it and record what the flows feel like — how an entry gets logged, how
+  a trade is reviewed, what the mobile experience is.
+
+  The list to start from (to confirm with him): Tradervue, TraderSync,
+  Edgewonk, TradeZella, Chartlog, Stonk Journal. Worth including at least one
+  adjacent non-journal product for the UI alone.
+
+  **The conclusions must be opinionated.** "They all have a calendar view" is
+  an observation; "we should not build a calendar view, because X" is the
+  deliverable. The brief's "resist features" applies hardest here — a
+  competitor scan is the single most reliable way to talk yourself into ten
+  features that add no value.
+
+- [ ] **A working session on how the app uses AI.** Two halves, both
+  collaborative:
+
+  1. **The markdown.** Read `CLAUDE.md`, `docs/product-brief.md`,
+     `docs/working-agreement.md` and `docs/trader-profile.md` together and
+     improve them with him. `trader-profile.md` matters most of the four —
+     it is the only one the running app reads at request time, so a weakness
+     there degrades every answer the product gives. Pair this with an online
+     scan of current practice on agent instruction files, and bring back what
+     is actually worth adopting rather than a summary of the genre.
+
+  2. **The prompts.** Walk `backend/src/llm/` with him — the portfolio
+     summary, the trade review, the trade idea, and the watchlist ranking
+     once it exists. Show the real assembled prompt for a real case, not the
+     template. Two known problems to bring to that session: the model
+     restating aggregates wrongly (see "The model misquotes the app's own
+     figures" above), and the facts snapshot having grown from ~1,600 to
+     ~4,600 characters with no measurement of what the growth bought.
 
 ## Tech debt
 
