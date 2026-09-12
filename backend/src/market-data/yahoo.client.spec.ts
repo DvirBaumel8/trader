@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { YahooClient } from './yahoo.client.js';
 
 function clientReturning(quotes: unknown[]): YahooClient {
@@ -247,5 +247,68 @@ describe('quote P/E mapping', () => {
     });
     const q = await client.quote('RIVN');
     expect(q?.peRatio).toBeNull();
+  });
+});
+
+/**
+ * The constructor's @Optional() `yf` parameter IS the test seam — read the
+ * comment on it in yahoo.client.ts. Pass a fake there; never cast into the
+ * private field.
+ *
+ * `as never` only because the real library type is enormous and this fake
+ * implements the one method under test.
+ */
+const clientWith = (quoteSummary: unknown) =>
+  new YahooClient({ quoteSummary } as never);
+
+describe('YahooClient.consensus', () => {
+  it('maps the provider payload to our own shape', async () => {
+    const client = clientWith(
+      vi.fn().mockResolvedValue({
+        financialData: {
+          recommendationMean: 1.28,
+          recommendationKey: 'strong_buy',
+          numberOfAnalystOpinions: 57,
+          targetMeanPrice: 327.65,
+          targetHighPrice: 515,
+          targetLowPrice: 180,
+          revenueGrowth: 1.059,
+          earningsGrowth: 1.278,
+          profitMargins: 0.63663,
+          returnOnEquity: 1.17211,
+        },
+        recommendationTrend: {
+          trend: [
+            { period: '0m', strongBuy: 9, buy: 48, hold: 2, sell: 1, strongSell: 0 },
+          ],
+        },
+      }),
+    );
+
+    const c = await client.consensus('NVDA');
+
+    expect(c).not.toBeNull();
+    expect(c!.recommendationMean).toBeCloseTo(1.28, 2);
+    expect(c!.analystCount).toBe(57);
+    expect(c!.targetMean).toBeCloseTo(327.65, 2);
+    expect(c!.trend[0].buy).toBe(48);
+  });
+
+  /**
+   * ETFs and thin names genuinely have no coverage. Null, never zero: a zero
+   * recommendationMean would read as "strong buy" on a 1..5 scale, which is
+   * the worst possible way to be wrong.
+   */
+  it('returns null when nothing covers the ticker', async () => {
+    const client = clientWith(vi.fn().mockResolvedValue({ financialData: {} }));
+    expect(await client.consensus('SPY')).toBeNull();
+  });
+
+  /** A provider outage must not fail the ranking; the view goes missing. */
+  it('returns null rather than throwing when the provider fails', async () => {
+    const client = clientWith(
+      vi.fn().mockRejectedValue(new Error('network down')),
+    );
+    expect(await client.consensus('NVDA')).toBeNull();
   });
 });
