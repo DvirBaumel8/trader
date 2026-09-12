@@ -84,11 +84,19 @@ const day = (d: Date | string | null): string =>
  *
  * Weights are given as a share of account value, because "12% of the book" is
  * the sentence that changes a decision, not the dollar figure.
+ *
+ * `symbol` is null when there is no single ticker to call out — the watchlist
+ * ranking asks about every candidate at once, so there is no "do I already
+ * hold THIS one" question with a single answer. In that case the ALREADY
+ * HOLD / do NOT hold callout is skipped entirely rather than rendered with a
+ * blank where the symbol should be; the book totals and the positions list
+ * below are unaffected either way.
  */
-export function buildBookSection(book: BookInput, symbol: string): string {
-  const held = book.positions.find(
-    (p) => p.symbol.toUpperCase() === symbol.toUpperCase(),
-  );
+export function buildBookSection(book: BookInput, symbol: string | null): string {
+  const held =
+    symbol === null
+      ? undefined
+      : book.positions.find((p) => p.symbol.toUpperCase() === symbol.toUpperCase());
 
   const gross = book.positions.reduce(
     (sum, p) => sum + Math.abs(p.marketValue ?? 0),
@@ -119,7 +127,7 @@ export function buildBookSection(book: BookInput, symbol: string): string {
       'one. Say whether to add, hold or trim, and judge the size I already have.',
       '',
     );
-  } else {
+  } else if (symbol !== null) {
     lines.push(`- I do NOT currently hold ${symbol.toUpperCase()}.`, '');
   }
 
@@ -138,15 +146,45 @@ export function buildBookSection(book: BookInput, symbol: string): string {
 }
 
 /**
+ * His own history in one ticker, rendered as the lines both `buildRecordSection`
+ * (under "My history in X") and the watchlist ranking's per-candidate block
+ * (under "MY HISTORY IN THIS TICKER") show — pulled out so those two never
+ * drift into two descriptions of the same trades. Says so plainly, in one
+ * line, when he has never traded the name: that absence is informative too,
+ * not a hole to leave blank.
+ */
+export function renderHistoryLines(trades: RecordTrade[], symbol: string): string[] {
+  const upper = symbol.toUpperCase();
+  const inThisName = trades.filter((t) => t.symbol.toUpperCase() === upper);
+
+  if (inThisName.length === 0) {
+    return [`I have never closed a trade in ${upper}.`];
+  }
+
+  const lines = [`My history in ${upper} (${inThisName.length}):`];
+  for (const t of inThisName) {
+    lines.push(
+      t.isOpen
+        ? `  ${day(t.enteredAt)}  ${t.direction}  still open`
+        : `  ${day(t.enteredAt)}→${day(t.exitedAt)}  ${t.direction}  ${money(t.realizedPnl)}${
+            t.rMultiple === null ? '' : `  ${t.rMultiple.toFixed(2)}R`
+          }${labels(t)}`,
+    );
+  }
+  return lines;
+}
+
+/**
  * His own results — the answer to "does this fit how I trade" that comes from
  * evidence rather than from the profile's self-description.
+ *
+ * `symbol` is null for the same reason as `buildBookSection` — the watchlist
+ * ranking has no single ticker to ask "my history in X" about — in which case
+ * the per-ticker block is skipped entirely rather than rendered with a hole
+ * in the sentence ("I have never closed a trade in ."). The overall stats and
+ * the recent-closed-trades list are unaffected.
  */
-export function buildRecordSection(rec: RecordInput, symbol: string): string {
-  const upper = symbol.toUpperCase();
-  const inThisName = rec.trades.filter(
-    (t) => t.symbol.toUpperCase() === upper,
-  );
-
+export function buildRecordSection(rec: RecordInput, symbol: string | null): string {
   const closed = rec.trades
     .filter((t) => !t.isOpen)
     .sort((a, b) => new Date(b.exitedAt ?? 0).getTime() - new Date(a.exitedAt ?? 0).getTime())
@@ -163,21 +201,9 @@ export function buildRecordSection(rec: RecordInput, symbol: string): string {
     '',
   ];
 
-  if (inThisName.length > 0) {
-    lines.push(`My history in ${upper} (${inThisName.length}):`);
-    for (const t of inThisName) {
-      lines.push(
-        t.isOpen
-          ? `  ${day(t.enteredAt)}  ${t.direction}  still open`
-          : `  ${day(t.enteredAt)}→${day(t.exitedAt)}  ${t.direction}  ${money(t.realizedPnl)}${
-              t.rMultiple === null ? '' : `  ${t.rMultiple.toFixed(2)}R`
-            }${labels(t)}`,
-      );
-    }
-  } else {
-    lines.push(`I have never closed a trade in ${upper}.`);
+  if (symbol !== null) {
+    lines.push(...renderHistoryLines(rec.trades, symbol), '');
   }
-  lines.push('');
 
   if (closed.length > 0) {
     lines.push(`My last ${closed.length} closed trades:`);

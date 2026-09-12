@@ -17,6 +17,7 @@ const indicators = {
 
 const covered: RankingCandidate = {
   symbol: 'NVDA', name: 'NVIDIA', price: 108, indicators,
+  peRatio: 42.5,
   consensus: {
     recommendationMean: 1.3, recommendationKey: 'strong_buy', analystCount: 57,
     targetMean: 160, targetHigh: 200, targetLow: 90,
@@ -24,11 +25,20 @@ const covered: RankingCandidate = {
     trend: [{ period: '0m', strongBuy: 9, buy: 48, hold: 2, sell: 1, strongSell: 0 }],
   },
   targetPrice: 130, distanceToTarget: 0.2, tags: ['semis'], note: 'breakout watch',
+  trades: [
+    {
+      symbol: 'NVDA', direction: 'LONG', isOpen: false,
+      realizedPnl: 900, rMultiple: 1.5,
+      enteredAt: '2026-05-01', exitedAt: '2026-05-20',
+      setups: ['breakout'], mistakes: [],
+    },
+  ],
 };
 
 const uncovered: RankingCandidate = {
   ...covered, symbol: 'SPY', name: 'S&P 500 ETF', consensus: null,
   targetPrice: null, distanceToTarget: null, tags: [], note: '',
+  peRatio: null, trades: [],
 };
 
 describe('buildRankingUserPrompt', () => {
@@ -65,5 +75,33 @@ describe('buildRankingUserPrompt', () => {
     const p = buildRankingUserPrompt([covered, uncovered], 'B', 'R', 'P');
     expect(p).toContain('NVDA');
     expect(p).toContain('SPY');
+  });
+
+  /** Restores the P/E line the ranking's copy of the tape had dropped. */
+  it('carries the P/E line, restored from the shared indicator block', () => {
+    const p = buildRankingUserPrompt([covered], 'BOOK', 'RECORD', 'PROFILE');
+    expect(p).toMatch(/P\/E: 42\.5/);
+  });
+
+  it('says n/a for P/E when there is none', () => {
+    const p = buildRankingUserPrompt([uncovered], 'BOOK', 'RECORD', 'PROFILE');
+    expect(p).toMatch(/P\/E: n\/a/);
+  });
+
+  /**
+   * The headline claim: the model is told to use "specifically his own
+   * history in the ticker being ranked, if he has one" — a candidate with
+   * prior trades must actually carry them.
+   */
+  it("renders a candidate's own trade history, setups and mistakes included", () => {
+    const p = buildRankingUserPrompt([covered], 'BOOK', 'RECORD', 'PROFILE');
+    expect(p).toContain('MY HISTORY IN THIS TICKER');
+    expect(p).toContain('My history in NVDA (1)');
+    expect(p).toContain('[breakout]');
+  });
+
+  it('says so plainly, in one line, when he has never traded a candidate', () => {
+    const p = buildRankingUserPrompt([uncovered], 'BOOK', 'RECORD', 'PROFILE');
+    expect(p).toContain('I have never closed a trade in SPY.');
   });
 });

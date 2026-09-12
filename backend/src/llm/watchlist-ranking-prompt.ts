@@ -1,11 +1,13 @@
 import type { RawConsensus } from '../market-data/yahoo.client.js';
 import type { IndicatorSet } from '../market-data/indicators.js';
+import { level, pct, renderIndicatorLines } from './indicator-lines.js';
+import { renderHistoryLines, type RecordTrade } from './trade-idea-context.js';
 
 /**
  * One watchlist ticker, carrying the three views the model is asked to
  * reconcile: the street (bought-in analyst consensus), the tape (what the app
  * computes from price history) and — via `bookSection` / `recordSection` in
- * `buildRankingUserPrompt` — him.
+ * `buildRankingUserPrompt`, plus `trades` below — him.
  *
  * `targetPrice` and `distanceToTarget` are HIS OWN target on the watchlist
  * item, if he set one — a personal marker, not the street's target mean.
@@ -16,6 +18,8 @@ export interface RankingCandidate {
   price: number | null;
   /** The tape. */
   indicators: IndicatorSet;
+  /** Trailing P/E. Not part of `indicators` — it comes from the quote/fundamentals, not price history. */
+  peRatio: number | null;
   /** The street. Null means no analyst covers it. */
   consensus: RawConsensus | null;
   /** His own target, if he set one, and how far away it is (a fraction). */
@@ -24,22 +28,15 @@ export interface RankingCandidate {
   /** His tags on the item — sector, style, whatever he chose. */
   tags: string[];
   note: string;
+  /**
+   * His whole closed-and-open trade history — the same list every candidate
+   * carries, filtered down to this one ticker by `renderHistoryLines`. Not
+   * pre-filtered per candidate because the filter is cheap and this keeps one
+   * shared function doing the filtering, for the trade-idea prompt and this
+   * one both.
+   */
+  trades: RecordTrade[];
 }
-
-const price = (n: number | null): string =>
-  n === null
-    ? 'n/a'
-    : n.toLocaleString('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      });
-
-const pct = (n: number | null): string =>
-  n === null ? 'n/a' : `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
-
-const level = (n: number | null): string => (n === null ? 'n/a' : price(n));
 
 /** e.g. 'strong_buy' -> 'Strong Buy'. */
 const recLabel = (key: string | null): string =>
@@ -89,19 +86,29 @@ function renderStreet(c: RawConsensus | null): string[] {
 }
 
 /** The tape: what the app itself computes from price history. */
-function renderTape(i: IndicatorSet): string[] {
+function renderTape(i: IndicatorSet, peRatio: number | null): string[] {
   return [
     'THE TAPE (computed by the app from price history):',
-    `  - 20-day average: ${level(i.sma20)} (price is ${pct(i.percentFromSma20)} from it)`,
-    `  - 50-day average: ${level(i.sma50)} (price is ${pct(i.percentFromSma50)} from it)`,
-    `  - 150-day average (HIS trend indicator): ${level(i.sma150)} (price is ${pct(i.percentFromSma150)} from it)`,
-    `  - 200-day average: ${level(i.sma200)} (price is ${pct(i.percentFromSma200)} from it)`,
-    `  - 52-week high: ${level(i.high52w)} (price is ${pct(i.percentFromHigh52w)} from it)`,
-    `  - 52-week low: ${level(i.low52w)} (price is ${pct(i.percentFromLow52w)} from it)`,
-    `  - ATR(14): ${level(i.atr14)}${i.atrPercentOfPrice !== null ? ` — ${(i.atrPercentOfPrice * 100).toFixed(1)}% of price` : ''}`,
-    `  - Relative volume: ${i.relativeVolume !== null ? `${i.relativeVolume.toFixed(2)}x its 20-day average` : 'n/a'}`,
-    `  - History available: ${i.barsAvailable} daily bars${i.barsAvailable < 200 ? ' (thin — treat longer-window readings above as unreliable or absent)' : ''}`,
+    `  - P/E: ${peRatio !== null ? peRatio.toFixed(1) : 'n/a'}`,
+    // Shared with the trade-idea prompt — see indicator-lines.ts — indented
+    // here to sit under this header; the trade idea uses them unindented at
+    // the top level of its own facts list.
+    ...renderIndicatorLines(i).map((line) => `  ${line}`),
   ];
+}
+
+/**
+ * Him, for this one ticker: how many times he has traded it, how those went,
+ * and the setup/mistake tags he attached — the part `RANKING_SYSTEM_PROMPT`
+ * asks for ("specifically his own history in the ticker being ranked, if he
+ * has one") and that, before this, no candidate ever actually carried. Says
+ * so plainly, in one line, when he never has; that absence is informative
+ * too. Shared with `buildRecordSection`'s "My history in X" block via
+ * `renderHistoryLines`, so the two descriptions of the same trades cannot
+ * drift apart.
+ */
+function renderHistory(c: RankingCandidate): string[] {
+  return ['MY HISTORY IN THIS TICKER:', ...renderHistoryLines(c.trades, c.symbol)];
 }
 
 function renderCandidate(c: RankingCandidate): string {
@@ -123,7 +130,9 @@ function renderCandidate(c: RankingCandidate): string {
     '',
     ...renderStreet(c.consensus),
     '',
-    ...renderTape(c.indicators),
+    ...renderTape(c.indicators, c.peRatio),
+    '',
+    ...renderHistory(c),
     '',
     ...notes,
   ].join('\n');
