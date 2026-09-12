@@ -33,6 +33,9 @@ import { UsersModule } from '../users/users.module.js';
     TradeReviewService,
   ],
   controllers: [LlmController],
-  exports: [TradeReviewService, TradeIdeaService],
+  // LlmClient itself is exported (not just the services built on it) because
+  // WatchlistRankingService needs it directly: the ranking prompt is its own
+  // thing, not a wrapper around an existing LLM service.
+  exports: [TradeReviewService, TradeIdeaService, LlmClient],
 })
 export class LlmModule {}

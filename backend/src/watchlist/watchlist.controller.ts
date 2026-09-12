@@ -8,6 +8,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { WatchlistService } from './watchlist.service.js';
+import { WatchlistRankingService } from './watchlist-ranking.service.js';
 import { UpsertWatchlistDto } from './watchlist.dto.js';
 import { TradeIdeaService } from '../llm/trade-idea.service.js';
 
@@ -16,13 +17,26 @@ export class WatchlistController {
   constructor(
     private readonly watchlist: WatchlistService,
     private readonly ideas: TradeIdeaService,
+    private readonly ranking: WatchlistRankingService,
   ) {}
 
-  // Declared before ':id' routes so "tags" is never matched as an id — the
-  // same ordering the journal controller needed.
+  // Declared before ':id' routes so "tags" and "ranking" are never matched
+  // as an id — the same ordering the journal controller needed.
   @Get('tags')
   tags() {
     return this.watchlist.listTags();
+  }
+
+  /** The newest stored ranking. No model call — see WatchlistRankingService.current. */
+  @Get('ranking')
+  getRanking() {
+    return this.ranking.current();
+  }
+
+  /** Recomputes the ranking with ONE model call for the whole watchlist. */
+  @Post('ranking/refresh')
+  refreshRanking() {
+    return this.ranking.refresh();
   }
 
   @Get()
