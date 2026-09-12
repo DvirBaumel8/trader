@@ -9,7 +9,6 @@ import { InstrumentsService } from '../instruments/instruments.service.js';
 import { MarketDataService } from '../market-data/market-data.service.js';
 import { UsersService } from '../users/users.service.js';
 import {
-  bestCandidate,
   directionFor,
   distanceToTarget,
   firstReachedOn,
@@ -270,21 +269,6 @@ export class WatchlistService {
       order: { label: 'ASC' },
     });
     return rows.map((t) => ({ id: t.id, label: t.label }));
-  }
-
-  /**
-   * Which ticker deserves an opinion, and why — the deterministic half.
-   *
-   * The app ranks, the model judges: exactly the split the trade-idea design
-   * settled. Nothing here asks a model anything; it returns the candidate and
-   * the number that chose it, so the reason is always inspectable.
-   */
-  async best(): Promise<{ symbol: string; distanceToTarget: number } | null> {
-    const rows = await this.list();
-    const chosen = bestCandidate(rows);
-    return chosen && chosen.distanceToTarget !== null
-      ? { symbol: chosen.symbol, distanceToTarget: chosen.distanceToTarget }
-      : null;
   }
 
   private async setTags(itemId: string, userId: string, labels: string[]) {

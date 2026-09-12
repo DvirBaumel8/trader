@@ -77,7 +77,6 @@ because an entry was written, never through a "add transaction" endpoint.
 | `GET /watchlist/ranking` | The newest stored ranking. Read-only — never calls the model. |
 | `POST /watchlist/ranking/refresh` | **Writes.** The only route here that calls the model: one call for the whole list, ranking every ticker against the others. Stores the result and returns it. |
 | `POST /watchlist` | Upserts a ticker by symbol — target price, note, tags. |
-| `POST /watchlist/opinion` | An LLM opinion on the ticker closest to its own target. |
 | `POST /watchlist/:id/acknowledge` | Dismisses a reached-target alert without forgetting it happened. |
 | `DELETE /watchlist/:id` | Stops watching a ticker. |
 

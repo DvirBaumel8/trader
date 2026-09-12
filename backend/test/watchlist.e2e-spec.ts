@@ -241,23 +241,4 @@ describe('Watchlist (e2e)', () => {
     const res = await add({ symbol: 'CAP1', note: 'edited at the cap' }).expect(201);
     expect(res.body.note).toBe('edited at the cap');
   });
-
-  describe('opinion', () => {
-    it('says so plainly when nothing has a target to rank', async () => {
-      await add({ symbol: 'NVDA' }).expect(201);
-      const res = await http(app, token).post('/watchlist/opinion').expect(201);
-      expect(res.body.chosen).toBeNull();
-    });
-
-    it('picks the ticker closest to its own target', async () => {
-      const nvda = await add({ symbol: 'NVDA' }).expect(201);
-      const pltr = await add({ symbol: 'PLTR' }).expect(201);
-      // NVDA 50% away, PLTR 2% away.
-      await add({ symbol: 'NVDA', targetPrice: nvda.body.price * 1.5 }).expect(201);
-      await add({ symbol: 'PLTR', targetPrice: pltr.body.price * 1.02 }).expect(201);
-
-      const res = await http(app, token).post('/watchlist/opinion').expect(201);
-      expect(res.body.chosen).toBe('PLTR');
-    });
-  });
 });

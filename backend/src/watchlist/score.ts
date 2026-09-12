@@ -83,24 +83,3 @@ export function distanceToTarget(
   if (price === null || target === null || price === 0) return null;
   return (target - price) / price;
 }
-
-/**
- * The watchlist ticker worth an opinion.
- *
- * Closest to its own target wins. That is the only ranking that means the
- * same thing for a target above the price and one below it: ranking by
- * "most upside" would treat a buy-the-dip level as a profit target and put
- * the least interesting name first. The app ranks; the model judges — the
- * split the trade-idea design already settled.
- */
-export function bestCandidate<T extends { distanceToTarget: number | null }>(
-  candidates: T[],
-): T | null {
-  const measurable = candidates.filter((c) => c.distanceToTarget !== null);
-  if (measurable.length === 0) return null;
-  return measurable.reduce((best, c) =>
-    Math.abs(c.distanceToTarget as number) < Math.abs(best.distanceToTarget as number)
-      ? c
-      : best,
-  );
-}

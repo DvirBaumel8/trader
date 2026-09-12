@@ -2,11 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
 import { formatMoney, formatPercent } from '../components/format';
-import { Markdown } from '../components/Markdown';
 import { Button } from '../components/ui/Button';
 import { inputClasses } from '../components/ui/inputClasses';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
-import { CollapsibleCard } from '../components/ui/CollapsibleCard';
 import { WatchlistRanking } from '../components/WatchlistRanking';
 import { usePersistentState } from '../lib/persistentState';
 import { shortDay } from '../lib/chartDates';
@@ -28,13 +26,6 @@ interface WatchRow {
   reachedOn: string | null;
   note: string;
   tags: { id: string; label: string }[];
-}
-
-interface OpinionResult {
-  chosen: string | null;
-  distanceToTarget?: number;
-  reason: string;
-  idea: { opinion: string; configured: boolean } | null;
 }
 
 /**
@@ -86,10 +77,6 @@ export function Watchlist() {
     mutationFn: (id: string) =>
       api(`/watchlist/${id}/acknowledge`, { method: 'POST' }),
     onSuccess: invalidate,
-  });
-
-  const opinionMutation = useMutation({
-    mutationFn: () => api<OpinionResult>('/watchlist/opinion', { method: 'POST' }),
   });
 
   const rows = listQuery.data ?? [];
@@ -323,51 +310,6 @@ export function Watchlist() {
         </ul>
       </section>
 
-      {/*
-        The app ranks, the model judges — the split the trade-idea design
-        settled. The ranking is stated in words next to the answer so the
-        choice is never a mystery number.
-      */}
-      {rows.length > 0 && (
-        <section className="space-y-2">
-          <Button
-            variant="secondary"
-            className="w-full"
-            disabled={opinionMutation.isPending}
-            onClick={() => opinionMutation.mutate()}
-          >
-            {opinionMutation.isPending
-              ? 'Thinking…'
-              : 'AI opinion on the best watchlist candidate'}
-          </Button>
-
-          {opinionMutation.isError && (
-            <p className="text-xs text-down">Could not get an opinion just now.</p>
-          )}
-
-          {opinionMutation.data && opinionMutation.data.chosen === null && (
-            <p className="text-xs text-muted">{opinionMutation.data.reason}</p>
-          )}
-
-          {opinionMutation.data?.chosen && opinionMutation.data.idea && (
-            <CollapsibleCard
-              label="opinion"
-              header={
-                <>
-                  <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
-                    {opinionMutation.data.chosen}
-                  </span>
-                  <span className="text-[10px] text-muted">
-                    {opinionMutation.data.reason}
-                  </span>
-                </>
-              }
-            >
-              <Markdown text={opinionMutation.data.idea.opinion} />
-            </CollapsibleCard>
-          )}
-        </section>
-      )}
     </div>
   );
 }

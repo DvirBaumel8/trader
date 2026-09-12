@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  bestCandidate,
   directionFor,
   distanceToTarget,
   firstReachedOn,
@@ -64,36 +63,6 @@ describe('distanceToTarget', () => {
     expect(distanceToTarget(null, 120)).toBeNull();
     expect(distanceToTarget(0, 120)).toBeNull();
     expect(distanceToTarget(100, null)).toBeNull();
-  });
-});
-
-describe('bestCandidate', () => {
-  /**
-   * "Best" is the one CLOSEST to the level the owner himself set — the only
-   * ranking that means the same thing for a target above the price and one
-   * below it. An "most upside" ranking would treat a buy-the-dip target as if
-   * it were a profit target and rank it backwards.
-   */
-  it('picks the ticker nearest its own target', () => {
-    const best = bestCandidate([
-      { symbol: 'NVDA', distanceToTarget: 18 },
-      { symbol: 'PLTR', distanceToTarget: -3 },
-      { symbol: 'AMD', distanceToTarget: 9 },
-    ]);
-    expect(best?.symbol).toBe('PLTR');
-  });
-
-  it('ignores tickers with no target to measure against', () => {
-    const best = bestCandidate([
-      { symbol: 'NVDA', distanceToTarget: null },
-      { symbol: 'AMD', distanceToTarget: 9 },
-    ]);
-    expect(best?.symbol).toBe('AMD');
-  });
-
-  it('has no opinion when nothing has a target', () => {
-    expect(bestCandidate([{ symbol: 'NVDA', distanceToTarget: null }])).toBeNull();
-    expect(bestCandidate([])).toBeNull();
   });
 });
 
