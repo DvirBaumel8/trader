@@ -208,6 +208,40 @@ describe('Watchlist (e2e)', () => {
       .expect(404);
   });
 
+  /**
+   * A cap, refused loudly. A ranking that quietly covers part of a list is
+   * worse than a list that refuses to grow, and the cap is also what makes
+   * one model call for the whole watchlist viable.
+   */
+  it('refuses the fifty-first ticker, naming the limit', async () => {
+    // Synthetic symbols on purpose: the stub prices any unknown ticker at its
+    // default and returns null only for `ZZZZ*`, so fifty of these fill the
+    // list without touching the stub. The fifty-first must NOT be a `ZZZZ`
+    // symbol — that would 404 as an unknown ticker and the test would pass
+    // with no cap in the code at all.
+    for (let i = 1; i <= 50; i++) {
+      await add({ symbol: `CAP${i}` }).expect(201);
+    }
+
+    const res = await add({ symbol: 'CAP51' }).expect(400);
+    expect(String(res.body.message)).toContain('50');
+  });
+
+  /**
+   * The cap guards NEW rows only. A full list must stay correctable — an
+   * owner who cannot fix a target or a note once he hits fifty tickers would
+   * have to delete something just to edit, which is a worse bug than the cap
+   * itself.
+   */
+  it('still allows editing an existing item once the list is full', async () => {
+    for (let i = 1; i <= 50; i++) {
+      await add({ symbol: `CAP${i}` }).expect(201);
+    }
+
+    const res = await add({ symbol: 'CAP1', note: 'edited at the cap' }).expect(201);
+    expect(res.body.note).toBe('edited at the cap');
+  });
+
   describe('opinion', () => {
     it('says so plainly when nothing has a target to rank', async () => {
       await add({ symbol: 'NVDA' }).expect(201);
