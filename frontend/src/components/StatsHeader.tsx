@@ -8,8 +8,6 @@ interface Stats {
   winRate: number | null;
   avgWin: number | null;
   avgLoss: number | null;
-  avgRisk: number | null;
-  riskTradeCount: number;
   expectancyDollars: number | null;
   expectancyR: number | null;
   rTradeCount: number;
@@ -48,7 +46,7 @@ export function StatsHeader() {
   if (data.closedCount === 0) {
     return (
       <p className="rounded-xl border border-border bg-surface-1 p-3 text-xs text-muted">
-        Win rate, risk and expectancy appear once you close your first trade.
+        Win rate and expectancy appear once you close your first trade.
         {data.openCount > 0 && ` ${data.openCount} open.`}
       </p>
     );
@@ -61,19 +59,6 @@ export function StatsHeader() {
           label="Win rate"
           value={`${Math.round((data.winRate ?? 0) * 100)}%`}
           sub={`${data.closedCount} closed`}
-        />
-        <Stat
-          label="Avg risk"
-          value={
-            data.avgRisk === null
-              ? '—'
-              : `$${Math.round(data.avgRisk).toLocaleString('en-US')}`
-          }
-          sub={
-            data.riskTradeCount > 0
-              ? `${data.riskTradeCount} with a stop`
-              : 'set stops to unlock'
-          }
         />
       </div>
       {data.expectancyDollars !== null && (
