@@ -431,6 +431,70 @@ So the check before building a screen is not "does this work?" — it is
 differently?"** If the answer is a second implementation, that is the bug,
 before a single line is wrong.
 
+## Running a plan with subagents
+
+The watchlist ranking feature was built this way — eight tasks, a fresh
+implementer per task, a reviewer after each, a whole-branch review at the end.
+It worked: the reviews caught a quadratic hang that would have stalled the
+single-threaded API, a parser that attached one ticker's coverage flag to
+another, and a bug where one rambling model answer silently destroyed a good
+ranking. None of those failed a test.
+
+It also cost **2.55M subagent tokens**, and roughly 40% of that was avoidable.
+Measured, by role:
+
+| Role | Seats | Tokens | Share |
+|---|---|---|---|
+| Implementation | 8 | 892k | 35% |
+| First-pass review | 9 | 843k | 33% |
+| Fix rounds + re-reviews | 8 | 815k | 32% |
+
+The rules below come from that measurement. They are about **where the money
+went**, not about doing less review — cutting review seats would have saved a
+third and shipped all four defects above.
+
+**Do not resume a large agent for a small fix.** This is the big one. Resuming
+replays the agent's entire context, so a fix round costs what the whole task
+cost. Real figures from that session: a fix adding *one test and one comment*
+cost 228k — **more than the 213k implementation it was amending**. Another,
+four small edits, cost 179k. A fresh cheap agent handed the task brief, the
+findings and the implementer's report file does the same work for ~25k. Resume
+only when the fix genuinely depends on reasoning that is not written down;
+otherwise the report file IS the memory, which is why it exists.
+
+**Match the model to the work, and say so explicitly.** An omitted model
+inherits this session's, which is the most expensive one. When the plan
+contains the code to write, the task is transcription plus testing — use the
+cheapest tier. Three tasks in that session were exactly that and all ran on a
+mid-tier model for no gain. Reserve the top tier for work where judgement is
+the deliverable: the prompt itself, and the final whole-branch review.
+
+**Batch small same-shape tasks into one dispatch.** Three of those eight tasks
+were small, independent, and alike. Dispatched separately they consumed six
+seats — three implementations and three reviews — where one dispatch and one
+review of the combined diff would have done. Split only where a reviewer could
+sensibly reject one half while approving the other.
+
+**Turn count costs more than token price.** The two most expensive agents made
+77 and 59 tool calls. A brief that pre-answers "which file, which signature,
+which seam" removes whole exploration rounds: naming `this.yf` as the provider
+accessor and the `@Optional()` constructor as the test seam turned a search
+into an edit. Read the real signatures yourself before dispatching — it is the
+cheapest context in the session, and it is also where a plan's wrong
+assumptions get caught.
+
+**Scan the plan against the real code before dispatching task 1.** That scan
+caught a cap test whose fifty-first ticker used a `ZZZZ` prefix and accepted a
+404 — which is what the Yahoo stub returns for an unknown symbol, so the test
+would have passed with no cap in the code at all. One cheap read beat eight
+expensive ones.
+
+**Keep a ledger.** `.superpowers/sdd/<plan-name>/progress.md`, one line per
+task, every ruling recorded with what it costs if wrong. Context does not
+survive compaction; the ledger and `git log` do. Every decision taken on the
+owner's behalf goes in it, because a ruling he never sees is a decision made in
+secret.
+
 ## Browser tests
 
 ```bash
