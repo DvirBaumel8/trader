@@ -244,6 +244,20 @@ export class WatchlistRankingService {
     } catch (err) {
       const kind: LlmFailureKind = err instanceof LlmFailure ? err.kind : 'unknown';
       this.logger.warn(`Watchlist ranking call failed (${kind}): ${(err as Error).message}`);
+      // Deliberately a hard failure, not a soft degrade — the opposite of
+      // TradeIdeaService, which returns a 200 carrying `error`/`errorKind`
+      // because there the model's answer IS the response: a hard failure
+      // there would leave the screen with nothing. Here `refresh()` is an
+      // action on top of a cache. The row this call would have replaced is
+      // untouched, so the previously stored ranking is still exactly what
+      // `current()` serves — a 503 correctly tells the refresh button "that
+      // attempt failed" while the owner keeps the answer he already had,
+      // rather than quietly discarding it under a 200 that looks like
+      // success. `kind` is not threaded any further than this log line on
+      // purpose: RankingResponse has no error field to carry it (the shape
+      // is fixed by the brief, and Task 7 is written against it), and adding
+      // one here would be the same widening TradeIdeaResult needed, for a
+      // response whose whole point is "nothing changed, try again".
       throw new ServiceUnavailableException(
         'The watchlist ranking could not be computed right now.',
       );

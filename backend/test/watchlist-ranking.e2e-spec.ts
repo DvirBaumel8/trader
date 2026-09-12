@@ -139,6 +139,30 @@ describe('Watchlist ranking (e2e)', () => {
     expect(res.body.missing).toEqual(['PLTR']);
   });
 
+  /**
+   * The whole point of the 503: a failed refresh must not clobber the
+   * answer already on file. A successful ranking is stored first, THEN the
+   * model is made to fail on the very next call — proving both halves of
+   * the guarantee: the failed attempt surfaces as 503 (not a silent 200
+   * with stale data), and the row it would have replaced is still exactly
+   * what `current()` serves afterwards, unchanged `rankedAt` included.
+   */
+  it('keeps the previous ranking intact when a refresh call fails', async () => {
+    await add({ symbol: 'NVDA' }).expect(201);
+    const first = await http(app, token).post('/watchlist/ranking/refresh').expect(201);
+    const firstRankedAt = first.body.rankedAt;
+    expect(firstRankedAt).toBeTruthy();
+
+    llmStub.complete.mockImplementationOnce(async () => {
+      throw new Error('provider exploded');
+    });
+    await http(app, token).post('/watchlist/ranking/refresh').expect(503);
+
+    const res = await http(app, token).get('/watchlist/ranking').expect(200);
+    expect(res.body.rankedAt).toBe(firstRankedAt);
+    expect(res.body.order.map((t: { symbol: string }) => t.symbol)).toEqual(['NVDA']);
+  });
+
   describe('when no model is configured', () => {
     let unconfiguredApp: INestApplication;
     let unconfiguredToken: string;
