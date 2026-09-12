@@ -258,7 +258,7 @@ export function useCallouts({
      * this whole path has already produced twice.
      */
     return raw.length === placements.length;
-  }, [bars, fills, stopLevels, step]);
+  }, [bars, fills, stopLevels, step, chartRef, seriesRef, containerRef]);
 
   // The three things that move the plot. Without the first two the boxes
   // drift off their candles the moment the owner pans or rotates the phone,
@@ -304,7 +304,7 @@ export function useCallouts({
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
       observer.disconnect();
     };
-  }, [syncCallouts]);
+  }, [syncCallouts, chartRef, containerRef]);
 
   return callouts;
 }
