@@ -142,30 +142,6 @@ this says what is outstanding.
 
 ## UI
 
-- [ ] **Watchlist add takes ticker + target only; tags and note hide behind edit mode.** Raised 2026-09-12 (him): after adding, tags and the note need the pencil, the row, and Save — undiscoverable. The upsert endpoint already accepts note and tags, so the fix is frontend-only: expand the just-added row's editor (or widen the form). No API change.
-
-- [ ] **"Avg risk" does not explain itself.** Raised 2026-09-12: he saw the
-  tile on the Journal header and did not know what it meant. That is the
-  finding — not a bug in the number, which is correct (see the answer in
-  conversation and `summariseTrades` in `derive-trades.ts`), but a figure
-  occupying prime screen space that its own owner cannot read.
-
-  The number is the average dollars at risk across every trade that set a
-  stop, open ones included, excluding plans whose risk computes to zero. The
-  sub-label says "N with a stop", which explains the denominator and not the
-  quantity.
-
-  **Decide with him:** either the tile gets a tap-to-explain (one line: "what
-  you typically put at risk per trade — the average of entry-to-stop across
-  N trades"), or the label changes to something self-evident. A tooltip is
-  the wrong shape on a phone; a tap that expands one line of prose is the
-  pattern already used elsewhere for caveats.
-
-  **Sweep, per step 4:** every other bare number on a header tile has the
-  same problem in waiting — win rate, expectancy in R, the Stops page's
-  own average risk per position. If the fix is a pattern, make it one
-  component and apply it to all of them rather than patching this tile.
-
 - [ ] **5 frontend lint warnings remain, not the 2 last recorded here** — the
   count drifted after the chart file was split (`f996e1a`) and after Google
   sign-in landed, and nobody re-ran `npm run lint --prefix frontend` since.
