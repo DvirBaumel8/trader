@@ -9,6 +9,46 @@ this says what is outstanding.
 
 ## Bugs — correctness
 
+- [ ] **The app's numbers disagree with his broker — balance, returns and
+  history, all of it.** Raised 2026-09-12. He will bring the specific gaps;
+  this is a joint investigation, not something to guess at alone.
+
+  **Do not start by changing code.** The first deliverable is a
+  *reconciliation*: for one account, on one date, put our figure and the
+  broker's figure side by side and find where they part. Candidates worth
+  suspecting, in the order they are most likely to matter:
+
+  - **Fees.** Defaults are applied per entry; the broker charges its own
+    schedule, per fill, sometimes with a minimum. A systematic few-dollars-per
+    -trade gap compounds into a visible P/L difference.
+  - **Cash.** Invariant 3 says buys and sells are not cash flows. If the
+    broker's "balance" includes settled cash, margin interest, or dividends
+    the journal has never seen, the two definitions of "cash" are simply not
+    the same number — and dividends and margin interest are not modelled at
+    all.
+  - **Which price.** `select-price.ts` picks pre-market / regular /
+    after-hours by `marketState`; the broker may mark at the official close.
+    Comparing a 4:30pm figure to a 4:00pm close is a real gap and not a bug.
+  - **Partial fills and averaging.** One journalled entry can stand for
+    several broker fills at different prices; the average is then ours, not
+    theirs.
+  - **Seeded history.** Everything before the seed is a single opening
+    position, so any realised P/L from before that date exists in the broker
+    and not here.
+  - **Corporate actions.** Splits and symbol changes are not handled anywhere.
+
+  **Shape of the work:** ask him for one date, one account screenshot, and one
+  ticker where the gap is largest; reconcile that single case end to end;
+  only then decide what is a bug, what is a definition difference worth
+  documenting, and what needs modelling. Related: the broker-integration
+  discussion below — a live feed makes this measurable continuously instead
+  of by hand.
+
+- [ ] **A glitch in the Trades screen filter.** Raised 2026-09-12 alongside
+  the totals request below: "there is a glitch in the UI with the filter."
+  Not yet reproduced or characterised — ask him what he sees, or reproduce on
+  a phone-width viewport, before touching it.
+
 - [ ] **The e2e suite flakes about 1 run in 20, and the cause is still
   unknown.** Investigated at length; recording what was ruled out so the next
   attempt does not repeat it.
@@ -170,6 +210,46 @@ when the question was "should I add to this winner?".
   the wait *legible* rather than shorter. The prompt is also worth a look —
   the stored facts snapshot grew from ~1,600 to ~4,600 characters when the
   book and record were added.
+
+## Features requested, not yet designed
+
+Raised 2026-09-12. Each needs its own brainstorm before any plan — written
+here so nothing is lost, not as an instruction to start building.
+
+- [ ] **Totals on the Trades screen, over a chosen period.** Today the Trades
+  tab lists round trips and a stats header (win rate, average risk,
+  expectancy in R) computed over everything. He wants a **total profit and
+  loss across all trades**, and the **same period filter the benchmark chart
+  already has** — with every figure on the screen recomputed for the selected
+  period, not just the list filtered.
+
+  **Reuse before invention:** the range selector already exists in
+  `frontend/src/lib/benchmarkRange.ts` (`Range`, `RANGES`) and is rendered by
+  `BenchmarkChart`. That control, not a second one. The recomputation is the
+  backend's job — invariant 5 — so `derive-trades.ts` stats gain a date
+  window rather than the frontend summing rows.
+
+  Ships with the filter-glitch fix above, since both touch that control.
+
+- [ ] **A per-stock summary page.** One ticker, one page, over a chosen date
+  range:
+  - every transaction in the range, in full detail
+  - total profit and loss on that ticker
+  - averages — position size, hold time, R, win and loss
+  - **fees paid on this ticker**, which nothing surfaces per-symbol today
+  - an **AI reading of his history in this name** specifically
+
+  Much of this exists in pieces: `derive-trades.ts` already produces round
+  trips per instrument, the fees tab already aggregates by period, and the
+  trade-idea prompt already assembles a record section. The page is mostly
+  assembly plus one new aggregation — but it is the first screen whose whole
+  subject is a single symbol, so it deserves its own design pass.
+
+  The AI reading should reuse the existing pattern rather than invent one:
+  `CollapsibleCard`, a stored `factsSnapshot`, and the model quoting the
+  app's computed figures rather than recomputing them (see "The model
+  misquotes the app's own figures" above — a per-ticker answer is exactly
+  where that failure would bite).
 
 ## Tech debt
 
