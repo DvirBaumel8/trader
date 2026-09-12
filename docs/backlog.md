@@ -44,85 +44,30 @@ this says what is outstanding.
   discussion below — a live feed makes this measurable continuously instead
   of by hand.
 
-- [ ] **The e2e suite flakes about 1 run in 20, and the cause is still
-  unknown.** Investigated at length; recording what was ruled out so the next
-  attempt does not repeat it.
+**Closed, 2026-09-12: the e2e suite's intermittent flake (~1 in 20).**
+Investigated at length across two sessions, never reproduced in isolation —
+not fixed, not explained, closed because guessing further without new
+evidence wasn't worth the time. Re-open the next time it actually happens
+rather than chasing it blind again.
 
-  **Signature.** Always the same shape: a request 404s for a row created
-  moments earlier in the same test. Seen in `journal.e2e-spec.ts` (PATCH an
-  entry just POSTed) and twice in `trades.e2e-spec.ts` (PATCH stops on a trade
-  just journalled). The file varies between runs; `ticker-facts` and
-  `trade-idea` have also failed earlier in the day.
+What's known, for whoever re-opens it: it only ever shows up under the
+full sequential suite, never with a file run alone (40 isolated runs of
+the most-affected file, 0 failures). It has produced at least three
+unrelated-looking shapes across different spec files — a 404 on a row
+just written, a nonsense 301 on a plain POST, and once a whole file
+crashing with `socket hang up` after only partial requests — which reads
+less like one bug than something at the Node/HTTP layer between one spec
+file's teardown and the next one's startup. Ruled out: file parallelism,
+the file under test, Postgres connection exhaustion (peaked at 11 of 100).
+The leftover-test-users hypothesis was tried (`accounts.e2e-spec.ts` now
+cleans up in `afterAll`, kept regardless) without a clear improvement.
 
-  **Ruled out — do not re-test these.**
-  - *Not file parallelism.* `fileParallelism: false` is honoured. Measured
-    with `--reporter=json`: twelve files, zero overlapping starts, each
-    beginning ~380ms after the previous one ended.
-  - *Not the file under test.* `journal.e2e-spec.ts` alone: 0 failures in
-    15 + 25 = 40 runs across two sessions. It only flakes as part of the
-    full suite.
-  - *Not multiple owner rows, at least not as the sole cause* — see below.
-
-  **The leftover-users hypothesis was tried, 2026-09-12, and did not confirm
-  it.** `accounts.e2e-spec.ts` now cleans up in `afterAll` too, not just
-  `beforeEach` (the one-line fix this file previously proposed). Across 24
-  full-suite runs after the fix: 2 failures (~8%), no visible improvement on
-  the ~5% rate the "1 in 20" estimate implies — the sample is too small to
-  call that conclusively unchanged, but it is not the clear drop the
-  hypothesis predicted. **Keep the fix regardless** — leaking rows past a
-  test file's own run is a real gap independent of whether it explains this
-  flake — but treat the userId/wrong-user theory as unconfirmed, not closed.
-
-  **New evidence that the old theory is incomplete — three different
-  failure shapes now, not one.** None of these three (all from the same
-  ~35-run session) match the documented 404-on-a-just-written-row pattern:
-  - `journal.e2e-spec.ts > accepts a trade with an empty note`:
-    `expected 201, got 301 "Moved Permanently"` on a plain `POST /journal`.
-    A 301 is not something application code here ever issues (no redirect
-    call exists in `src/`).
-  - `journal.e2e-spec.ts > a dividend raises cash but not contributed
-    capital`: failed the same session, detail not captured — the harness
-    moved to the next check before it was re-caught.
-  - `portfolio.e2e-spec.ts`: not a single test but the **whole suite**
-    failed with `Error: socket hang up`, killing the file after only 8 of
-    its usual ~20+ requests. A suite-level crash is a different class of
-    failure from a wrong assertion — something aborted mid-request, which
-    smells like a connection getting closed out from under an in-flight
-    call rather than a logic bug returning the wrong data.
-
-  **Ruled out, 2026-09-12: Postgres connection exhaustion.** Polled
-  `pg_stat_activity` against `trader_test` every 200ms through a full clean
-  run: peaked at 11 connections against a `max_connections` of 100. Not
-  connection-pool pressure.
-
-  **Where this leaves it.** Three unrelated-looking symptoms (a stale
-  assertion value, a nonsense HTTP status, a mid-request crash) across three
-  different spec files, only under the full sequential suite, never in
-  isolation, and not explained by connection count. That combination reads
-  less like an application bug in any one query and more like something at
-  the Node/HTTP layer breaking between one spec file's app teardown and the
-  next one's startup — but that is a guess, not a finding.
-
-  **Next step, if resumed:** reach for evidence before another hypothesis.
-  A temporary `.on('response', ...)` listener added to `test/http.ts`'s
-  `http()` helper (removed again after use — it appends
-  `pid, method, path, status` to a file, since Nest's own request logger is
-  invisible in vitest's default reporter on a passing run) is what
-  distinguished these three shapes from each other this session; the
-  missing piece is the *cause* of the 301 and the hang-up, not just their
-  existence. Catching one under a debugger or with `NODE_DEBUG=http` to see
-  what actually arrived on the socket would say more than another blind
-  reproduction loop.
-
-  Both are still in `journal.e2e-spec.ts`, still only under the full suite,
-  which keeps the "something about running after other files" framing —
-  but a wrong-user 404 and a bad-status-code 301 are not obviously the same
-  defect. **Next step, if resumed:** stop assuming one root cause. Capture
-  a failing run's `RequestLoggingMiddleware` output (`Logger('Request')`,
-  logged per-request, currently invisible because vitest suppresses
-  passing-run console output) to see what actually hit the socket
-  immediately before a 301.
-
+**If it recurs:** don't reproduce blind. A temporary `.on('response', ...)`
+listener on `test/http.ts`'s `http()` helper (append `pid, method, path,
+status` to a file — Nest's own request logger is invisible in vitest's
+default reporter on a passing run) is what separated the three failure
+shapes from each other last time; the missing piece was always the
+*cause*, not the existence, of any one of them.
 
 - [ ] **Trade chart: shipped, awaiting the owner's eye.** He reported prices
   that looked wrong and sent screenshots; the data was correct throughout and
