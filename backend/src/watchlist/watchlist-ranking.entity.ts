@@ -40,6 +40,6 @@ export class WatchlistRanking {
   @Column('text')
   factsSnapshot: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 }
