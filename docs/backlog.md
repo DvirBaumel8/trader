@@ -99,12 +99,21 @@ shapes from each other last time; the missing piece was always the
   bars-are-behind warning stays in the open: it is transient and it resolves,
   which is the only one worth interrupting a glance for.
 
-  **Decided, 2026-09-12: dates stay on the device locale.** Money is pinned
-  to `en-US`; dates follow whatever `toLocaleDateString` gives the viewer's
-  device, deliberately (`chartDates.spec.ts`: "order is the VIEWER's locale
-  to decide"). Raised as a possible mixed-script concern on the owner's own
-  phone (Hebrew month abbreviations next to English money) — he doesn't see
-  it as an issue. No change.
+  **Fixed, 2026-09-13: the Journal's day heading was still on device
+  locale.** `chartDates.ts` and the trade chart's own `lightweight-charts`
+  localization were already pinned to `en-US` on 2026-09-05 — but
+  `Journal.tsx`'s `dayLabel`, the per-day grouping heading on the entries
+  list, was missed in that sweep and still called `toLocaleDateString([],
+  …)`. First reported as a non-issue on 2026-09-12 without a screenshot;
+  reversed the same session once he actually saw his phone rendering "12
+  בספט' 2026" under the entries list. Pinned to `en-US`, matching
+  `chartDates.ts`; kept as a separate function in a new `lib/dayHeading.ts`
+  rather than merged into `chartDates.ts`, because `dayLabel` reads a full
+  instant (`occurredAt` carries a real time-of-day) while `chartDates.ts`
+  deliberately forces UTC for plain calendar-date strings — merging them
+  would have re-introduced the day-shift bug `chartDates.ts`'s own UTC
+  parsing exists to prevent. Covered by an exact-string test
+  (`dayHeading.spec.ts`), same convention as `chartDates.spec.ts`.
 
   **Watch: axis labels may now crowd.** The current-price badge already
   overlapped its neighbouring gridline label before any of this (visible on
