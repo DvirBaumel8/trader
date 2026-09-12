@@ -60,6 +60,18 @@ export interface RawConsensus {
   }[];
 }
 
+/**
+ * Three states, not two — collapsing "nobody covers this name" and "the
+ * provider call failed" into one `null` used to make a Yahoo outage read as
+ * a fact about the stock (invariant 7, inverted: a failure wearing a fact's
+ * face). `ok` and `no-coverage` are both a resolved answer about the
+ * ticker; `unavailable` is the one state that says nothing was learned.
+ */
+export type ConsensusResult =
+  | { status: 'ok'; data: RawConsensus }
+  | { status: 'no-coverage' }
+  | { status: 'unavailable' };
+
 const num = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : null;
 
@@ -244,12 +256,14 @@ export class YahooClient {
    * no new vendor, no API key, and invariant 6 intact because the import
    * stays in this file.
    *
-   * Null, never a zero or a default, when nothing covers the ticker. On a
-   * 1..5 scale where 1 is "strong buy", a zero would read as the strongest
-   * possible recommendation — the worst available way to be wrong. ETFs and
-   * thin names legitimately have no coverage.
+   * `no-coverage`, never a zero or a default, when nothing covers the
+   * ticker. On a 1..5 scale where 1 is "strong buy", a zero would read as
+   * the strongest possible recommendation — the worst available way to be
+   * wrong. ETFs and thin names legitimately have no coverage — that is a
+   * resolved answer, distinct from `unavailable`, which means the provider
+   * call itself failed and nothing was learned either way.
    */
-  async consensus(symbol: string): Promise<RawConsensus | null> {
+  async consensus(symbol: string): Promise<ConsensusResult> {
     try {
       const r = await this.yf.quoteSummary(symbol, {
         modules: ['financialData', 'recommendationTrend'],
@@ -258,36 +272,39 @@ export class YahooClient {
       const mean = num(f.recommendationMean);
       const analysts = num(f.numberOfAnalystOpinions);
       // No mean and no analysts means no coverage, not a quiet zero.
-      if (mean === null && analysts === null) return null;
+      if (mean === null && analysts === null) return { status: 'no-coverage' };
       const trendRows = (r?.recommendationTrend?.trend ?? []) as Record<
         string,
         number
       >[];
       return {
-        recommendationMean: mean,
-        recommendationKey:
-          typeof f.recommendationKey === 'string' ? f.recommendationKey : null,
-        analystCount: analysts,
-        targetMean: num(f.targetMeanPrice),
-        targetHigh: num(f.targetHighPrice),
-        targetLow: num(f.targetLowPrice),
-        revenueGrowth: num(f.revenueGrowth),
-        earningsGrowth: num(f.earningsGrowth),
-        profitMargin: num(f.profitMargins),
-        returnOnEquity: num(f.returnOnEquity),
-        trend: trendRows.map((t) => ({
-          period: String(t.period ?? ''),
-          strongBuy: Number(t.strongBuy ?? 0),
-          buy: Number(t.buy ?? 0),
-          hold: Number(t.hold ?? 0),
-          sell: Number(t.sell ?? 0),
-          strongSell: Number(t.strongSell ?? 0),
-        })),
+        status: 'ok',
+        data: {
+          recommendationMean: mean,
+          recommendationKey:
+            typeof f.recommendationKey === 'string' ? f.recommendationKey : null,
+          analystCount: analysts,
+          targetMean: num(f.targetMeanPrice),
+          targetHigh: num(f.targetHighPrice),
+          targetLow: num(f.targetLowPrice),
+          revenueGrowth: num(f.revenueGrowth),
+          earningsGrowth: num(f.earningsGrowth),
+          profitMargin: num(f.profitMargins),
+          returnOnEquity: num(f.returnOnEquity),
+          trend: trendRows.map((t) => ({
+            period: String(t.period ?? ''),
+            strongBuy: Number(t.strongBuy ?? 0),
+            buy: Number(t.buy ?? 0),
+            hold: Number(t.hold ?? 0),
+            sell: Number(t.sell ?? 0),
+            strongSell: Number(t.strongSell ?? 0),
+          })),
+        },
       };
     } catch {
       // Silent, like `quote`: this class has no logger, and a missing view is
       // a state the ranking handles rather than an error it reports.
-      return null;
+      return { status: 'unavailable' };
     }
   }
 

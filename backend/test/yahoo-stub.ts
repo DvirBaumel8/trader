@@ -1,3 +1,5 @@
+import type { ConsensusResult } from '../src/market-data/yahoo.client.js';
+
 /**
  * A deterministic stand-in for `YahooClient`, so no test reaches the network.
  *
@@ -130,26 +132,32 @@ export function yahooStub(options: {
     /**
      * Fixed, obviously synthetic consensus. Opt-in like `withBars`, so specs
      * that do not care are not handed data they then have to ignore. SPY
-     * returns null on purpose — it is the suite's "no analyst coverage" case,
-     * which the ranking must handle as neutral rather than as a penalty.
+     * resolves to `no-coverage` on purpose — it is the suite's "no analyst
+     * coverage" case, which the ranking must handle as neutral rather than
+     * as a penalty. Never `unavailable` here: that state means the provider
+     * call itself failed, which is a real client behaviour a spec can only
+     * exercise by overriding this stub, not something to fake by default.
      */
-    consensus: async (symbol: string) =>
+    consensus: async (symbol: string): Promise<ConsensusResult> =>
       !options.withConsensus || symbol.toUpperCase() === 'SPY'
-        ? null
+        ? { status: 'no-coverage' }
         : {
-            recommendationMean: 2,
-            recommendationKey: 'buy',
-            analystCount: 10,
-            targetMean: (STUB_PRICES[symbol.toUpperCase()] ?? 100) * 1.2,
-            targetHigh: (STUB_PRICES[symbol.toUpperCase()] ?? 100) * 1.5,
-            targetLow: (STUB_PRICES[symbol.toUpperCase()] ?? 100) * 0.9,
-            revenueGrowth: 0.2,
-            earningsGrowth: 0.3,
-            profitMargin: 0.25,
-            returnOnEquity: 0.4,
-            trend: [
-              { period: '0m', strongBuy: 2, buy: 6, hold: 2, sell: 0, strongSell: 0 },
-            ],
+            status: 'ok',
+            data: {
+              recommendationMean: 2,
+              recommendationKey: 'buy',
+              analystCount: 10,
+              targetMean: (STUB_PRICES[symbol.toUpperCase()] ?? 100) * 1.2,
+              targetHigh: (STUB_PRICES[symbol.toUpperCase()] ?? 100) * 1.5,
+              targetLow: (STUB_PRICES[symbol.toUpperCase()] ?? 100) * 0.9,
+              revenueGrowth: 0.2,
+              earningsGrowth: 0.3,
+              profitMargin: 0.25,
+              returnOnEquity: 0.4,
+              trend: [
+                { period: '0m', strongBuy: 2, buy: 6, hold: 2, sell: 0, strongSell: 0 },
+              ],
+            },
           },
   };
 }

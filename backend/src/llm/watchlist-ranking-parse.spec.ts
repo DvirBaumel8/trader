@@ -31,8 +31,20 @@ describe('parseRanking', () => {
 
   it('flags the ticker the model was told has no coverage', () => {
     const r = parseRanking(answer, ['SPY', 'PLTR']);
-    expect(r.order[1].noAnalystCoverage).toBe(true);
-    expect(r.order[0].noAnalystCoverage).toBe(false);
+    expect(r.order[1].coverage).toBe('no-analyst-coverage');
+    expect(r.order[0].coverage).toBe('full');
+  });
+
+  it('flags a ticker the model was told the street view was unavailable', () => {
+    const withUnavailable = `
+[RANK]
+SYMBOL: PLTR
+VERDICT: Fine on the tape, street view unavailable.
+COVERAGE: unavailable
+[/RANK]
+`;
+    const r = parseRanking(withUnavailable, ['PLTR']);
+    expect(r.order[0].coverage).toBe('unavailable');
   });
 
   it('keeps the reasoning outside the blocks, verbatim', () => {
@@ -92,7 +104,7 @@ COVERAGE: no-analyst-coverage
 `;
     const r = parseRanking(adjacent, ['A', 'B']);
     expect(r.order).toEqual([
-      { symbol: 'B', verdict: 'bar', noAnalystCoverage: true },
+      { symbol: 'B', verdict: 'bar', coverage: 'no-analyst-coverage' },
     ]);
     expect(r.missing).toEqual(['A']);
   });
@@ -127,7 +139,7 @@ COVERAGE: sort-of
 [/RANK]
 `;
     const r = parseRanking(weird, ['PLTR']);
-    expect(r.order[0].noAnalystCoverage).toBe(false);
+    expect(r.order[0].coverage).toBe('full');
   });
 
   it('returns an empty order and no throw on an empty string', () => {
@@ -156,6 +168,7 @@ COVERAGE: sort-of
       'COVERAGE:',
       'full',
       'no-analyst-coverage',
+      'unavailable',
     ]) {
       expect(RANKING_SYSTEM_PROMPT).toContain(token);
     }

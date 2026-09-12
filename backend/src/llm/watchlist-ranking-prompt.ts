@@ -1,4 +1,4 @@
-import type { RawConsensus } from '../market-data/yahoo.client.js';
+import type { ConsensusResult } from '../market-data/yahoo.client.js';
 import type { IndicatorSet } from '../market-data/indicators.js';
 import { level, pct, renderIndicatorLines } from './indicator-lines.js';
 import { renderHistoryLines, type RecordTrade } from './trade-idea-context.js';
@@ -20,8 +20,8 @@ export interface RankingCandidate {
   indicators: IndicatorSet;
   /** Trailing P/E. Not part of `indicators` — it comes from the quote/fundamentals, not price history. */
   peRatio: number | null;
-  /** The street. Null means no analyst covers it. */
-  consensus: RawConsensus | null;
+  /** The street: covered, genuinely uncovered, or the fetch failed. */
+  consensus: ConsensusResult;
   /** His own target, if he set one, and how far away it is (a fraction). */
   targetPrice: number | null;
   distanceToTarget: number | null;
@@ -48,31 +48,44 @@ const recLabel = (key: string | null): string =>
         .join(' ');
 
 /**
- * The street's view, rendered — or a plain statement that it does not exist.
- * The "no analyst coverage" wording is load-bearing: it is what tells the
+ * The street's view, rendered — or a plain statement of why it is missing.
+ * The wording is load-bearing in both missing cases: it is what tells the
  * model (and, downstream, the reader) that this ticker is ranked on fewer
- * views than its neighbours, never that it scored a silent zero.
+ * views than its neighbours, never that it scored a silent zero — and,
+ * separately, that "unavailable" is a provider failure to weight as unknown,
+ * never as "no coverage", which is a fact about the ticker rather than
+ * about Yahoo's uptime.
  */
-function renderStreet(c: RawConsensus | null): string[] {
-  if (c === null) {
+function renderStreet(c: ConsensusResult): string[] {
+  if (c.status === 'unavailable') {
+    return [
+      'THE STREET (bought-in analyst consensus): view unavailable — the',
+      'provider call failed, so this is not a resolved "no coverage".',
+      'Treat this view as unknown, not as bearish, and say so if it',
+      'matters to your ranking.',
+    ];
+  }
+
+  if (c.status === 'no-coverage') {
     return [
       'THE STREET (bought-in analyst consensus): no analyst coverage — nobody',
       'covers this name. Treat this view as absent, not as bearish.',
     ];
   }
 
+  const data = c.data;
   const lines = [
     'THE STREET (bought-in analyst consensus):',
-    `  - Recommendation: ${recLabel(c.recommendationKey)} (mean ${
-      c.recommendationMean === null ? 'n/a' : c.recommendationMean.toFixed(2)
-    } on a 1=strong buy … 5=sell scale), from ${c.analystCount ?? 'n/a'} analysts`,
-    `  - Price targets: mean ${level(c.targetMean)}, high ${level(c.targetHigh)}, low ${level(c.targetLow)}`,
-    `  - Revenue growth: ${pct(c.revenueGrowth)} · earnings growth: ${pct(c.earningsGrowth)}`,
-    `  - Profit margin: ${pct(c.profitMargin)} · return on equity: ${pct(c.returnOnEquity)}`,
+    `  - Recommendation: ${recLabel(data.recommendationKey)} (mean ${
+      data.recommendationMean === null ? 'n/a' : data.recommendationMean.toFixed(2)
+    } on a 1=strong buy … 5=sell scale), from ${data.analystCount ?? 'n/a'} analysts`,
+    `  - Price targets: mean ${level(data.targetMean)}, high ${level(data.targetHigh)}, low ${level(data.targetLow)}`,
+    `  - Revenue growth: ${pct(data.revenueGrowth)} · earnings growth: ${pct(data.earningsGrowth)}`,
+    `  - Profit margin: ${pct(data.profitMargin)} · return on equity: ${pct(data.returnOnEquity)}`,
   ];
 
-  if (c.trend.length > 0) {
-    const recent = c.trend.slice(0, 3);
+  if (data.trend.length > 0) {
+    const recent = data.trend.slice(0, 3);
     lines.push(
       '  - Recommendation trend, most recent first (strong buy/buy/hold/sell/strong sell):',
       ...recent.map(
@@ -256,12 +269,13 @@ First, one block per candidate, in ranked order from best to worst:
 [RANK]
 SYMBOL: <the ticker symbol, exactly as given>
 VERDICT: <one line, under 120 characters, the headline judgement>
-COVERAGE: full | no-analyst-coverage
+COVERAGE: full | no-analyst-coverage | unavailable
 [/RANK]
 
 Repeat that block for every candidate — best first, worst last. COVERAGE is
-"no-analyst-coverage" when THE STREET was absent for that ticker and "full"
-otherwise.
+"no-analyst-coverage" when THE STREET said no analyst covers that name,
+"unavailable" when THE STREET said its view could not be fetched (a
+provider failure, not a fact about the ticker), and "full" otherwise.
 
 After every [RANK] block, write your reasoning as plain paragraphs,
 referencing tickers by symbol. This is where the reconciliation lives: say

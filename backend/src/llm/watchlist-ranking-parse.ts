@@ -20,8 +20,13 @@
 export interface RankedTicker {
   symbol: string;
   verdict: string;
-  /** True when the model was told this ticker has no analyst coverage. */
-  noAnalystCoverage: boolean;
+  /**
+   * What the model was told about this ticker's analyst view:
+   * genuinely uncovered, or the fetch itself failed. Anything else the
+   * model writes — including a typo or an omission — is treated as `full`,
+   * the same as the two-value parser did before this existed.
+   */
+  coverage: 'full' | 'no-analyst-coverage' | 'unavailable';
 }
 
 export interface ParsedRanking {
@@ -114,10 +119,14 @@ export function parseRanking(text: string, expected: string[]): ParsedRanking {
       !seen.has(symbol)
     ) {
       seen.add(symbol);
+      const coverageValue = coverage?.toLowerCase();
       order.push({
         symbol,
         verdict,
-        noAnalystCoverage: coverage?.toLowerCase() === 'no-analyst-coverage',
+        coverage:
+          coverageValue === 'no-analyst-coverage' || coverageValue === 'unavailable'
+            ? coverageValue
+            : 'full',
       });
     }
 

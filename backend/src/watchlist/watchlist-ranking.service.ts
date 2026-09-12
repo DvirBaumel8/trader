@@ -7,7 +7,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { MarketDataService } from '../market-data/market-data.service.js';
 import { computeIndicators, type IndicatorSet } from '../market-data/indicators.js';
-import type { RawBar } from '../market-data/yahoo.client.js';
+import type { ConsensusResult, RawBar } from '../market-data/yahoo.client.js';
 import { LlmClient, LlmFailure, type LlmFailureKind } from '../llm/llm.client.js';
 import {
   buildRankingUserPrompt,
@@ -198,25 +198,27 @@ export class WatchlistRankingService {
     const consensusSettled = await settleInChunks(symbols, CONSENSUS_CONCURRENCY, (s) =>
       this.marketData.getConsensus(s),
     );
-    const consensusBySymbol = new Map(
+    const consensusBySymbol = new Map<string, ConsensusResult>(
       symbols.map((s, i) => {
         const r = consensusSettled[i];
-        return [s.toUpperCase(), r.status === 'fulfilled' ? r.value : null] as const;
+        return [
+          s.toUpperCase(),
+          r.status === 'fulfilled' ? r.value : { status: 'unavailable' },
+        ] as const;
       }),
     );
 
-    // Every consensus fetch that came back empty — whether nobody covers the
-    // ticker or the provider call itself failed; today's `getConsensus`
-    // cannot tell the two apart (see the design doc's backlogged three-state
-    // fix). Logged as a count so a blanket Yahoo outage — most or all of the
-    // list coming back empty at once — is visible in logs/api.log rather
-    // than reading as fifty ordinary "no coverage" tickers.
-    const emptyConsensusCount = [...consensusBySymbol.values()].filter(
-      (v) => v === null,
+    // `no-coverage` is a resolved, ordinary fact about a ticker (ETFs, thin
+    // names) and not worth a line in the log. `unavailable` means the
+    // provider call itself failed — a blanket Yahoo outage shows up here as
+    // most or all of the list coming back unavailable at once, which used to
+    // be indistinguishable from fifty ordinary no-coverage tickers.
+    const unavailableCount = [...consensusBySymbol.values()].filter(
+      (v) => v.status === 'unavailable',
     ).length;
-    if (emptyConsensusCount > 0) {
+    if (unavailableCount > 0) {
       this.logger.warn(
-        `Watchlist ranking: consensus came back empty for ${emptyConsensusCount}/${symbols.length} tickers (no coverage or a provider failure — indistinguishable today)`,
+        `Watchlist ranking: consensus fetch failed (not lack of coverage) for ${unavailableCount}/${symbols.length} tickers`,
       );
     }
 
@@ -249,7 +251,9 @@ export class WatchlistRankingService {
             ? emptyIndicators(rawBars.length)
             : computeIndicators(rawBars, row.price),
         peRatio: quotes.get(row.symbol.toUpperCase())?.peRatio ?? null,
-        consensus: consensusBySymbol.get(row.symbol.toUpperCase()) ?? null,
+        consensus: consensusBySymbol.get(row.symbol.toUpperCase()) ?? {
+          status: 'unavailable',
+        },
         targetPrice: row.targetPrice,
         distanceToTarget: row.distanceToTarget,
         tags: row.tags.map((t) => t.label),

@@ -19,10 +19,13 @@ const covered: RankingCandidate = {
   symbol: 'NVDA', name: 'NVIDIA', price: 108, indicators,
   peRatio: 42.5,
   consensus: {
-    recommendationMean: 1.3, recommendationKey: 'strong_buy', analystCount: 57,
-    targetMean: 160, targetHigh: 200, targetLow: 90,
-    revenueGrowth: 1.05, earningsGrowth: 1.2, profitMargin: 0.6, returnOnEquity: 1.1,
-    trend: [{ period: '0m', strongBuy: 9, buy: 48, hold: 2, sell: 1, strongSell: 0 }],
+    status: 'ok',
+    data: {
+      recommendationMean: 1.3, recommendationKey: 'strong_buy', analystCount: 57,
+      targetMean: 160, targetHigh: 200, targetLow: 90,
+      revenueGrowth: 1.05, earningsGrowth: 1.2, profitMargin: 0.6, returnOnEquity: 1.1,
+      trend: [{ period: '0m', strongBuy: 9, buy: 48, hold: 2, sell: 1, strongSell: 0 }],
+    },
   },
   targetPrice: 130, distanceToTarget: 0.2, tags: ['semis'], note: 'breakout watch',
   trades: [
@@ -36,7 +39,13 @@ const covered: RankingCandidate = {
 };
 
 const uncovered: RankingCandidate = {
-  ...covered, symbol: 'SPY', name: 'S&P 500 ETF', consensus: null,
+  ...covered, symbol: 'SPY', name: 'S&P 500 ETF', consensus: { status: 'no-coverage' },
+  targetPrice: null, distanceToTarget: null, tags: [], note: '',
+  peRatio: null, trades: [],
+};
+
+const unavailable: RankingCandidate = {
+  ...covered, symbol: 'AMD', name: 'AMD', consensus: { status: 'unavailable' },
   targetPrice: null, distanceToTarget: null, tags: [], note: '',
   peRatio: null, trades: [],
 };
@@ -60,6 +69,18 @@ describe('buildRankingUserPrompt', () => {
   it('says plainly when a ticker has no analyst coverage', () => {
     const p = buildRankingUserPrompt([uncovered], 'BOOK', 'RECORD', 'PROFILE');
     expect(p).toMatch(/no analyst coverage/i);
+  });
+
+  /**
+   * The failure that motivated the three-state fix: a Yahoo outage must not
+   * read as the resolved fact "no analyst coverage". The two must render as
+   * visibly different sentences, so the model (and the parser's COVERAGE
+   * field downstream) can tell them apart.
+   */
+  it('says the view is unavailable, distinctly from no coverage, on a fetch failure', () => {
+    const p = buildRankingUserPrompt([unavailable], 'BOOK', 'RECORD', 'PROFILE');
+    expect(p).toMatch(/unavailable/i);
+    expect(p).not.toMatch(/no analyst coverage/i);
   });
 
   it('tells the model to treat a missing view as mid-range, not as zero', () => {

@@ -10,7 +10,7 @@ const RANKING_KEY = ['watchlist', 'ranking'];
 interface RankedTicker {
   symbol: string;
   verdict: string;
-  noAnalystCoverage: boolean;
+  coverage: 'full' | 'no-analyst-coverage' | 'unavailable';
 }
 
 interface RankingResponse {
@@ -191,10 +191,22 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
                     wearing a confidence it hasn't earned — the design doc's
                     own words for it.
                   */}
-                  {t.noAnalystCoverage && (
+                  {t.coverage === 'no-analyst-coverage' && (
                     <div className="mt-0.5 text-[10px] text-muted">
                       no analyst coverage — ranked on the tape and your record
                       alone
+                    </div>
+                  )}
+                  {/*
+                    Distinct from "no coverage": that is a fact about the
+                    ticker, this is a fact about the provider call. Collapsing
+                    them used to make a Yahoo outage read on screen as if
+                    nobody covered the name.
+                  */}
+                  {t.coverage === 'unavailable' && (
+                    <div className="mt-0.5 text-[10px] text-muted">
+                      analyst view unavailable right now — ranked on the tape
+                      and your record alone
                     </div>
                   )}
                 </div>

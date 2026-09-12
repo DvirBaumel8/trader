@@ -40,7 +40,7 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
 const rankedTicker = (over: Partial<Record<string, unknown>> = {}) => ({
   symbol: 'NVDA',
   verdict: 'Strong uptrend, room to the 52w high.',
-  noAnalystCoverage: false,
+  coverage: 'full',
   ...over,
 });
 
@@ -235,13 +235,28 @@ describe('Watchlist ranking', () => {
   it('says when a ticker was ranked without analyst coverage', async () => {
     renderWatchlist([row()], {
       ranking: rankingResponse({
-        order: [rankedTicker({ noAnalystCoverage: true })],
+        order: [rankedTicker({ coverage: 'no-analyst-coverage' })],
       }),
     });
 
     expect(
       await screen.findByText(/no analyst coverage/i),
     ).toBeInTheDocument();
+  });
+
+  /**
+   * Distinct from "no coverage": a Yahoo outage must never read on screen as
+   * the resolved fact that nobody covers this ticker.
+   */
+  it('says when the analyst view was unavailable, not that there is no coverage', async () => {
+    renderWatchlist([row()], {
+      ranking: rankingResponse({
+        order: [rankedTicker({ coverage: 'unavailable' })],
+      }),
+    });
+
+    expect(await screen.findByText(/unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no analyst coverage/i)).not.toBeInTheDocument();
   });
 
   it('says how old the ranking is', async () => {

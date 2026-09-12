@@ -287,28 +287,34 @@ describe('YahooClient.consensus', () => {
 
     const c = await client.consensus('NVDA');
 
-    expect(c).not.toBeNull();
-    expect(c!.recommendationMean).toBeCloseTo(1.28, 2);
-    expect(c!.analystCount).toBe(57);
-    expect(c!.targetMean).toBeCloseTo(327.65, 2);
-    expect(c!.trend[0].buy).toBe(48);
+    expect(c.status).toBe('ok');
+    if (c.status !== 'ok') throw new Error('unreachable');
+    expect(c.data.recommendationMean).toBeCloseTo(1.28, 2);
+    expect(c.data.analystCount).toBe(57);
+    expect(c.data.targetMean).toBeCloseTo(327.65, 2);
+    expect(c.data.trend[0].buy).toBe(48);
   });
 
   /**
-   * ETFs and thin names genuinely have no coverage. Null, never zero: a zero
-   * recommendationMean would read as "strong buy" on a 1..5 scale, which is
-   * the worst possible way to be wrong.
+   * ETFs and thin names genuinely have no coverage — a resolved answer,
+   * never a zero: a zero recommendationMean would read as "strong buy" on a
+   * 1..5 scale, which is the worst possible way to be wrong.
    */
-  it('returns null when nothing covers the ticker', async () => {
+  it('reports no-coverage when nothing covers the ticker', async () => {
     const client = clientWith(vi.fn().mockResolvedValue({ financialData: {} }));
-    expect(await client.consensus('SPY')).toBeNull();
+    expect(await client.consensus('SPY')).toEqual({ status: 'no-coverage' });
   });
 
-  /** A provider outage must not fail the ranking; the view goes missing. */
-  it('returns null rather than throwing when the provider fails', async () => {
+  /**
+   * A provider outage must not fail the ranking, but it also must not read
+   * as "no coverage" — that is a different fact about the ticker than a
+   * failed call, and conflating them is exactly the bug this state exists
+   * to prevent.
+   */
+  it('reports unavailable, not no-coverage, when the provider fails', async () => {
     const client = clientWith(
       vi.fn().mockRejectedValue(new Error('network down')),
     );
-    expect(await client.consensus('NVDA')).toBeNull();
+    expect(await client.consensus('NVDA')).toEqual({ status: 'unavailable' });
   });
 });
