@@ -64,7 +64,11 @@ const noRankingYet = () =>
 
 function renderWatchlist(
   rows: ReturnType<typeof row>[],
-  opts: { ranking?: unknown } = {},
+  // `refreshRanking` lets a test answer the refresh POST differently from
+  // the initial GET — e.g. proving the reasoning card opens on the NEW
+  // answer a just-triggered refresh brought back, not the one already on
+  // screen. Defaults to `ranking` so most tests only need to specify one.
+  opts: { ranking?: unknown; refreshRanking?: unknown } = {},
 ) {
   (api as ReturnType<typeof vi.fn>).mockImplementation(
     (path: string, init?: { method?: string }) => {
@@ -73,7 +77,9 @@ function renderWatchlist(
         return Promise.resolve(opts.ranking ?? noRankingYet());
       }
       if (path === '/watchlist/ranking/refresh' && init?.method === 'POST') {
-        return Promise.resolve(opts.ranking ?? noRankingYet());
+        return Promise.resolve(
+          opts.refreshRanking ?? opts.ranking ?? noRankingYet(),
+        );
       }
       return Promise.resolve({});
     },
@@ -328,5 +334,61 @@ describe('Watchlist ranking', () => {
 
     expect(await screen.findByText(/not ranked/i)).toBeInTheDocument();
     expect(screen.getByText(/ZZZZ/)).toBeInTheDocument();
+  });
+
+  /**
+   * The reasoning is collapsed on arrival because nobody asked for THAT
+   * particular cached answer — but the instant a refresh IS asked for, the
+   * new reasoning is exactly what was just requested, which is the case
+   * CollapsibleCard's own "open on arrival" rule is written for.
+   */
+  it('opens the reasoning card after a refresh the user just triggered', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([row()], {
+      ranking: rankingResponse({ reasoning: 'Old reasoning text.' }),
+      refreshRanking: rankingResponse({
+        rankedAt: '2026-09-12T12:00:00.000Z',
+        reasoning: 'Fresh reasoning text just computed.',
+      }),
+    });
+
+    await screen.findByText('NVDA');
+    expect(screen.queryByText('Old reasoning text.')).not.toBeInTheDocument();
+
+    await user.click(
+      await screen.findByRole('button', { name: /^refresh$/i }),
+    );
+
+    expect(
+      await screen.findByText('Fresh reasoning text just computed.'),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * A control living below the list is fine for a 3-ticker fixture and
+   * quietly broken for a real, 50-ticker watchlist — a small fixture is
+   * exactly what would hide that. This one is deliberately long.
+   */
+  it('keeps the ranking age above the list even with many rows', async () => {
+    const many = Array.from({ length: 20 }, (_, i) =>
+      rankedTicker({ symbol: `T${i}`, verdict: `Verdict ${i}` }),
+    );
+    renderWatchlist([row()], { ranking: rankingResponse({ order: many }) });
+
+    const age = await screen.findByText(/^ranked .+ ago$/i);
+    const firstRow = await screen.findByText('T0');
+    expect(
+      age.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('shows the stale badge differently from a fresh ranking', async () => {
+    renderWatchlist([row()], {
+      ranking: rankingResponse({ stale: true }),
+    });
+
+    const badge = await screen.findByText('stale');
+    expect(screen.queryByText('ranking')).not.toBeInTheDocument();
+    expect(badge.className).toMatch(/text-down/);
   });
 });

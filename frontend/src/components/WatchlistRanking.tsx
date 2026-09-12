@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
 import { Button } from './ui/Button';
@@ -47,14 +48,23 @@ function formatAge(iso: string): string {
  * scores what comes back — invariant 5 again, this time for a list rather
  * than a single figure.
  *
- * The order and each verdict are always on screen, never behind a tap: only
- * the reasoning — the long generated prose — goes inside `CollapsibleCard`,
- * the app's one way of showing that. Its header carries the ranking's age
- * and the refresh control, so both stay visible collapsed or not: an age
- * hidden behind a tap is a stale price wearing a fresh face.
+ * The order and each verdict are always on screen, never behind a tap. The
+ * age and the refresh control sit at the TOP of the section, above the list
+ * — not inside the reasoning card below it — because with a real watchlist
+ * (up to 50 tickers) a control living below the list is 50 rows down the
+ * page, which quietly breaks "the ranking's age is always visible" at
+ * exactly the sizes this feature is built for. Only the reasoning — the
+ * long generated prose — goes inside `CollapsibleCard`, the app's one way of
+ * showing that.
  */
 export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
   const queryClient = useQueryClient();
+  // Collapsed is the resting state (see the CollapsibleCard usage below for
+  // why), but the reasoning IS what was just asked for the instant a refresh
+  // the owner triggered comes back — so this is lifted out of
+  // CollapsibleCard's own internal state and driven here, where the
+  // refresh mutation can flip it open.
+  const [reasoningOpen, setReasoningOpen] = useState(false);
 
   const rankingQuery = useQuery({
     queryKey: RANKING_KEY,
@@ -67,6 +77,7 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
       api<RankingResponse>('/watchlist/ranking/refresh', { method: 'POST' }),
     onSuccess: (data) => {
       queryClient.setQueryData(RANKING_KEY, data);
+      setReasoningOpen(true);
     },
   });
 
@@ -100,7 +111,7 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
           <p className="text-xs text-muted">
             {ranking.configured
               ? 'No ranking yet — rank the watchlist to see the strongest candidate first.'
-              : "Watchlist ranking isn't set up yet. Ask the developer to add an LLM API key."}
+              : "Watchlist ranking isn't set up — set GEMINI_API_KEY (or LLM_API_KEY) in the backend's environment to enable it."}
           </p>
           {ranking.configured && (
             <Button
@@ -125,6 +136,37 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
 
       {ranking && ranking.rankedAt !== null && (
         <>
+          {/*
+            The age (and stale/fresh badge) at the SECTION HEAD, in the same
+            glance as the list it describes — not fifty rows down, and not
+            waiting behind the reasoning card's own toggle. This is the one
+            place either appears; the card below does not repeat them.
+          */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={
+                ranking.stale
+                  ? 'rounded bg-down/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-down'
+                  : 'rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent'
+              }
+            >
+              {ranking.stale ? 'stale' : 'ranking'}
+            </span>
+            <span className="text-[10px] text-muted">
+              {formatAge(ranking.rankedAt)}
+            </span>
+            {ranking.configured && (
+              <Button
+                variant="secondary"
+                className="ml-auto"
+                disabled={refreshMutation.isPending}
+                onClick={() => refreshMutation.mutate()}
+              >
+                {refreshMutation.isPending ? 'Ranking…' : 'Refresh'}
+              </Button>
+            )}
+          </div>
+
           <ol className="space-y-1.5">
             {ranking.order.map((t, i) => (
               <li
@@ -175,40 +217,21 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
 
           <CollapsibleCard
             label="ranking"
-            // Unlike the AI summary or a trade idea, nobody just clicked a
-            // button to ask for THIS specific answer — it is fetched the
-            // moment the tab opens and may be a day old. Opening it by
-            // default would put several paragraphs of prose on screen
-            // before he asked to read them; here collapsed is the resting
-            // state, and the always-visible header line is what he glances
-            // at first.
-            defaultOpen={false}
+            // Controlled rather than the uncontrolled default: unlike the AI
+            // summary or a trade idea, nobody just clicked a button to ask
+            // for THIS specific answer on a normal page load — it's fetched
+            // automatically and may be a day old, so collapsed is the
+            // resting state. But the moment "Refresh" above resolves, the
+            // reasoning WAS just asked for — the case CollapsibleCard's
+            // default-open behaviour exists to serve — so `reasoningOpen` is
+            // driven open from the mutation's `onSuccess` rather than left to
+            // this card's own internal state.
+            open={reasoningOpen}
+            onOpenChange={setReasoningOpen}
             header={
-              <>
-                <span
-                  className={
-                    ranking.stale
-                      ? 'rounded bg-down/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-down'
-                      : 'rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent'
-                  }
-                >
-                  {ranking.stale ? 'stale' : 'ranking'}
-                </span>
-                <span className="text-[10px] text-muted">
-                  {formatAge(ranking.rankedAt)}
-                </span>
-              </>
-            }
-            actions={
-              ranking.configured && (
-                <Button
-                  variant="secondary"
-                  disabled={refreshMutation.isPending}
-                  onClick={() => refreshMutation.mutate()}
-                >
-                  {refreshMutation.isPending ? 'Ranking…' : 'Refresh'}
-                </Button>
-              )
+              <span className="text-[10px] uppercase tracking-wide text-muted">
+                Reasoning
+              </span>
             }
           >
             {ranking.reasoning ? (
