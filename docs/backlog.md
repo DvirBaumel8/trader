@@ -190,11 +190,54 @@ value, not a secret, so it applies on every deploy same as
 `NODE_VERSION`/`DATABASE_SSL` already do) — his call to raise if a harder
 real case ever reads shallower than before.
 
-Streaming remains the other, undone lever, and is still a UI change, not
-a latency one — it would make the wait legible rather than shorter, which
-matters less now that the wait itself is ~4x shorter. The facts snapshot
-size question (grew from ~1,600 to ~4,600 characters with no measurement
-of what the growth bought) is also still open, separate from this fix.
+**The facts-snapshot-size question, closed 2026-09-13: measured, and it's
+earning its size.** Pulled a real persisted trade-idea prompt and broke it
+down by section: ~1,150 chars of fixed instructional preamble, ~1,420 for
+the FACTS block (689 of that is the 10-day OHLCV table alone), the rest
+book/record. Tested directly against the real API, holding thinking level
+constant: a ~3x larger prompt (994 vs 344 input tokens) was only ~18%
+slower (4.67s vs 3.81s avg over 3 runs) — input size has a real but
+secondary effect, nowhere near what the thinking budget cost. More to the
+point, the growth itself is the book/record sections doing their job: git
+history shows each addition fixed a real bad-answer bug (the BITX
+incident — the model ignoring a 4,600-share position it was asked about).
+Trimming it would remove the context that makes answers trustworthy to
+save under a second. Left as-is.
+
+**Streaming, slice 1 of at least 2, shipped 2026-09-13: Portfolio
+Summary.** The other lever, now that the reply itself is faster rather
+than merely less slow. Built as a shared mechanism, deliberately shipped
+smallest-and-safest slice first: `LlmClient.completeStream()` (retry
+covers reaching a non-empty first chunk only — once anything has been
+yielded, a client may already be rendering it, so a later failure ends
+the stream rather than silently restarting it), and
+`LlmService.portfolioSummaryStream()` streaming newline-delimited JSON —
+`{"delta":"..."}` per chunk, one final `{"done":true,...}` line carrying
+everything `portfolioSummary()` returns in one shot. One shape for every
+outcome (unconfigured, failed before any text, or a real stream) means
+the controller (`@Res()`, bypassing Nest's usual one-shot JSON handling)
+just writes every yielded line with no branching, and the frontend's new
+`streamNdjson()` helper (reusing `client.ts`'s own URL/auth-header logic
+rather than growing a second copy) reads line-by-line the same way
+regardless of which case produced the last one.
+
+Verified live end-to-end: a direct call streamed 13 real delta chunks in
+3.1s (down from 16-22s before the thinking-level fix) with a correct final
+line; the in-app "Analyse my portfolio" button showed the same pipeline
+correctly rendering a real quota-exceeded response once the day's free
+Gemini quota ran out from all the session's testing — confirming the
+error path renders live through the same code as the success path.
+
+Deliberately NOT this slice: Trade Review and Symbol Pattern come next
+(each has a `[..._META]` block at the START that must be buffered and
+stripped before any text streams — one new rule, otherwise identical to
+this slice). Trade Idea is last and hardest — `{{WEIGHT:LMND}}`-style
+placeholders can appear ANYWHERE in its body and must never be shown raw,
+so naive streaming risks flashing placeholder syntax or missing a
+substitution split across a chunk boundary. Watchlist Ranking is excluded
+entirely — its output is a structured ranked list, not prose, and
+streaming a list building up character-by-character would read as broken
+rather than responsive.
 
 ## Features requested, not yet designed
 
