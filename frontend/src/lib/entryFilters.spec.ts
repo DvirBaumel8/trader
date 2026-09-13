@@ -214,7 +214,8 @@ describe('sortSymbols', () => {
     totalPnl: number | null,
     latestExit: string | null,
     feesPaid = 0,
-  ): SymbolRow => ({ symbol, closedCount: 1, totalPnl, feesPaid, latestExit });
+    closedCount = 1,
+  ): SymbolRow => ({ symbol, closedCount, totalPnl, feesPaid, latestExit });
 
   const rows = [
     row('LOSS', -500, '2026-08-10T14:30:00.000Z'),
@@ -277,6 +278,32 @@ describe('sortSymbols', () => {
       'LOW',
       'MID',
       'HIGH',
+    ]);
+  });
+
+  it('sorts by number of trades, most first', () => {
+    const tradeRows = [
+      row('FEW', 0, null, 0, 1),
+      row('MANY', 0, null, 0, 10),
+      row('SOME', 0, null, 0, 4),
+    ];
+    expect(sortSymbols(tradeRows, 'TRADES_MOST').map((r) => r.symbol)).toEqual([
+      'MANY',
+      'SOME',
+      'FEW',
+    ]);
+  });
+
+  it('sorts by number of trades, fewest first', () => {
+    const tradeRows = [
+      row('FEW', 0, null, 0, 1),
+      row('MANY', 0, null, 0, 10),
+      row('SOME', 0, null, 0, 4),
+    ];
+    expect(sortSymbols(tradeRows, 'TRADES_FEWEST').map((r) => r.symbol)).toEqual([
+      'FEW',
+      'SOME',
+      'MANY',
     ]);
   });
 });

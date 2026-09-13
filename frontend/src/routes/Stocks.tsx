@@ -16,6 +16,8 @@ const SORTS: { value: SymbolSort; label: string }[] = [
   { value: 'SMALLEST', label: 'P&L: biggest loss' },
   { value: 'FEES_HIGH', label: 'Fees: highest first' },
   { value: 'FEES_LOW', label: 'Fees: lowest first' },
+  { value: 'TRADES_MOST', label: 'Trades: most first' },
+  { value: 'TRADES_FEWEST', label: 'Trades: fewest first' },
 ];
 
 const HEADER_CELL = 'text-[10px] tracking-wide text-muted uppercase';

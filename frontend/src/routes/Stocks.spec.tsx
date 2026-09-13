@@ -143,4 +143,19 @@ describe('Stocks', () => {
     const symbols = screen.getAllByText(/^(LOW|HIGH)$/).map((el) => el.textContent);
     expect(symbols).toEqual(['HIGH', 'LOW']);
   });
+
+  it('reorders the list by number of trades', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+      row({ symbol: 'FEW', closedCount: 1 }),
+      row({ symbol: 'MANY', closedCount: 10 }),
+    ]);
+    const user = userEvent.setup();
+    renderStocks();
+
+    await screen.findByText('FEW');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort' }), 'TRADES_MOST');
+
+    const symbols = screen.getAllByText(/^(FEW|MANY)$/).map((el) => el.textContent);
+    expect(symbols).toEqual(['MANY', 'FEW']);
+  });
 });
