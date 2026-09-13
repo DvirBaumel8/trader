@@ -173,6 +173,17 @@ when the question was "should I add to this winner?".
 Raised 2026-09-12. Each needs its own brainstorm before any plan — written
 here so nothing is lost, not as an instruction to start building.
 
+- [ ] **A calendar heatmap of daily P&L.** Raised 2026-09-13, from a
+  competitor scan of four trading journals (Tradervue, TradeZella, Chartlog,
+  Stonk Journal): two of the four lead with a month-at-a-glance calendar
+  showing win/loss by day, and it's a pattern worth copying rather than a
+  feature to resist — it serves "fast to read at a glance" directly, and the
+  data already exists (`performance/series.ts`'s time-weighted daily
+  series), so this is assembly, not new computation. Small and scoped enough
+  to skip the brainstorm this section otherwise asks for; a checkpoint on
+  where it lives (Portfolio tab? Trades tab, alongside the totals-over-a-
+  period item below?) is the only real decision.
+
 - [ ] **Broker integration — Interactive Brokers, read-only, via the Flex Web
   Service.** Researched 2026-09-12 and deferred the same day; written up so
   the research is not repeated. The owner trades through **Handy Trader**,
