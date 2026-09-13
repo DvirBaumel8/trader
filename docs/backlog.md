@@ -227,20 +227,32 @@ here so nothing is lost, not as an instruction to start building.
   **Security:** the token reads full account history. It belongs in Render's
   environment only — never in the repo, never pasted into a chat.
 
-- [ ] **Totals on the Trades screen, over a chosen period.** Today the Trades
-  tab lists round trips and a stats header (win rate, average risk,
-  expectancy in R) computed over everything. He wants a **total profit and
-  loss across all trades**, and the **same period filter the benchmark chart
-  already has** — with every figure on the screen recomputed for the selected
-  period, not just the list filtered.
+**Shipped, 2026-09-13: totals on the Trades screen, over a chosen period.**
+The Trades tab now has its own period picker (1W/1M/6M/YTD/1Y/All, reusing
+`BenchmarkChart`'s control via a new `RangeSelector`, extracted rather than
+duplicated) that recomputes win rate, total P&L and the trade list from one
+`/portfolio/stats?range=` fetch, so the tiles and the list can never
+disagree about what's "in" the period. Total P&L is the one genuinely new
+figure — summed, not averaged, across closed trades in the window.
 
-  **Reuse before invention:** the range selector already exists in
-  `frontend/src/lib/benchmarkRange.ts` (`Range`, `RANGES`) and is rendered by
-  `BenchmarkChart`. That control, not a second one. The recomputation is the
-  backend's job — invariant 5 — so `derive-trades.ts` stats gain a date
-  window rather than the frontend summing rows.
+Decided along the way, with him: the range picker *replaces* the Trades
+tab's own custom From/To filter (`FilterBar` gained a `showDateFilter`
+prop) rather than sitting alongside it — two date controls answering the
+same question would have been confusing; a closed trade is filtered by its
+**exit** date (when the P&L was realized), an open one falls back to its
+entry date, exactly matching the frontend's pre-existing `filterTrades`
+rule so nothing drifted; the page-level `StatsHeader` (win rate) stays
+all-time everywhere it's shown rather than becoming period-aware only on
+this one tab, so its meaning never silently depends on a sibling tab's
+state.
 
-  Ships with the filter-glitch fix above, since both touch that control.
+Backend: `startOf` in `performance.service.ts` generalized into a shared
+`rangeStartDate` (`common/date-range.ts`), reused by the new
+`filterTradesByDate` in `derive-trades.ts` — the exact date rule lives in
+one place rather than two slightly different reimplementations. Verified
+live in a real browser (journaled a trade, watched the period picker
+refetch and the tiles update correctly) after the usual local port-3000
+contention forced a temporary Vite proxy retarget, reverted after.
 
 - [ ] **A per-stock summary page.** One ticker, one page, over a chosen date
   range:
