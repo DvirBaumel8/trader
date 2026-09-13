@@ -5,6 +5,7 @@ import type { TradeIdeaHistoryService } from './trade-idea-history.service.js';
 import type { LlmService } from './llm.service.js';
 import type { AiSummaryService } from './ai-summary.service.js';
 import type { TradeReviewService } from './trade-review.service.js';
+import type { SymbolPatternService } from './symbol-pattern.service.js';
 
 function fakeSummaries(): AiSummaryService {
   return {
@@ -36,6 +37,14 @@ function fakeTradeIdeaHistory(): TradeIdeaHistoryService {
   } as unknown as TradeIdeaHistoryService;
 }
 
+/** Unused by these tests; present only so the constructor is satisfied. */
+function fakeSymbolPatterns(): SymbolPatternService {
+  return {
+    getLatest: vi.fn(),
+    generate: vi.fn(),
+  } as unknown as SymbolPatternService;
+}
+
 describe('LlmController', () => {
   it('POST /ai/portfolio-summary returns whatever the service produces, unconfigured included', async () => {
     const unconfigured = {
@@ -54,6 +63,7 @@ describe('LlmController', () => {
       fakeTradeIdeas(),
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
+      fakeSymbolPatterns(),
     );
 
     const result = await controller.portfolioSummary();
@@ -72,6 +82,7 @@ describe('LlmController', () => {
       fakeTradeIdeas(),
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
+      fakeSymbolPatterns(),
     );
 
     const result = await controller.list();
@@ -90,6 +101,7 @@ describe('LlmController', () => {
       fakeTradeIdeas(),
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
+      fakeSymbolPatterns(),
     );
 
     const result = await controller.findOne('1');
@@ -107,6 +119,7 @@ describe('LlmController', () => {
       fakeTradeIdeas(),
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
+      fakeSymbolPatterns(),
     );
 
     const result = await controller.remove('1');

@@ -49,6 +49,17 @@ const summary = (over: Partial<Record<string, unknown>> = {}) => ({
   ...over,
 });
 
+/** Every test renders the AI pattern card too, so its own GET needs a
+ * response distinct from the symbol summary's — a blanket mock would hand
+ * it the wrong shape and silently mask a wiring bug behind the card's own
+ * "unconfigured" fallback. */
+function mockApiFor(symbolSummary: unknown) {
+  (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+    if (path.startsWith('/ai/symbol-patterns/')) return Promise.resolve(null);
+    return Promise.resolve(symbolSummary);
+  });
+}
+
 function renderStockDetail(path = '/stocks/NVDA') {
   return render(
     <QueryClientProvider client={new QueryClient()}>
@@ -63,7 +74,7 @@ function renderStockDetail(path = '/stocks/NVDA') {
 
 describe('StockDetail', () => {
   it('shows the summary tiles and the trade list for the default all-time window', async () => {
-    (api as ReturnType<typeof vi.fn>).mockResolvedValue(summary());
+    mockApiFor(summary());
     renderStockDetail();
 
     expect(await screen.findByRole('heading', { name: 'NVDA' })).toBeInTheDocument();
@@ -79,8 +90,18 @@ describe('StockDetail', () => {
     );
   });
 
+  it('offers the AI pattern read below the summary tiles', async () => {
+    mockApiFor(summary());
+    renderStockDetail();
+
+    expect(
+      await screen.findByRole('button', { name: 'Read My Pattern' }),
+    ).toBeInTheDocument();
+  });
+
   it('refetches for a different period when the range picker is used', async () => {
     (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path.startsWith('/ai/symbol-patterns/')) return Promise.resolve(null);
       if (path.includes('range=1M')) {
         return Promise.resolve(
           summary({ trades: [closedTrade({ symbol: 'NVDA', realizedPnl: -30 })], totalPnl: -30 }),
@@ -102,9 +123,7 @@ describe('StockDetail', () => {
   });
 
   it('says plainly when nothing closed in a narrower window', async () => {
-    (api as ReturnType<typeof vi.fn>).mockResolvedValue(
-      summary({ closedCount: 0, trades: [], totalPnl: null }),
-    );
+    mockApiFor(summary({ closedCount: 0, trades: [], totalPnl: null }));
     renderStockDetail();
 
     expect(

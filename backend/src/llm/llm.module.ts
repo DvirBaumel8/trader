@@ -7,12 +7,14 @@ import { AiSummary } from './ai-summary.entity.js';
 import { AiSummaryService } from './ai-summary.service.js';
 import { TradeIdea } from './trade-idea.entity.js';
 import { TradeReview } from './trade-review.entity.js';
+import { SymbolPatternRead } from './symbol-pattern.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
 import { PortfolioModule } from '../portfolio/portfolio.module.js';
 import { MarketDataModule } from '../market-data/market-data.module.js';
 import { TradeIdeaService } from './trade-idea.service.js';
 import { TradeIdeaHistoryService } from './trade-idea-history.service.js';
 import { TradeReviewService } from './trade-review.service.js';
+import { SymbolPatternService } from './symbol-pattern.service.js';
 import { PerformanceModule } from '../performance/performance.module.js';
 import { UsersModule } from '../users/users.module.js';
 
@@ -22,7 +24,13 @@ import { UsersModule } from '../users/users.module.js';
     PerformanceModule,
     MarketDataModule,
     UsersModule,
-    TypeOrmModule.forFeature([AiSummary, TradeIdea, TradeReview, JournalEntry]),
+    TypeOrmModule.forFeature([
+      AiSummary,
+      TradeIdea,
+      TradeReview,
+      SymbolPatternRead,
+      JournalEntry,
+    ]),
   ],
   providers: [
     { provide: LlmClient, useClass: GeminiClient },
@@ -31,11 +39,12 @@ import { UsersModule } from '../users/users.module.js';
     TradeIdeaService,
     TradeIdeaHistoryService,
     TradeReviewService,
+    SymbolPatternService,
   ],
   controllers: [LlmController],
   // LlmClient itself is exported (not just the services built on it) because
   // WatchlistRankingService needs it directly: the ranking prompt is its own
   // thing, not a wrapper around an existing LLM service.
-  exports: [TradeReviewService, TradeIdeaService, LlmClient],
+  exports: [TradeReviewService, TradeIdeaService, SymbolPatternService, LlmClient],
 })
 export class LlmModule {}

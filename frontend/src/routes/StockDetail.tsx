@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import { formatMoney, signClass } from '../components/format';
 import { TradeCard, type Trade } from '../components/TradeCard';
+import { SymbolPatternCard } from '../components/SymbolPatternCard';
 import { Stat } from '../components/ui/Stat';
 import { RangeSelector } from '../components/ui/RangeSelector';
 import type { Range } from '../lib/benchmarkRange';
@@ -100,6 +101,8 @@ export function StockDetail() {
             />
             <Stat label="Fees paid" value={formatMoney(data.feesPaid)} />
           </div>
+
+          <SymbolPatternCard symbol={data.symbol} range={range} />
         </>
       )}
 

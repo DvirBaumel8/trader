@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import { IsString, Length, Matches } from 'class-validator';
 import { LlmService } from './llm.service.js';
@@ -13,6 +14,8 @@ import { AiSummaryService } from './ai-summary.service.js';
 import { TradeIdeaService } from './trade-idea.service.js';
 import { TradeIdeaHistoryService } from './trade-idea-history.service.js';
 import { TradeReviewService } from './trade-review.service.js';
+import { SymbolPatternService } from './symbol-pattern.service.js';
+import { RANGES, type Range } from '../common/date-range.js';
 
 class TradeIdeaDto {
   @IsString()
@@ -32,6 +35,7 @@ export class LlmController {
     private readonly tradeIdeas: TradeIdeaService,
     private readonly tradeIdeaHistory: TradeIdeaHistoryService,
     private readonly tradeReviews: TradeReviewService,
+    private readonly symbolPatterns: SymbolPatternService,
   ) {}
 
   @Post('trade-reviews/:tradeId')
@@ -63,6 +67,18 @@ export class LlmController {
   async removeTradeIdea(@Param('id', ParseUUIDPipe) id: string) {
     await this.tradeIdeaHistory.remove(id);
     return { ok: true };
+  }
+
+  @Get('symbol-patterns/:symbol')
+  getSymbolPattern(@Param('symbol') symbol: string, @Query('range') range?: string) {
+    const valid = RANGES.includes(range as Range) ? (range as Range) : 'ALL';
+    return this.symbolPatterns.getLatest(symbol, valid);
+  }
+
+  @Post('symbol-patterns/:symbol')
+  generateSymbolPattern(@Param('symbol') symbol: string, @Query('range') range?: string) {
+    const valid = RANGES.includes(range as Range) ? (range as Range) : 'ALL';
+    return this.symbolPatterns.generate(symbol, valid);
   }
 
   @Post('portfolio-summary')
