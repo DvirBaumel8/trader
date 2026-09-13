@@ -345,15 +345,51 @@ NEWEST/OLDEST/LARGEST/SMALLEST/FEES_HIGH/FEES_LOW — kept as their own pair
 rather than folded into an existing one, since a symbol's trade count is a
 third independent dimension from its P&L and its fee total.
 
-**Slice 2, not started: the AI reading of his history in this name.**
-Deliberately split out — it's the riskiest part (new prompt, new persisted
-entity, exactly where "the model misquotes the app's own figures" would
-bite a per-ticker answer) and the project's own "small testable slices"
-rule says it earns its own checkpoint rather than shipping bundled with
-the assembly work above. Reuse the existing pattern when it's built:
-`CollapsibleCard`, a stored `factsSnapshot`, and — per the fix already
-shipped for the trade-idea prompt — the model citing figures through
-placeholders the backend fills in, never typing them itself.
+**Shipped, slice 2: the AI reading of his history in this name.** A
+retrospective "Pattern in {symbol}" card on the Stock detail page —
+deliberately not a buy/sell opinion, which is Trade Idea's job. The
+comparison IS the answer: his stats in this name against his own overall
+record over the SAME selected period (win rate, avg win/loss, avg risk,
+position size, hold time), plus any setup/mistake tag that recurs in this
+name, his own journal note text on these trades, and whether what he
+actually does here matches his stated trading profile.
+
+Backend: `symbol-pattern-{context,prompt,parse}.ts` follow the same
+three-way split every AI feature in this app already uses, and reuse
+rather than reinvent — `renderHistoryLines`/`RecordTrade` from
+`trade-idea-context.ts` render the per-trade lines (already structurally
+typed to accept `getSymbolSummary`'s tag-collapsed trades with no
+adapter), and the two number sources are the existing
+`getSymbolSummary(symbol, range)` and `getStats(range)`, never
+recomputed. No placeholder-substitution needed here (unlike the trade-idea
+fix) — every figure is a static snapshot at generation time, not a live
+one that can drift before the model's answer is read. `SymbolPatternRead`
+persists one row per generation, like `TradeReview` — regenerating for
+NVDA/1M never overwrites NVDA/ALL, and each range keeps its own read
+rather than losing one when he switches periods. Routes:
+`GET/POST /ai/symbol-patterns/:symbol?range=`.
+
+Frontend: `SymbolPatternCard.tsx`, modelled on `TradeReviewCard.tsx` minus
+the grade badge (this isn't graded) — button-triggered like every other AI
+feature, headline as the one line that survives collapsing per the app's
+own convention. Verified live with a real Gemini call against his real
+data: correctly flagged a one-trade sample as too small to conclude
+anything, and compared his 100% win rate in the name against his 50%
+overall with no invented figures.
+
+**Bug found during that live check, fixed the same day: switching the
+period picker on an already-open Stock detail page kept showing the
+PREVIOUS period's just-generated read (or its failed-generate error),
+instead of the newly-selected period's own.** Root cause: the card mirrored
+`TradeReviewCard`'s `mutation.data ?? data` pattern, which is safe there
+because a trade review is mounted once per fixed `tradeId` — this card
+stays mounted across a `range` change, so the mutation's leftover result
+outlived the prop that made it valid. Fixed by reading only the query's own
+`data` (already kept current via the mutation's `onSuccess` writing into
+that exact cache key) for the success path, plus a `useEffect` resetting
+the mutation on `symbol`/`range` change for the error path, which has no
+equivalent cache to fall back on. Covered by two tests, each confirmed to
+fail without its half of the fix before being confirmed green with it.
 
 ## Research and working sessions (no code)
 
