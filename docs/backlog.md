@@ -289,6 +289,39 @@ Stocks-specific copy. That refactor caught a real bug in all three
 originals: the chevron span had no `aria-hidden`, so every sort control's
 accessible name silently included a trailing "▼".
 
+**Extended again the next day: renamed to Trades, a fees column, and three
+small papercuts he flagged from a screenshot.** The tab label became
+**Trades** (only the label — the route stays `/stocks` and
+`/stocks/:symbol`, since `/trades/:id` already names the single-trade
+detail page; the same label-vs-slug gap the "Watch" tab already lives
+with, routing to `/watchlist`). With the top-level tab now doing that job,
+the Journal's own **Trades sub-tab** — `TradesTab`, its period picker and
+its `FilterBar` — was deleted outright rather than left as a second way to
+browse the same trades; `Journal`'s default tab moved to **Activities**,
+including the uiState/`RestoreLocation` fallback that used to read
+`'TRADES'` and would otherwise have restored onto a tab that no longer
+exists.
+
+The index gained a **Fees** column (`feesPaid` on `getSymbolIndex`, same
+paid-fees-in-the-window rule already used by the per-symbol page) and two
+sort options, `FEES_HIGH`/`FEES_LOW` in `sortSymbols` — kept separate from
+`LARGEST`/`SMALLEST` (P&L magnitude) rather than overloaded, since a
+ticker's fee total and its P&L are different questions once both are
+sortable. The list itself moved off repeated flex rows onto a CSS grid
+with one header row (Symbol / Closed / Fees / P&L), so "closed" and "fees"
+are named once instead of once per row — the screenshot he sent showed the
+old repetition plainly once there were two numeric columns to name.
+
+The same screenshot also showed `FilterBar`'s own sort `<select>` filling
+the whole remaining row width — it had been left off the shared `ui/Select`
+"for different width behaviour" when `Select` was extracted the day
+before, and that was the actual bug: `Select` is `shrink-0`, `FilterBar`'s
+own markup was `flex-1 w-full`. Migrated onto `Select`; `FilterBar.spec.tsx`
+needed no changes; it wasn't asserting on the removed width classes.
+
+Also renamed `StockDetail`'s "Avg hold" tile to **"Avg hold (days)"** — the
+unit wasn't named anywhere on screen.
+
 **Slice 2, not started: the AI reading of his history in this name.**
 Deliberately split out — it's the riskiest part (new prompt, new persisted
 entity, exactly where "the model misquotes the app's own figures" would
