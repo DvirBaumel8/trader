@@ -22,7 +22,7 @@ interface SymbolSummary {
 
 /**
  * One ticker's whole story over a chosen period — the first screen whose
- * whole subject is a single symbol, reached from the Stocks tab's index.
+ * whole subject is a single symbol, reached from the Trades tab's index.
  */
 export function StockDetail() {
   const { symbol = '' } = useParams();
@@ -91,7 +91,7 @@ export function StockDetail() {
           <div className="flex gap-2">
             <Stat label="Avg position" value={formatMoney(data.avgPositionSize)} />
             <Stat
-              label="Avg hold"
+              label="Avg hold (days)"
               value={
                 data.avgHoldingDays !== null
                   ? `${data.avgHoldingDays.toFixed(1)}d`

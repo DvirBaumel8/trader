@@ -289,6 +289,10 @@ export class TradesService {
           symbol,
           closedCount: summary.closedCount,
           totalPnl: summary.totalPnl,
+          // Every fee actually paid on this name in the window, open
+          // trades included — same rule as getSymbolSummary, so the two
+          // screens can never disagree about one ticker's fee total.
+          feesPaid: round(trades.reduce((sum, t) => sum + t.feesPaid, 0)),
           latestExit: latestExit ? latestExit.toISOString() : null,
         };
       })

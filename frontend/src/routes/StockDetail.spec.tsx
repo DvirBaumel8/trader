@@ -73,7 +73,7 @@ describe('StockDetail', () => {
     expect(screen.getByText('Avg position').nextElementSibling).toHaveTextContent(
       '$2,000.00',
     );
-    expect(screen.getByText('Avg hold').nextElementSibling).toHaveTextContent('1.0d');
+    expect(screen.getByText('Avg hold (days)').nextElementSibling).toHaveTextContent('1.0d');
     expect(screen.getByText('Fees paid').nextElementSibling).toHaveTextContent(
       '$8.00',
     );

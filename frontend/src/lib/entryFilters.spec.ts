@@ -213,7 +213,8 @@ describe('sortSymbols', () => {
     symbol: string,
     totalPnl: number | null,
     latestExit: string | null,
-  ): SymbolRow => ({ symbol, closedCount: 1, totalPnl, latestExit });
+    feesPaid = 0,
+  ): SymbolRow => ({ symbol, closedCount: 1, totalPnl, feesPaid, latestExit });
 
   const rows = [
     row('LOSS', -500, '2026-08-10T14:30:00.000Z'),
@@ -250,6 +251,32 @@ describe('sortSymbols', () => {
       'WIN',
       'LOSS',
       'SMALL',
+    ]);
+  });
+
+  it('sorts by fees paid, highest first', () => {
+    const feeRows = [
+      row('LOW', 0, null, 4),
+      row('HIGH', 0, null, 40),
+      row('MID', 0, null, 12),
+    ];
+    expect(sortSymbols(feeRows, 'FEES_HIGH').map((r) => r.symbol)).toEqual([
+      'HIGH',
+      'MID',
+      'LOW',
+    ]);
+  });
+
+  it('sorts by fees paid, lowest first', () => {
+    const feeRows = [
+      row('LOW', 0, null, 4),
+      row('HIGH', 0, null, 40),
+      row('MID', 0, null, 12),
+    ];
+    expect(sortSymbols(feeRows, 'FEES_LOW').map((r) => r.symbol)).toEqual([
+      'LOW',
+      'MID',
+      'HIGH',
     ]);
   });
 });

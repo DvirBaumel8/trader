@@ -61,7 +61,7 @@ export function AppShell() {
           Stops
         </NavLink>
         <NavLink to="/stocks" className={linkClass}>
-          Stocks
+          Trades
         </NavLink>
         <NavLink to="/watchlist" className={linkClass}>
           Watch

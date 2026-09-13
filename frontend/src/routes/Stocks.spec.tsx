@@ -30,6 +30,7 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
   symbol: 'NVDA',
   closedCount: 3,
   totalPnl: 450,
+  feesPaid: 12,
   latestExit: '2026-09-01T00:00:00.000Z',
   ...over,
 });
@@ -43,18 +44,25 @@ describe('Stocks', () => {
     ).toBeInTheDocument();
   });
 
-  it('lists each symbol with its closed count and total P&L', async () => {
+  it('lists each symbol with its closed count, fees and total P&L as columns under one header', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue([
-      row({ symbol: 'NVDA', closedCount: 3, totalPnl: 450 }),
-      row({ symbol: 'LMND', closedCount: 1, totalPnl: -20 }),
+      row({ symbol: 'NVDA', closedCount: 3, totalPnl: 450, feesPaid: 12 }),
+      row({ symbol: 'LMND', closedCount: 1, totalPnl: -20, feesPaid: 4 }),
     ]);
     renderStocks();
 
-    expect(await screen.findByText('NVDA')).toBeInTheDocument();
-    expect(screen.getByText('3 closed')).toBeInTheDocument();
+    // "Closed" and "Fees" are named once, in the header — not repeated
+    // as a word on every row.
+    expect(await screen.findByText('Closed')).toBeInTheDocument();
+    expect(screen.getByText('Fees')).toBeInTheDocument();
+    expect(screen.queryAllByText(/closed/i)).toHaveLength(1);
+
+    expect(screen.getByText('NVDA')).toBeInTheDocument();
     expect(screen.getByText('+$450.00')).toBeInTheDocument();
+    expect(screen.getByText('$12.00')).toBeInTheDocument();
     expect(screen.getByText('LMND')).toBeInTheDocument();
     expect(screen.getByText('-$20.00')).toBeInTheDocument();
+    expect(screen.getByText('$4.00')).toBeInTheDocument();
   });
 
   it('links each row to its symbol page', async () => {
@@ -94,5 +102,20 @@ describe('Stocks', () => {
 
     const symbols = screen.getAllByText(/^(SMALL|BIG)$/).map((el) => el.textContent);
     expect(symbols).toEqual(['BIG', 'SMALL']);
+  });
+
+  it('reorders the list by fees paid', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+      row({ symbol: 'LOW', feesPaid: 4 }),
+      row({ symbol: 'HIGH', feesPaid: 40 }),
+    ]);
+    const user = userEvent.setup();
+    renderStocks();
+
+    await screen.findByText('LOW');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort' }), 'FEES_HIGH');
+
+    const symbols = screen.getAllByText(/^(LOW|HIGH)$/).map((el) => el.textContent);
+    expect(symbols).toEqual(['HIGH', 'LOW']);
   });
 });

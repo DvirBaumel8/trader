@@ -3,9 +3,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useSettings } from '../api/settings';
 import { EntryCard, type Entry } from '../components/EntryCard';
-import { TradeCard, type Trade } from '../components/TradeCard';
 import { Money } from '../components/Money';
-import { formatMoney, signClass } from '../components/format';
 import { StatsHeader } from '../components/StatsHeader';
 import { EntrySheet } from '../components/EntrySheet';
 import { loadUiState, saveUiState } from '../lib/uiState';
@@ -15,35 +13,21 @@ import type { FeesResponse, Period } from '../lib/feeTypes';
 import { FilterBar, type SortValue } from '../components/FilterBar';
 import {
   emptyFilters,
-  filterTrades,
   hasActiveFilters,
   journalQuery,
   sortEntries,
-  sortTrades,
   type Filters,
 } from '../lib/entryFilters';
 import { useDebounced } from '../lib/useDebounced';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
-import { RangeSelector } from '../components/ui/RangeSelector';
-import { Stat } from '../components/ui/Stat';
-import type { Range } from '../lib/benchmarkRange';
 
-type Tab = 'TRADES' | 'ACTIVITIES' | 'BALANCE' | 'FEES';
+type Tab = 'ACTIVITIES' | 'BALANCE' | 'FEES';
 
 const TABS: { value: Tab; label: string }[] = [
-  { value: 'TRADES', label: 'Trades' },
   { value: 'ACTIVITIES', label: 'Activities' },
   { value: 'BALANCE', label: 'Balance' },
   { value: 'FEES', label: 'Fees' },
 ];
-
-interface Stats {
-  trades: Trade[];
-  closedCount: number;
-  openCount: number;
-  winRate: number | null;
-  totalPnl: number | null;
-}
 
 interface Balance {
   cash: number;
@@ -77,86 +61,6 @@ function ByDay({
         </section>
       ))}
     </>
-  );
-}
-
-function TradesTab() {
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
-  const [sort, setSort] = useState<SortValue>('NEWEST');
-  const [range, setRange] = useState<Range>('ALL');
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['stats', range],
-    queryFn: () => api<Stats>(`/portfolio/stats?range=${range}`),
-  });
-
-  if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
-
-  const closed = (data?.trades ?? []).filter((t) => !t.isOpen);
-  const shown = sortTrades(filterTrades(closed, filters), sort);
-
-  // Only the true no-history case skips the picker entirely — there is
-  // nothing for a period to narrow down yet. A window that happens to have
-  // nothing in it (checked below) is a different state: the picker stays,
-  // because switching to a wider one is the way out of it.
-  if (range === 'ALL' && closed.length === 0) {
-    return (
-      <p className="text-sm text-muted">
-        No closed trades yet.
-        {data && data.openCount > 0 && (
-          <>
-            {' '}
-            Your {data.openCount} open positions are on the Portfolio tab, and
-            their fills are under Activities.
-          </>
-        )}
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      <RangeSelector range={range} onRangeChange={setRange} />
-      {closed.length === 0 ? (
-        <p className="text-sm text-muted">No trades closed in this period.</p>
-      ) : (
-        <>
-          <div className="flex gap-2">
-            <Stat
-              label="Win rate"
-              value={`${Math.round((data?.winRate ?? 0) * 100)}%`}
-              sub={`${data?.closedCount ?? 0} closed`}
-            />
-            <Stat
-              label="Total P&L"
-              value={formatMoney(data?.totalPnl ?? null, { signed: true })}
-              tone={signClass(data?.totalPnl ?? null)}
-            />
-          </div>
-          <FilterBar
-            filters={filters}
-            onFiltersChange={setFilters}
-            sort={sort}
-            onSortChange={setSort}
-            // On a results list, "largest" means the best outcome, not the biggest bet.
-            sortLabels={{ LARGEST: 'Biggest win', SMALLEST: 'Biggest loss' }}
-            resultCount={shown.length}
-            totalCount={closed.length}
-            // The period picker above already does this job.
-            showDateFilter={false}
-          />
-          {shown.length === 0 ? (
-            <p className="text-sm text-muted">No trades match those filters.</p>
-          ) : (
-            <ul>
-              {shown.map((t) => (
-                <TradeCard key={`${t.symbol}-${t.enteredAt}`} trade={t} />
-              ))}
-            </ul>
-          )}
-        </>
-      )}
-    </div>
   );
 }
 
@@ -350,7 +254,7 @@ export function Journal() {
   // job now belongs to `restoreDone` below.
   const [restored] = useState(loadUiState);
   const [tab, setTab] = useState<Tab>(
-    (restored?.journalTab as Tab) ?? 'TRADES',
+    (restored?.journalTab as Tab) ?? 'ACTIVITIES',
   );
   const [composing, setComposing] = useState(restored?.composing ?? false);
   const [editMode, setEditMode] = useState(restored?.editingEntryId != null);
@@ -436,7 +340,6 @@ export function Journal() {
         </p>
       )}
 
-      {tab === 'TRADES' && <TradesTab />}
       {tab === 'ACTIVITIES' && (
         <ActivitiesTab onOpen={setEditing} editMode={editMode} />
       )}

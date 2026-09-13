@@ -165,6 +165,20 @@ describe('Trades (e2e)', () => {
       const res = await http(app, token).get('/portfolio/symbols').expect(200);
       expect(typeof res.body[0].latestExit).toBe('string');
     });
+
+    it('reports feesPaid per symbol, scoped to the same window as the rest of the row', async () => {
+      await journalRoundTrip('NVDA', daysAgo(1), { entry: 100, exit: 120 }, 4); // 2 fills, $4 each
+      await journalRoundTrip('AAPL', daysAgo(730), { entry: 50, exit: 60 }, 2); // outside 1W
+
+      const week = await http(app, token)
+        .get('/portfolio/symbols?range=1W')
+        .expect(200);
+      expect(week.body).toEqual([expect.objectContaining({ symbol: 'NVDA', feesPaid: 8 })]);
+
+      const all = await http(app, token).get('/portfolio/symbols').expect(200);
+      const aapl = all.body.find((r: { symbol: string }) => r.symbol === 'AAPL');
+      expect(aapl.feesPaid).toBe(4);
+    });
   });
 
   describe('GET /portfolio/symbols/:symbol', () => {

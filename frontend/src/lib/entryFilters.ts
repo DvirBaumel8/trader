@@ -139,18 +139,27 @@ export interface SymbolRow {
   symbol: string;
   closedCount: number;
   totalPnl: number | null;
+  feesPaid: number;
   latestExit: string | null;
 }
 
-export type SymbolSort = 'NEWEST' | 'OLDEST' | 'LARGEST' | 'SMALLEST';
+export type SymbolSort =
+  | 'NEWEST'
+  | 'OLDEST'
+  | 'LARGEST'
+  | 'SMALLEST'
+  | 'FEES_HIGH'
+  | 'FEES_LOW';
 
-/** Same vocabulary as `sortTrades` — NEWEST/OLDEST by the date that decides
- * recency, LARGEST/SMALLEST by result — applied to the Stocks tab's
- * per-symbol rows rather than individual trades. */
+/** Same NEWEST/OLDEST/LARGEST/SMALLEST vocabulary as `sortTrades` — by the
+ * date that decides recency, or by result — plus two more specific to this
+ * row shape, since a single trade has no fee TOTAL of its own to sort by
+ * the way a symbol's whole history does. */
 export function sortSymbols(rows: SymbolRow[], sort: SymbolSort): SymbolRow[] {
   const copy = [...rows];
   const when = (r: SymbolRow) => r.latestExit ?? '';
   const pnl = (r: SymbolRow) => r.totalPnl ?? 0;
+  const fees = (r: SymbolRow) => r.feesPaid;
   switch (sort) {
     case 'NEWEST':
       return copy.sort((a, b) => when(b).localeCompare(when(a)));
@@ -160,6 +169,10 @@ export function sortSymbols(rows: SymbolRow[], sort: SymbolSort): SymbolRow[] {
       return copy.sort((a, b) => pnl(b) - pnl(a));
     case 'SMALLEST':
       return copy.sort((a, b) => pnl(a) - pnl(b));
+    case 'FEES_HIGH':
+      return copy.sort((a, b) => fees(b) - fees(a));
+    case 'FEES_LOW':
+      return copy.sort((a, b) => fees(a) - fees(b));
   }
 }
 

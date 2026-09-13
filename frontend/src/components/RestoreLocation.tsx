@@ -46,7 +46,7 @@ export function RestoreLocation() {
     const saved = loadUiState();
     saveUiState({
       path: location.pathname,
-      journalTab: saved?.journalTab ?? 'TRADES',
+      journalTab: saved?.journalTab ?? 'ACTIVITIES',
       editingEntryId: saved?.editingEntryId ?? null,
       composing: saved?.composing ?? false,
     });

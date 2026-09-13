@@ -22,7 +22,7 @@ export interface UiState {
 
 const blank: UiState = {
   path: '/',
-  journalTab: 'TRADES',
+  journalTab: 'ACTIVITIES',
   editingEntryId: null,
   composing: false,
   savedAt: 0,
