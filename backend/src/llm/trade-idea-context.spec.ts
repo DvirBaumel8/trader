@@ -3,6 +3,7 @@ import {
   buildBookSection,
   buildRecordSection,
   renderHistoryLines,
+  substituteBookPlaceholders,
   type BookInput,
   type RecordInput,
 } from './trade-idea-context.js';
@@ -64,6 +65,56 @@ describe('buildBookSection', () => {
     expect(out).not.toContain('I do NOT currently hold');
     expect(out).toContain('Positions (symbol, shares, price, value, % of account):');
     expect(out).toContain('BITX');
+  });
+});
+
+describe('substituteBookPlaceholders', () => {
+  // The failure this exists for: asked about BITX, the model correctly wrote
+  // BITX's own weight and three other positions' weights, then separately
+  // stated LMND's weight and gross exposure wrong — both figures it had
+  // already been handed correctly in the prompt. The fix is not a stronger
+  // instruction to "not recalculate" (that instruction already existed and
+  // failed); it is to never let the model type the digits at all.
+  it('replaces a weight placeholder with the real, computed figure', () => {
+    const out = substituteBookPlaceholders(
+      'BITX is already {{WEIGHT:BITX}} of your account.',
+      book,
+    );
+    expect(out).toBe('BITX is already 87.4% of your account.');
+  });
+
+  it('matches the symbol in a placeholder case-insensitively', () => {
+    expect(
+      substituteBookPlaceholders('{{WEIGHT:bitx}}', book),
+    ).toBe('87.4%');
+  });
+
+  it('replaces gross exposure and its multiple', () => {
+    // 87,400 + 32,012 = 119,412 against 100,000 account value.
+    const out = substituteBookPlaceholders(
+      'Gross exposure is {{GROSS_EXPOSURE}}, or {{GROSS_EXPOSURE_MULTIPLE}}.',
+      book,
+    );
+    expect(out).toBe('Gross exposure is $119,412, or 1.19x.');
+  });
+
+  /**
+   * An unresolvable placeholder — an invented ticker, a typo'd token — must
+   * read as an honest gap, never as raw `{{...}}` syntax leaking into the
+   * owner's screen and never as a silently wrong number.
+   */
+  it('renders an unresolvable placeholder as a plain dash, not raw syntax or a guess', () => {
+    const out = substituteBookPlaceholders(
+      'ZZZZ is {{WEIGHT:ZZZZ}} of your account. {{NOT_A_REAL_TOKEN}}.',
+      book,
+    );
+    expect(out).toBe('ZZZZ is — of your account. —.');
+  });
+
+  it('leaves text with no placeholders untouched', () => {
+    expect(substituteBookPlaceholders('No figures here.', book)).toBe(
+      'No figures here.',
+    );
   });
 });
 

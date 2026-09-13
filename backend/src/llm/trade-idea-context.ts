@@ -92,19 +92,25 @@ const day = (d: Date | string | null): string =>
  * blank where the symbol should be; the book totals and the positions list
  * below are unaffected either way.
  */
+function grossExposure(book: BookInput): number {
+  return book.positions.reduce((sum, p) => sum + Math.abs(p.marketValue ?? 0), 0);
+}
+
 export function buildBookSection(book: BookInput, symbol: string | null): string {
   const held =
     symbol === null
       ? undefined
       : book.positions.find((p) => p.symbol.toUpperCase() === symbol.toUpperCase());
 
-  const gross = book.positions.reduce(
-    (sum, p) => sum + Math.abs(p.marketValue ?? 0),
-    0,
-  );
+  const gross = grossExposure(book);
 
   const lines = [
-    'MY BOOK RIGHT NOW — computed by the app, quote these, do not recalculate',
+    'MY BOOK RIGHT NOW — computed by the app. Do not type these numbers',
+    'yourself: to state gross exposure or any position\'s share of the account',
+    'in your answer, write {{GROSS_EXPOSURE}}, {{GROSS_EXPOSURE_MULTIPLE}} or',
+    '{{WEIGHT:<SYMBOL>}} (e.g. {{WEIGHT:LMND}}) and the app will substitute the',
+    'real figure. This applies to every position below, not only the one I am',
+    'asking about.',
     '',
     `- Account value: ${money(book.accountValue)}`,
     // Negative cash is margin and a legitimate state; it is stated plainly
@@ -143,6 +149,48 @@ export function buildBookSection(book: BookInput, symbol: string | null): string
   }
 
   return lines.join('\n');
+}
+
+const PLACEHOLDER = /\{\{([A-Z_]+)(?::([A-Za-z0-9.-]+))?\}\}/g;
+
+/**
+ * Fills in `{{GROSS_EXPOSURE}}`, `{{GROSS_EXPOSURE_MULTIPLE}}` and
+ * `{{WEIGHT:<SYMBOL>}}` in the model's own answer with the real, computed
+ * figure — never with a number the model typed itself.
+ *
+ * Exists because a stronger instruction is not enough: the prompt already
+ * told the model "quote these, do not recalculate," handed it the correct
+ * LMND weight (22.1%), and it wrote 36.1% anyway, in prose with nothing to
+ * check it against. Every OTHER figure in that same answer was accurate,
+ * which is what rules out a fetch/timing difference as the cause — this is
+ * occasional transcription drift, not a systematic error, so the fix removes
+ * the model's ability to transcribe at all rather than trying to catch it
+ * after the fact by re-parsing free text. The model still sees every real
+ * number as context (it needs them to reason about sizing); it just is
+ * never the one who writes a digit of them down.
+ *
+ * An unresolved placeholder — an invented ticker, a typo'd token — renders as
+ * a plain "—", the same way every other "no value" case in this app does.
+ * Never the raw `{{...}}` syntax, and never a guess.
+ */
+export function substituteBookPlaceholders(text: string, book: BookInput): string {
+  const gross = grossExposure(book);
+
+  return text.replace(PLACEHOLDER, (_match, token: string, arg?: string) => {
+    if (token === 'GROSS_EXPOSURE') return money(gross);
+    if (token === 'GROSS_EXPOSURE_MULTIPLE') {
+      return book.accountValue > 0 ? `${(gross / book.accountValue).toFixed(2)}x` : '—';
+    }
+    if (token === 'WEIGHT' && arg) {
+      const position = book.positions.find(
+        (p) => p.symbol.toUpperCase() === arg.toUpperCase(),
+      );
+      if (position && position.marketValue !== null && book.accountValue > 0) {
+        return `${((position.marketValue / book.accountValue) * 100).toFixed(1)}%`;
+      }
+    }
+    return '—';
+  });
 }
 
 /**

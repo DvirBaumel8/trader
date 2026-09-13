@@ -7,7 +7,11 @@ import { UsersService } from '../users/users.service.js';
 import { ERROR_COPY } from './llm.service.js';
 import { buildSystemPrompt } from './prompts.js';
 import { buildTradeIdeaPrompt } from './trade-idea-prompt.js';
-import { buildBookSection, buildRecordSection } from './trade-idea-context.js';
+import {
+  buildBookSection,
+  buildRecordSection,
+  substituteBookPlaceholders,
+} from './trade-idea-context.js';
 import { parseProposedLevels, stripLevelsBlock } from './trade-idea-parse.js';
 import {
   TickerFactsService,
@@ -144,7 +148,10 @@ export class TradeIdeaService {
     }
 
     const levels = parseProposedLevels(raw);
-    const opinion = stripLevelsBlock(raw).trim();
+    // Substituted before anything else touches the text, so both the live
+    // response and the persisted row carry the real figure — never the
+    // model's own transcription of it. See substituteBookPlaceholders.
+    const opinion = substituteBookPlaceholders(stripLevelsBlock(raw).trim(), book);
 
     // No levels means no derived numbers at all — not a partial set, not a
     // guess at the missing one. The caller says so explicitly rather than
