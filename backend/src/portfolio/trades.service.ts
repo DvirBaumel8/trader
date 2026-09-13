@@ -253,15 +253,24 @@ export class TradesService {
   }
 
   /**
-   * One row per symbol with at least one closed trade — the "pick a stock"
-   * index for the Stocks tab. All-time only: a symbol you closed a trade in
-   * last year still belongs on this list even while looking at "this week"
-   * elsewhere, since this list's job is discovery, not a period's totals.
+   * One row per symbol with at least one closed trade in `range` — the
+   * "pick a stock" index for the Stocks tab. `range` filters the same way
+   * `getStats` does, so a symbol whose only closed trade falls outside the
+   * window drops off the list rather than showing a stale total.
+   *
+   * `latestExit` is returned (as an ISO string, computed from the SAME
+   * windowed trades as the rest of the row) rather than only used to sort
+   * server-side: the frontend needs it to offer a "newest/oldest" sort of
+   * its own, and a second implementation of "the date that decides
+   * recency" is exactly the kind of drift this app's own convention
+   * warns about.
    */
-  async getSymbolIndex() {
+  async getSymbolIndex(range: Range = 'ALL') {
     const all = await this.deriveAllTrades();
+    const windowed = filterTradesByDate(all, this.resolveFromDate(range));
+
     const bySymbol = new Map<string, DerivedTrade[]>();
-    for (const t of all) {
+    for (const t of windowed) {
       const list = bySymbol.get(t.symbol);
       if (list) list.push(t);
       else bySymbol.set(t.symbol, [t]);
@@ -280,14 +289,13 @@ export class TradesService {
           symbol,
           closedCount: summary.closedCount,
           totalPnl: summary.totalPnl,
-          latestExit,
+          latestExit: latestExit ? latestExit.toISOString() : null,
         };
       })
       .filter((row) => row.closedCount > 0)
-      // Most recently active name first — the same recency bias the
-      // Trades tab's own default sort already uses.
-      .sort((a, b) => (b.latestExit?.getTime() ?? 0) - (a.latestExit?.getTime() ?? 0))
-      .map(({ latestExit: _latestExit, ...row }) => row);
+      // Most recently active name first by default — the frontend may
+      // re-sort this, but the initial paint should already read sensibly.
+      .sort((a, b) => (b.latestExit ?? '').localeCompare(a.latestExit ?? ''));
   }
 
   /**

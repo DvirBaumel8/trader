@@ -135,6 +135,34 @@ export function sortTrades<T extends FilterableTrade>(
   }
 }
 
+export interface SymbolRow {
+  symbol: string;
+  closedCount: number;
+  totalPnl: number | null;
+  latestExit: string | null;
+}
+
+export type SymbolSort = 'NEWEST' | 'OLDEST' | 'LARGEST' | 'SMALLEST';
+
+/** Same vocabulary as `sortTrades` — NEWEST/OLDEST by the date that decides
+ * recency, LARGEST/SMALLEST by result — applied to the Stocks tab's
+ * per-symbol rows rather than individual trades. */
+export function sortSymbols(rows: SymbolRow[], sort: SymbolSort): SymbolRow[] {
+  const copy = [...rows];
+  const when = (r: SymbolRow) => r.latestExit ?? '';
+  const pnl = (r: SymbolRow) => r.totalPnl ?? 0;
+  switch (sort) {
+    case 'NEWEST':
+      return copy.sort((a, b) => when(b).localeCompare(when(a)));
+    case 'OLDEST':
+      return copy.sort((a, b) => when(a).localeCompare(when(b)));
+    case 'LARGEST':
+      return copy.sort((a, b) => pnl(b) - pnl(a));
+    case 'SMALLEST':
+      return copy.sort((a, b) => pnl(a) - pnl(b));
+  }
+}
+
 /**
  * Filters as query-string parameters for `GET /journal`.
  *

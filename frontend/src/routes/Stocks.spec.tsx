@@ -2,6 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stocks } from './Stocks';
@@ -25,8 +26,16 @@ function renderStocks() {
   );
 }
 
+const row = (over: Partial<Record<string, unknown>> = {}) => ({
+  symbol: 'NVDA',
+  closedCount: 3,
+  totalPnl: 450,
+  latestExit: '2026-09-01T00:00:00.000Z',
+  ...over,
+});
+
 describe('Stocks', () => {
-  it('says so when nothing has ever closed', async () => {
+  it('says so when nothing has ever closed, at the default all-time window', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     renderStocks();
     expect(
@@ -36,8 +45,8 @@ describe('Stocks', () => {
 
   it('lists each symbol with its closed count and total P&L', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { symbol: 'NVDA', closedCount: 3, totalPnl: 450 },
-      { symbol: 'LMND', closedCount: 1, totalPnl: -20 },
+      row({ symbol: 'NVDA', closedCount: 3, totalPnl: 450 }),
+      row({ symbol: 'LMND', closedCount: 1, totalPnl: -20 }),
     ]);
     renderStocks();
 
@@ -49,12 +58,41 @@ describe('Stocks', () => {
   });
 
   it('links each row to its symbol page', async () => {
-    (api as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { symbol: 'NVDA', closedCount: 3, totalPnl: 450 },
-    ]);
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([row()]);
     renderStocks();
 
     const link = (await screen.findByText('NVDA')).closest('a');
     expect(link).toHaveAttribute('href', '/stocks/NVDA');
+  });
+
+  it('refetches with the picked range and shows the narrower result', async () => {
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path.includes('range=1M')) return Promise.resolve([]);
+      return Promise.resolve([row()]);
+    });
+    const user = userEvent.setup();
+    renderStocks();
+
+    await screen.findByText('NVDA');
+    await user.click(screen.getByRole('button', { name: '1M' }));
+
+    expect(
+      await screen.findByText('No trades closed in this period.'),
+    ).toBeInTheDocument();
+  });
+
+  it('reorders the list by the picked sort', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+      row({ symbol: 'SMALL', totalPnl: 50, latestExit: '2026-09-01T00:00:00.000Z' }),
+      row({ symbol: 'BIG', totalPnl: 900, latestExit: '2026-08-01T00:00:00.000Z' }),
+    ]);
+    const user = userEvent.setup();
+    renderStocks();
+
+    await screen.findByText('SMALL');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort' }), 'LARGEST');
+
+    const symbols = screen.getAllByText(/^(SMALL|BIG)$/).map((el) => el.textContent);
+    expect(symbols).toEqual(['BIG', 'SMALL']);
   });
 });

@@ -118,10 +118,12 @@ export class PortfolioController {
     return this.trades.getStats(valid);
   }
 
-  /** Every symbol with at least one closed trade — the Stocks tab's index. */
+  /** Every symbol with at least one closed trade in `range` — the Stocks
+   * tab's index. */
   @Get('symbols')
-  symbolIndex() {
-    return this.trades.getSymbolIndex();
+  symbolIndex(@Query('range') range?: string) {
+    const valid = RANGES.includes(range as Range) ? (range as Range) : 'ALL';
+    return this.trades.getSymbolIndex(valid);
   }
 
   /** One symbol's whole story: every round trip in `range`, and the same

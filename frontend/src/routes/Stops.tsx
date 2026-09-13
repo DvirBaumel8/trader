@@ -6,6 +6,7 @@ import { Money } from '../components/Money';
 import { formatQuantity } from '../components/format';
 import { SessionBadge } from '../components/SessionBadge';
 import { RefreshButton } from '../components/RefreshButton';
+import { Select } from '../components/ui/Select';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { sortStopTiers, type StopSortDir } from '../lib/sortStopTiers';
 
@@ -58,10 +59,16 @@ function formatMagnitudePercent(fraction: number): string {
 const SORT_KEY = 'trader.stopsSort.v1';
 const DEFAULT_DIR: StopSortDir = 'asc';
 
+const STOP_SORT_OPTIONS: { value: StopSortDir; label: string }[] = [
+  { value: 'asc', label: 'Nearest to trigger first' },
+  { value: 'desc', label: 'Furthest first' },
+  { value: 'risk', label: 'Largest risk first' },
+];
+
 /**
- * A native <select> —
- * the same affordance Dashboard's holdings sort uses — rather than a custom
- * toggle, so the app has one sort idiom instead of two.
+ * A native <select> — the same affordance Dashboard's holdings sort uses,
+ * via the shared `ui/Select` shell, so the app has one sort idiom instead
+ * of two (or, before this, three).
  */
 function SortPicker({
   dir,
@@ -71,21 +78,12 @@ function SortPicker({
   onChange: (d: StopSortDir) => void;
 }) {
   return (
-    <label className="relative shrink-0">
-      <span className="sr-only">Sort stops</span>
-      <select
-        value={dir}
-        onChange={(e) => onChange(e.target.value as StopSortDir)}
-        className="appearance-none rounded-lg border border-border bg-surface-1 py-1.5 pr-7 pl-2.5 text-xs text-muted outline-none"
-      >
-        <option value="asc">Nearest to trigger first</option>
-        <option value="desc">Furthest first</option>
-        <option value="risk">Largest risk first</option>
-      </select>
-      <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-muted">
-        ▼
-      </span>
-    </label>
+    <Select
+      value={dir}
+      onChange={onChange}
+      options={STOP_SORT_OPTIONS}
+      srLabel="Sort stops"
+    />
   );
 }
 

@@ -9,6 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { Money } from '../components/Money';
 import { Percent } from '../components/Percent';
+import { Select } from '../components/ui/Select';
 import { formatQuantity, signClass } from '../components/format';
 import {
   sortPositions,
@@ -103,7 +104,9 @@ const encode = (s: SortPref) => `${s.key}:${s.dir}`;
  * A native <select> rather than a custom menu: iOS renders its own picker
  * wheel, which is a better control than anything hand-built, and it keeps the
  * header to one compact element instead of a row of chips that grows every
- * time a sort option is added.
+ * time a sort option is added. The shell itself is `ui/Select`; only the
+ * encode/decode between a composite sort key and a plain option string is
+ * specific to this screen.
  */
 function SortPicker({
   sort,
@@ -113,26 +116,15 @@ function SortPicker({
   onChange: (s: SortPref) => void;
 }) {
   return (
-    <label className="relative shrink-0">
-      <span className="sr-only">Sort holdings</span>
-      <select
-        value={encode(sort)}
-        onChange={(e) => {
-          const found = SORT_OPTIONS.find((o) => encode(o) === e.target.value);
-          if (found) onChange({ key: found.key, dir: found.dir });
-        }}
-        className="appearance-none rounded-lg border border-border bg-surface-1 py-1.5 pr-7 pl-2.5 text-xs text-muted outline-none"
-      >
-        {SORT_OPTIONS.map((o) => (
-          <option key={encode(o)} value={encode(o)}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-muted">
-        ▼
-      </span>
-    </label>
+    <Select
+      value={encode(sort)}
+      onChange={(v) => {
+        const found = SORT_OPTIONS.find((o) => encode(o) === v);
+        if (found) onChange({ key: found.key, dir: found.dir });
+      }}
+      options={SORT_OPTIONS.map((o) => ({ value: encode(o), label: o.label }))}
+      srLabel="Sort holdings"
+    />
   );
 }
 

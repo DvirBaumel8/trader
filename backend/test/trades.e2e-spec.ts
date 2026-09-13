@@ -141,6 +141,30 @@ describe('Trades (e2e)', () => {
       const res = await http(app, token).get('/portfolio/symbols').expect(200);
       expect(res.body).toEqual([]);
     });
+
+    it('drops a symbol whose only closed trade falls outside the window, and recomputes its total for the ones that stay', async () => {
+      await journalRoundTrip('NVDA', daysAgo(1)); // inside 1W
+      await journalRoundTrip('AAPL', daysAgo(730)); // outside 1W
+
+      const week = await http(app, token)
+        .get('/portfolio/symbols?range=1W')
+        .expect(200);
+      expect(week.body.map((r: { symbol: string }) => r.symbol)).toEqual([
+        'NVDA',
+      ]);
+
+      const all = await http(app, token).get('/portfolio/symbols').expect(200);
+      expect(all.body.map((r: { symbol: string }) => r.symbol).sort()).toEqual([
+        'AAPL',
+        'NVDA',
+      ]);
+    });
+
+    it('reports latestExit so the frontend can offer its own sort', async () => {
+      await journalRoundTrip('NVDA', daysAgo(1));
+      const res = await http(app, token).get('/portfolio/symbols').expect(200);
+      expect(typeof res.body[0].latestExit).toBe('string');
+    });
   });
 
   describe('GET /portfolio/symbols/:symbol', () => {

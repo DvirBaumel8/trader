@@ -5,9 +5,11 @@ import {
   filterTrades,
   hasActiveFilters,
   sortEntries,
+  sortSymbols,
   sortTrades,
   type FilterableTrade,
   type SortableEntry,
+  type SymbolRow,
 } from './entryFilters';
 
 function entry(
@@ -203,5 +205,51 @@ describe('filtering trades by several tickers', () => {
 
   it('returns everything when the search is blank', () => {
     expect(filterTrades(trades, emptyFilters)).toHaveLength(3);
+  });
+});
+
+describe('sortSymbols', () => {
+  const row = (
+    symbol: string,
+    totalPnl: number | null,
+    latestExit: string | null,
+  ): SymbolRow => ({ symbol, closedCount: 1, totalPnl, latestExit });
+
+  const rows = [
+    row('LOSS', -500, '2026-08-10T14:30:00.000Z'),
+    row('WIN', 900, '2026-08-05T14:30:00.000Z'),
+    row('SMALL', 50, '2026-08-20T14:30:00.000Z'),
+  ];
+
+  it('sorts by total P&L, biggest win first', () => {
+    expect(sortSymbols(rows, 'LARGEST').map((r) => r.symbol)).toEqual([
+      'WIN',
+      'SMALL',
+      'LOSS',
+    ]);
+  });
+
+  it('sorts by total P&L, biggest loss first', () => {
+    expect(sortSymbols(rows, 'SMALLEST').map((r) => r.symbol)).toEqual([
+      'LOSS',
+      'SMALL',
+      'WIN',
+    ]);
+  });
+
+  it('sorts newest by latest exit', () => {
+    expect(sortSymbols(rows, 'NEWEST').map((r) => r.symbol)).toEqual([
+      'SMALL',
+      'LOSS',
+      'WIN',
+    ]);
+  });
+
+  it('sorts oldest by latest exit', () => {
+    expect(sortSymbols(rows, 'OLDEST').map((r) => r.symbol)).toEqual([
+      'WIN',
+      'LOSS',
+      'SMALL',
+    ]);
   });
 });

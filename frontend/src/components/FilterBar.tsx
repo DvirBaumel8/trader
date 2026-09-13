@@ -87,7 +87,10 @@ export function FilterBar({
             removing the native arrow with nothing to replace it is what made
             this render as inert text in a box rather than a control.
           */}
-          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-muted">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-muted"
+          >
             ▼
           </span>
         </label>
