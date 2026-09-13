@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ApiError, GoogleGenAI } from '@google/genai';
+import { ApiError, GoogleGenAI, ThinkingLevel } from '@google/genai';
 
 export interface CompleteParams {
   /** The role/system prompt — see prompts.ts. */
@@ -137,6 +137,27 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}
   }
 }
 
+// The SDK's own enum values, checked against as plain strings since an env
+// var is just text — `UNSPECIFIED` deliberately excluded, since setting it
+// would send an explicit "no opinion", not "use the default", differently
+// from leaving the setting unset (see resolveThinkingLevel's fallback).
+const THINKING_LEVELS: readonly ThinkingLevel[] = [
+  ThinkingLevel.MINIMAL,
+  ThinkingLevel.LOW,
+  ThinkingLevel.MEDIUM,
+  ThinkingLevel.HIGH,
+];
+
+/**
+ * `LLM_THINKING_LEVEL` -> a level the SDK accepts, or `undefined` for
+ * anything unset or unrecognised — same fail-safe shape as `LLM_PROVIDER`'s
+ * own handling: a bad value degrades to the old behaviour rather than
+ * crashing the process or silently sending garbage to the provider.
+ */
+function resolveThinkingLevel(raw: string | undefined): ThinkingLevel | undefined {
+  return THINKING_LEVELS.includes(raw as ThinkingLevel) ? (raw as ThinkingLevel) : undefined;
+}
+
 /**
  * Google Gemini, chosen because its free tier covers this use (Flash: 10
  * req/min, 250 req/day) and it offers Google Search grounding (5,000 free
@@ -152,6 +173,16 @@ export class GeminiClient extends LlmClient {
   // Google retires model ids, and this default is what any environment that
   // does not set LLM_MODEL gets.
   private readonly model = process.env.LLM_MODEL ?? 'gemini-2.5-flash';
+  /**
+   * Unset by default — the exact previous behaviour (the provider's own
+   * automatic thinking budget). Measured on a real call: the default spent
+   * 1,356 hidden "thinking" tokens against 263 visible ones, and accounted
+   * for most of a 9-18s reply. `MINIMAL` cut a comparable call to ~3s with
+   * no visible loss of answer quality in that comparison, but a lower
+   * thinking level is a real quality trade-off on harder cases, not a free
+   * win — hence a knob to turn on deliberately, not a new default.
+   */
+  private readonly thinkingLevel = resolveThinkingLevel(process.env.LLM_THINKING_LEVEL);
   private client: GoogleGenAI | null = null;
 
   isConfigured(): boolean {
@@ -182,6 +213,9 @@ export class GeminiClient extends LlmClient {
             // Gemini enables Google Search grounding by attaching the tool;
             // no grounded request is made unless the caller opts in.
             ...(grounded ? { tools: [{ googleSearch: {} }] } : {}),
+            ...(this.thinkingLevel
+              ? { thinkingConfig: { thinkingLevel: this.thinkingLevel } }
+              : {}),
           },
         });
 

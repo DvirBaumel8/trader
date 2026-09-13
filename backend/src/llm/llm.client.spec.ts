@@ -177,12 +177,14 @@ describe('GeminiClient', () => {
   const originalApiKey = process.env.LLM_API_KEY;
   const originalGeminiApiKey = process.env.GEMINI_API_KEY;
   const originalProvider = process.env.LLM_PROVIDER;
+  const originalThinkingLevel = process.env.LLM_THINKING_LEVEL;
 
   beforeEach(() => {
     generateContent.mockReset();
     process.env.LLM_API_KEY = 'test-key';
     delete process.env.GEMINI_API_KEY;
     process.env.LLM_PROVIDER = 'gemini';
+    delete process.env.LLM_THINKING_LEVEL;
   });
 
   afterEach(() => {
@@ -193,6 +195,11 @@ describe('GeminiClient', () => {
       delete process.env.GEMINI_API_KEY;
     }
     process.env.LLM_PROVIDER = originalProvider;
+    if (originalThinkingLevel !== undefined) {
+      process.env.LLM_THINKING_LEVEL = originalThinkingLevel;
+    } else {
+      delete process.env.LLM_THINKING_LEVEL;
+    }
   });
 
   it('throws a setup_problem LlmFailure without calling the SDK when unconfigured', async () => {
@@ -242,5 +249,37 @@ describe('GeminiClient', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('sends no thinkingConfig by default, preserving the provider\'s own automatic budget', async () => {
+    generateContent.mockResolvedValueOnce({ text: 'hello' });
+    const client = new GeminiClient();
+
+    await client.complete({ system: 's', user: 'u' });
+
+    const config = generateContent.mock.calls[0][0].config;
+    expect(config.thinkingConfig).toBeUndefined();
+  });
+
+  it('passes thinkingLevel through when LLM_THINKING_LEVEL is a recognised value', async () => {
+    process.env.LLM_THINKING_LEVEL = 'MINIMAL';
+    generateContent.mockResolvedValueOnce({ text: 'hello' });
+    const client = new GeminiClient();
+
+    await client.complete({ system: 's', user: 'u' });
+
+    const config = generateContent.mock.calls[0][0].config;
+    expect(config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+  });
+
+  it('ignores an unrecognised LLM_THINKING_LEVEL rather than sending it to the provider', async () => {
+    process.env.LLM_THINKING_LEVEL = 'ULTRA';
+    generateContent.mockResolvedValueOnce({ text: 'hello' });
+    const client = new GeminiClient();
+
+    await client.complete({ system: 's', user: 'u' });
+
+    const config = generateContent.mock.calls[0][0].config;
+    expect(config.thinkingConfig).toBeUndefined();
   });
 });

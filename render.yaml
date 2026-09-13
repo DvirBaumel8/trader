@@ -52,6 +52,17 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      # Measured on a real call: Gemini's default (automatic) thinking
+      # budget spent 1,356 hidden tokens against 263 visible ones, and
+      # accounted for most of a 9-18s reply. MINIMAL cut comparable calls to
+      # ~4s on two deliberately hard, mixed-signal cases (a trade idea on a
+      # name already held, and a subtle win/loss pattern) with no observed
+      # loss of answer quality — same verdicts, same figures cited, same
+      # caveats kept. See GeminiClient's own comment for the code-level
+      # detail; this is a plain value, not a secret, so it applies on every
+      # deploy without a dashboard prompt.
+      - key: LLM_THINKING_LEVEL
+        value: MINIMAL
       # FINNHUB_API_KEY is deliberately NOT declared here. It is optional —
       # without it the P/E is simply null, exactly as it was before — and a
       # `sync: false` entry would make every future blueprint sync prompt for
