@@ -54,9 +54,9 @@ function fakeTradesService(): TradesService {
       // renders; without it the context builder has nothing to iterate.
       trades: [],
     }),
-    getOpenTradeEntryVolume: vi.fn().mockResolvedValue(
-      new Map([['AAPL', 1.8]]),
-    ),
+    getOpenTradeEntryVolume: vi
+      .fn()
+      .mockResolvedValue(new Map([['AAPL', 1.8]])),
   } as unknown as TradesService;
 }
 
@@ -85,13 +85,20 @@ describe('LlmService.portfolioSummary', () => {
   it('returns an unconfigured result without touching the portfolio, model, or persistence, when no key is set', async () => {
     const client: LlmClient = {
       isConfigured: () => false,
+      completeStream: vi.fn(),
       complete: vi.fn(),
       modelName: () => 'gemini-2.5-flash',
     };
     const portfolio = fakePortfolioService();
     const performance = fakePerformanceService();
     const summaries = fakeSummaries();
-    const service = new LlmService(client, portfolio, fakeTradesService(), performance, summaries);
+    const service = new LlmService(
+      client,
+      portfolio,
+      fakeTradesService(),
+      performance,
+      summaries,
+    );
 
     const result = await service.portfolioSummary();
 
@@ -122,13 +129,20 @@ describe('LlmService.portfolioSummary', () => {
     const complete = vi.fn().mockResolvedValue('You are up 4.2% this month...');
     const client: LlmClient = {
       isConfigured: () => true,
+      completeStream: vi.fn(),
       complete,
       modelName: () => 'gemini-2.5-flash',
     };
     const portfolio = fakePortfolioService();
     const performance = fakePerformanceService();
     const summaries = fakeSummaries();
-    const service = new LlmService(client, portfolio, fakeTradesService(), performance, summaries);
+    const service = new LlmService(
+      client,
+      portfolio,
+      fakeTradesService(),
+      performance,
+      summaries,
+    );
 
     const result = await service.portfolioSummary();
 
@@ -151,7 +165,8 @@ describe('LlmService.portfolioSummary', () => {
 
     // What's persisted is exactly what the model was fed and produced.
     expect(summaries.create).toHaveBeenCalledTimes(1);
-    const saved = (summaries.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const saved = (summaries.create as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
     expect(saved.summary).toBe('You are up 4.2% this month...');
     expect(saved.factsSnapshot).toContain('$21,000');
     expect(saved.model).toBe('gemini-2.5-flash');
@@ -164,6 +179,7 @@ describe('LlmService.portfolioSummary', () => {
     const complete = vi.fn().mockResolvedValue('summary text');
     const client: LlmClient = {
       isConfigured: () => true,
+      completeStream: vi.fn(),
       complete,
       modelName: () => 'gemini-2.5-flash',
     };
@@ -184,13 +200,20 @@ describe('LlmService.portfolioSummary', () => {
     const complete = vi.fn().mockRejectedValue(new Error('rate limited'));
     const client: LlmClient = {
       isConfigured: () => true,
+      completeStream: vi.fn(),
       complete,
       modelName: () => 'gemini-2.5-flash',
     };
     const portfolio = fakePortfolioService();
     const performance = fakePerformanceService();
     const summaries = fakeSummaries();
-    const service = new LlmService(client, portfolio, fakeTradesService(), performance, summaries);
+    const service = new LlmService(
+      client,
+      portfolio,
+      fakeTradesService(),
+      performance,
+      summaries,
+    );
 
     const result = await service.portfolioSummary();
 
@@ -214,9 +237,12 @@ describe('LlmService.portfolioSummary', () => {
   ] as const)(
     'maps an LlmFailure of kind %s to its own copy and errorKind',
     async (kind, expectedCopy) => {
-      const complete = vi.fn().mockRejectedValue(new LlmFailure(kind, 'provider said so'));
+      const complete = vi
+        .fn()
+        .mockRejectedValue(new LlmFailure(kind, 'provider said so'));
       const client: LlmClient = {
         isConfigured: () => true,
+        completeStream: vi.fn(),
         complete,
         modelName: () => 'gemini-2.5-flash',
       };
@@ -240,6 +266,7 @@ describe('LlmService.portfolioSummary', () => {
   it('exposes isConfigured by delegating to the client', () => {
     const client: LlmClient = {
       isConfigured: () => true,
+      completeStream: vi.fn(),
       complete: vi.fn(),
       modelName: () => 'gemini-2.5-flash',
     };
@@ -257,6 +284,7 @@ describe('LlmService.portfolioSummary', () => {
     const complete = vi.fn().mockResolvedValue('summary text');
     const client: LlmClient = {
       isConfigured: () => true,
+      completeStream: vi.fn(),
       complete,
       modelName: () => 'gemini-2.5-flash',
     };
@@ -285,6 +313,7 @@ describe('LlmService.portfolioSummary', () => {
     const complete = vi.fn().mockResolvedValue('summary text');
     const client: LlmClient = {
       isConfigured: () => true,
+      completeStream: vi.fn(),
       complete,
       modelName: () => 'gemini-2.5-flash',
     };
@@ -301,5 +330,123 @@ describe('LlmService.portfolioSummary', () => {
     const call = complete.mock.calls[0][0];
     expect(call.user).not.toMatch(/last time/i);
     expect(call.user).not.toMatch(/MATERIALLY changed/);
+  });
+});
+
+/** What `LlmClient.completeStream` returns: an async iterable of deltas. */
+async function* fakeDeltas(deltas: string[]): AsyncIterable<string> {
+  for (const d of deltas) yield d;
+}
+
+/** Drains `portfolioSummaryStream`'s newline-delimited JSON into parsed
+ * objects, one per line — what a real HTTP client would see after
+ * splitting the response body on '\n'. */
+async function collectLines(stream: AsyncGenerator<string>): Promise<unknown[]> {
+  const lines: unknown[] = [];
+  for await (const line of stream) {
+    lines.push(JSON.parse(line));
+  }
+  return lines;
+}
+
+describe('LlmService.portfolioSummaryStream', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('yields a single done line, unconfigured, without touching the portfolio', async () => {
+    const client: LlmClient = {
+      isConfigured: () => false,
+      completeStream: vi.fn(),
+      complete: vi.fn(),
+      modelName: () => 'gemini-2.5-flash',
+    };
+    const portfolio = fakePortfolioService();
+    const service = new LlmService(
+      client,
+      portfolio,
+      fakeTradesService(),
+      fakePerformanceService(),
+      fakeSummaries(),
+    );
+
+    const lines = await collectLines(service.portfolioSummaryStream());
+
+    expect(lines).toEqual([
+      { done: true, configured: false, factsAsOf: null, error: null, errorKind: null, id: null },
+    ]);
+    expect(portfolio.getPortfolio).not.toHaveBeenCalled();
+  });
+
+  it('yields one delta line per chunk, then a done line with the saved id', async () => {
+    const completeStream = vi.fn().mockReturnValue(fakeDeltas(['You are ', 'up 4.2%.']));
+    const client: LlmClient = {
+      isConfigured: () => true,
+      completeStream,
+      complete: vi.fn(),
+      modelName: () => 'gemini-2.5-flash',
+    };
+    const summaries = fakeSummaries();
+    const service = new LlmService(
+      client,
+      fakePortfolioService(),
+      fakeTradesService(),
+      fakePerformanceService(),
+      summaries,
+    );
+
+    const lines = await collectLines(service.portfolioSummaryStream());
+
+    expect(lines).toEqual([
+      { delta: 'You are ' },
+      { delta: 'up 4.2%.' },
+      {
+        done: true,
+        configured: true,
+        factsAsOf: '2026-09-02T14:30:00.000Z',
+        error: null,
+        errorKind: null,
+        id: 'saved-id-1',
+      },
+    ]);
+    expect(summaries.create).toHaveBeenCalledWith(
+      expect.objectContaining({ summary: 'You are up 4.2%.' }),
+    );
+  });
+
+  it('yields a done line with the error copy, and no delta lines, when the stream fails before any text', async () => {
+    const completeStream = vi.fn().mockReturnValue({
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new LlmFailure('busy', 'provider said so')),
+      }),
+    });
+    const client: LlmClient = {
+      isConfigured: () => true,
+      completeStream,
+      complete: vi.fn(),
+      modelName: () => 'gemini-2.5-flash',
+    };
+    const summaries = fakeSummaries();
+    const service = new LlmService(
+      client,
+      fakePortfolioService(),
+      fakeTradesService(),
+      fakePerformanceService(),
+      summaries,
+    );
+
+    const lines = await collectLines(service.portfolioSummaryStream());
+
+    expect(lines).toEqual([
+      {
+        done: true,
+        configured: true,
+        factsAsOf: '2026-09-02T14:30:00.000Z',
+        error: 'The AI model is busy right now. Worth another tap in a moment.',
+        errorKind: 'busy',
+        id: null,
+      },
+    ]);
+    expect(summaries.create).not.toHaveBeenCalled();
   });
 });

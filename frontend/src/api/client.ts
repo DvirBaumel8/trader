@@ -16,12 +16,20 @@ const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '');
  * localhost and the phone alike. In production BASE_URL is the backend's
  * absolute origin. Backend API routes live under /api, while health endpoints
  * are mounted at /health.
+ *
+ * Exported so `streamNdjson` builds the exact same URL for a streamed
+ * response instead of growing its own copy of this prefix rule.
  */
+export function apiUrl(path: string): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const prefix = cleanPath.startsWith('/health') ? '' : '/api';
+  return `${BASE_URL}${prefix}${cleanPath}`;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  const prefix = cleanPath.startsWith('/health') ? '' : '/api';
-  const url = `${BASE_URL}${prefix}${cleanPath}`;
+  const url = apiUrl(path);
   const res = await fetch(url, {
     ...init,
     headers: {

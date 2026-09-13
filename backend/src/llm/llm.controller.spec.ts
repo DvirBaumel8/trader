@@ -72,6 +72,43 @@ describe('LlmController', () => {
     expect(llm.portfolioSummary).toHaveBeenCalledTimes(1);
   });
 
+  it('POST /ai/portfolio-summary/stream sets the ndjson content type and writes every yielded line, in order', async () => {
+    async function* lines() {
+      yield '{"delta":"You are "}\n';
+      yield '{"delta":"up 4.2%."}\n';
+      yield '{"done":true,"configured":true,"factsAsOf":"x","error":null,"errorKind":null,"id":"1"}\n';
+    }
+    const llm = {
+      portfolioSummaryStream: vi.fn().mockReturnValue(lines()),
+    } as unknown as LlmService;
+    const controller = new LlmController(
+      llm,
+      fakeSummaries(),
+      fakeTradeIdeas(),
+      fakeTradeIdeaHistory(),
+      fakeTradeReviews(),
+      fakeSymbolPatterns(),
+    );
+    const res = {
+      setHeader: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+
+    await controller.portfolioSummaryStream(res as never);
+
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/x-ndjson; charset=utf-8',
+    );
+    expect(res.write.mock.calls.map((c) => c[0])).toEqual([
+      '{"delta":"You are "}\n',
+      '{"delta":"up 4.2%."}\n',
+      '{"done":true,"configured":true,"factsAsOf":"x","error":null,"errorKind":null,"id":"1"}\n',
+    ]);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
   it('GET /ai/summaries delegates to AiSummaryService.list', async () => {
     const rows = [{ id: '1', createdAt: 'x', factsAsOf: 'y', preview: 'z' }];
     const summaries = fakeSummaries();

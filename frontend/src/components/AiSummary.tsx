@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
+import { streamNdjson } from '../api/streamNdjson';
 import { formatTimestamp } from './format';
 import { Markdown } from './Markdown';
 import { EditModeToggle } from './ui/EditModeToggle';
@@ -19,6 +20,22 @@ interface PortfolioSummaryResult {
   /** The saved summary's id — null when nothing was persisted (unconfigured or failed). */
   id: string | null;
 }
+
+/** One line of `POST /ai/portfolio-summary/stream`'s newline-delimited JSON
+ * — either a text delta, or the one final line carrying everything else
+ * `PortfolioSummaryResult` has (see the backend's own `PortfolioSummaryStreamDone`). */
+type SummaryStreamLine =
+  | { delta: string }
+  | (Omit<PortfolioSummaryResult, 'summary'> & { done: true });
+
+const UNREACHABLE_ERROR = "Couldn't reach the AI summary right now. Try again in a bit.";
+const GENERATION_ERROR = 'Something went wrong generating the summary. Try again in a bit.';
+
+type GenerateState =
+  | { status: 'idle' }
+  | { status: 'streaming'; text: string }
+  | { status: 'done'; result: PortfolioSummaryResult }
+  | { status: 'error'; message: string };
 
 interface AiSummaryListRow {
   id: string;
@@ -239,14 +256,44 @@ export function AiSummary() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
 
-  const mutation = useMutation({
-    mutationFn: () => api<PortfolioSummaryResult>('/ai/portfolio-summary', { method: 'POST' }),
-    onSuccess: () => {
-      // A fresh summary just got persisted (if the call succeeded) — the
-      // history list, if open, should reflect it without a manual reload.
-      void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
-    },
-  });
+  const [generateState, setGenerateState] = useState<GenerateState>({ status: 'idle' });
+
+  async function generate() {
+    setGenerateState({ status: 'streaming', text: '' });
+    let text = '';
+    let receivedDone = false;
+
+    try {
+      await streamNdjson<SummaryStreamLine>('/ai/portfolio-summary/stream', (line) => {
+        if ('done' in line) {
+          receivedDone = true;
+          const { done: _done, ...result } = line;
+          setGenerateState({ status: 'done', result: { ...result, summary: text } });
+          if (line.configured && !line.error) {
+            // A fresh summary just got persisted — the history list, if
+            // open, should reflect it without a manual reload.
+            void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
+          }
+        } else {
+          text += line.delta;
+          setGenerateState({ status: 'streaming', text });
+        }
+      });
+    } catch (err) {
+      setGenerateState({
+        status: 'error',
+        message: err instanceof ApiError ? UNREACHABLE_ERROR : GENERATION_ERROR,
+      });
+      return;
+    }
+
+    if (!receivedDone) {
+      // The connection ended without ever sending the final line — the
+      // model's own words, if any arrived, are incomplete and untrustworthy
+      // to show as a finished answer.
+      setGenerateState({ status: 'error', message: GENERATION_ERROR });
+    }
+  }
 
   const historyQuery = useQuery({
     queryKey: HISTORY_QUERY_KEY,
@@ -267,11 +314,11 @@ export function AiSummary() {
     <section className="space-y-2">
       <button
         type="button"
-        onClick={() => mutation.mutate()}
-        disabled={mutation.isPending}
+        onClick={() => void generate()}
+        disabled={generateState.status === 'streaming'}
         className="w-full rounded-lg border border-accent/40 bg-accent/10 px-4 py-2.5 text-sm font-medium text-accent active:bg-accent/20 disabled:opacity-60"
       >
-        {mutation.isPending ? (
+        {generateState.status === 'streaming' ? (
           <span className="inline-flex items-center justify-center gap-2">
             <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
             Thinking…
@@ -281,14 +328,18 @@ export function AiSummary() {
         )}
       </button>
 
-      {mutation.isSuccess && <ResultCard result={mutation.data} />}
+      {generateState.status === 'streaming' && generateState.text && (
+        // Growing text, not yet the finished card — no badge or timestamp
+        // until the final line confirms what actually happened.
+        <div className="rounded-xl border border-dashed border-accent/40 bg-surface-1 p-3">
+          <Markdown text={generateState.text} />
+        </div>
+      )}
 
-      {mutation.isError && (
-        <p className="text-xs text-muted">
-          {mutation.error instanceof ApiError
-            ? "Couldn't reach the AI summary right now. Try again in a bit."
-            : "Something went wrong generating the summary. Try again in a bit."}
-        </p>
+      {generateState.status === 'done' && <ResultCard result={generateState.result} />}
+
+      {generateState.status === 'error' && (
+        <p className="text-xs text-muted">{generateState.message}</p>
       )}
 
       <div>

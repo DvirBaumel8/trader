@@ -25,6 +25,13 @@ export interface PortfolioSummaryResult {
   id: string | null;
 }
 
+/** The final line of `portfolioSummaryStream` — everything `PortfolioSummaryResult`
+ * carries except `summary` itself, which the streamed `{"delta": "..."}`
+ * lines already are. */
+export type PortfolioSummaryStreamDone = Omit<PortfolioSummaryResult, 'summary'> & {
+  done: true;
+};
+
 /** Calm, factual copy per failure kind — house style is honest, not alarming. */
 export const ERROR_COPY: Record<LlmFailureKind, string> = {
   busy: 'The AI model is busy right now. Worth another tap in a moment.',
@@ -53,18 +60,13 @@ export class LlmService {
    * Always makes a fresh model call — no caching, by the owner's explicit
    * choice, since a stale AI take is worse than a slow one.
    */
-  async portfolioSummary(): Promise<PortfolioSummaryResult> {
-    if (!this.llm.isConfigured()) {
-      return {
-        configured: false,
-        summary: null,
-        factsAsOf: null,
-        error: null,
-        errorKind: null,
-        id: null,
-      };
-    }
-
+  /**
+   * The facts, the prompt, and `grounded` — the part `portfolioSummary` and
+   * `portfolioSummaryStream` share entirely. Neither the model call nor the
+   * persistence lives here, so both callers stay free to handle those
+   * differently (one call vs. a stream of deltas).
+   */
+  private async buildSummaryPrompt() {
     const [portfolio, stats, series, entryVolumeBySymbol] = await Promise.all([
       this.portfolio.getPortfolio(),
       this.trades.getStats(),
@@ -112,6 +114,23 @@ export class LlmService {
     // summary's value is the owner's own book, which needs no web access.
     const grounded = process.env.LLM_GROUNDED === 'true';
 
+    return { facts, system, user, grounded, portfolio };
+  }
+
+  async portfolioSummary(): Promise<PortfolioSummaryResult> {
+    if (!this.llm.isConfigured()) {
+      return {
+        configured: false,
+        summary: null,
+        factsAsOf: null,
+        error: null,
+        errorKind: null,
+        id: null,
+      };
+    }
+
+    const { facts, system, user, grounded, portfolio } = await this.buildSummaryPrompt();
+
     try {
       const summary = await this.llm.complete({ system, user, grounded });
       // Persisted only on a real result — an unconfigured provider or a
@@ -150,6 +169,69 @@ export class LlmService {
         errorKind: kind,
         id: null,
       };
+    }
+  }
+
+  /**
+   * Same call as `portfolioSummary`, streamed. Yields newline-delimited JSON
+   * — `{"delta": "..."}` as text arrives, then exactly one final
+   * `{"done": true, ...}` line carrying everything `portfolioSummary`
+   * returns in one shot (`configured`, `factsAsOf`, `id`, `error`,
+   * `errorKind`) but never `summary` itself, since the deltas already are
+   * it. One shape for every outcome — unconfigured, failed before any text,
+   * or a real stream — so the controller can write every yielded line
+   * straight to the response with no branching of its own, and the frontend
+   * can read line-by-line without caring which case produced the last one.
+   */
+  async *portfolioSummaryStream(): AsyncGenerator<string> {
+    const emit = (data: PortfolioSummaryStreamDone) => `${JSON.stringify(data)}\n`;
+
+    if (!this.llm.isConfigured()) {
+      yield emit({
+        done: true,
+        configured: false,
+        factsAsOf: null,
+        error: null,
+        errorKind: null,
+        id: null,
+      });
+      return;
+    }
+
+    const { facts, system, user, grounded, portfolio } = await this.buildSummaryPrompt();
+
+    try {
+      let summary = '';
+      for await (const delta of this.llm.completeStream({ system, user, grounded })) {
+        summary += delta;
+        yield `${JSON.stringify({ delta })}\n`;
+      }
+      const saved = await this.summaries.create({
+        summary,
+        factsSnapshot: facts,
+        model: this.llm.modelName(),
+        grounded,
+        factsAsOf: portfolio.pricedAt,
+      });
+      yield emit({
+        done: true,
+        configured: true,
+        factsAsOf: portfolio.pricedAt,
+        error: null,
+        errorKind: null,
+        id: saved.id,
+      });
+    } catch (err) {
+      const kind: LlmFailureKind = err instanceof LlmFailure ? err.kind : 'unknown';
+      this.logger.warn(`AI summary stream failed (${kind}): ${(err as Error).message}`);
+      yield emit({
+        done: true,
+        configured: true,
+        factsAsOf: portfolio.pricedAt,
+        error: ERROR_COPY[kind],
+        errorKind: kind,
+        id: null,
+      });
     }
   }
 }

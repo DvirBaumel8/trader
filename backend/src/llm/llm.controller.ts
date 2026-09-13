@@ -7,7 +7,9 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { IsString, Length, Matches } from 'class-validator';
 import { LlmService } from './llm.service.js';
 import { AiSummaryService } from './ai-summary.service.js';
@@ -84,6 +86,22 @@ export class LlmController {
   @Post('portfolio-summary')
   portfolioSummary() {
     return this.llm.portfolioSummary();
+  }
+
+  /**
+   * Newline-delimited JSON, one line per chunk — see `portfolioSummaryStream`'s
+   * own doc comment for the line shapes. Uses `@Res()` directly because Nest's
+   * usual JSON response handling assumes one value, not a stream of them; the
+   * auth guard still runs first regardless, since it inspects the request,
+   * not how this handler responds.
+   */
+  @Post('portfolio-summary/stream')
+  async portfolioSummaryStream(@Res() res: Response) {
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    for await (const line of this.llm.portfolioSummaryStream()) {
+      res.write(line);
+    }
+    res.end();
   }
 
   @Get('summaries')

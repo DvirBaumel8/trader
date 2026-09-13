@@ -7,15 +7,29 @@ import { GeminiClient, LlmFailure, withRetry } from './llm.client.js';
 // plain data-carrying class and the whole point is exercising the real
 // `instanceof ApiError` check in `classify()`.
 const generateContent = vi.fn();
+const generateContentStream = vi.fn();
 vi.mock('@google/genai', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@google/genai')>();
   return {
     ...actual,
     GoogleGenAI: class {
-      models = { generateContent };
+      models = { generateContent, generateContentStream };
     },
   };
 });
+
+/** Builds the async generator `generateContentStream` resolves to, from a
+ * plain array of chunk texts — what the SDK yields when a real call is made. */
+async function* fakeStream(texts: string[]) {
+  for (const text of texts) yield { text };
+}
+
+/** Drains an `AsyncIterable<string>` into an array, for asserting on. */
+async function collect(stream: AsyncIterable<string>): Promise<string[]> {
+  const out: string[] = [];
+  for await (const chunk of stream) out.push(chunk);
+  return out;
+}
 
 /**
  * `withRetry` is the pure retry/backoff/classification core that
@@ -281,5 +295,74 @@ describe('GeminiClient', () => {
 
     const config = generateContent.mock.calls[0][0].config;
     expect(config.thinkingConfig).toBeUndefined();
+  });
+
+  describe('completeStream', () => {
+    it('throws a setup_problem LlmFailure without calling the SDK when unconfigured', async () => {
+      delete process.env.LLM_API_KEY;
+      delete process.env.GEMINI_API_KEY;
+      const client = new GeminiClient();
+
+      await expect(collect(client.completeStream({ system: 's', user: 'u' }))).rejects.toMatchObject(
+        { kind: 'setup_problem' },
+      );
+      expect(generateContentStream).not.toHaveBeenCalled();
+    });
+
+    it('yields each chunk\'s text as it arrives', async () => {
+      generateContentStream.mockResolvedValueOnce(fakeStream(['Hel', 'lo, ', 'world']));
+      const client = new GeminiClient();
+
+      const chunks = await collect(client.completeStream({ system: 's', user: 'u' }));
+
+      expect(chunks).toEqual(['Hel', 'lo, ', 'world']);
+    });
+
+    it('treats a stream with no non-empty chunks as a failure', async () => {
+      generateContentStream.mockResolvedValueOnce(fakeStream([]));
+      const client = new GeminiClient();
+
+      await expect(collect(client.completeStream({ system: 's', user: 'u' }))).rejects.toMatchObject(
+        { kind: 'unknown' },
+      );
+    });
+
+    it('retries establishing the stream on a transient 503, then yields normally', async () => {
+      vi.useFakeTimers();
+      try {
+        generateContentStream
+          .mockRejectedValueOnce(new ApiError({ message: 'busy', status: 503 }))
+          .mockResolvedValueOnce(fakeStream(['ok']));
+        const client = new GeminiClient();
+
+        const pending = collect(client.completeStream({ system: 's', user: 'u' }));
+        await vi.advanceTimersByTimeAsync(1000);
+
+        await expect(pending).resolves.toEqual(['ok']);
+        expect(generateContentStream).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('skips an empty delta in the middle of an otherwise successful stream', async () => {
+      generateContentStream.mockResolvedValueOnce(fakeStream(['first', '', 'second']));
+      const client = new GeminiClient();
+
+      const chunks = await collect(client.completeStream({ system: 's', user: 'u' }));
+
+      expect(chunks).toEqual(['first', 'second']);
+    });
+
+    it('passes thinkingLevel through the same as complete()', async () => {
+      process.env.LLM_THINKING_LEVEL = 'MINIMAL';
+      generateContentStream.mockResolvedValueOnce(fakeStream(['hi']));
+      const client = new GeminiClient();
+
+      await collect(client.completeStream({ system: 's', user: 'u' }));
+
+      const config = generateContentStream.mock.calls[0][0].config;
+      expect(config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+    });
   });
 });

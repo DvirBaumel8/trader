@@ -27,6 +27,13 @@ export abstract class LlmClient {
   /** False when no provider is configured — callers must degrade, not throw. */
   abstract isConfigured(): boolean;
   abstract complete(params: CompleteParams): Promise<string>;
+  /**
+   * Same call, yielded as text deltas as they arrive instead of returned
+   * whole. Retry only covers reaching a non-empty first chunk — once one has
+   * been yielded, a caller may already be showing it, so a later failure
+   * ends the stream rather than silently restarting it from scratch.
+   */
+  abstract completeStream(params: CompleteParams): AsyncIterable<string>;
   /** Which model a `complete()` call would use — recorded alongside saved summaries. */
   abstract modelName(): string;
 }
@@ -208,15 +215,7 @@ export class GeminiClient extends LlmClient {
         const response = await this.ai().models.generateContent({
           model: this.model,
           contents: user,
-          config: {
-            systemInstruction: system,
-            // Gemini enables Google Search grounding by attaching the tool;
-            // no grounded request is made unless the caller opts in.
-            ...(grounded ? { tools: [{ googleSearch: {} }] } : {}),
-            ...(this.thinkingLevel
-              ? { thinkingConfig: { thinkingLevel: this.thinkingLevel } }
-              : {}),
-          },
+          config: this.generateConfig(system, grounded),
         });
 
         const text = response.text;
@@ -232,6 +231,53 @@ export class GeminiClient extends LlmClient {
         throw err;
       }
     });
+  }
+
+  async *completeStream({ system, user, grounded }: CompleteParams): AsyncIterable<string> {
+    if (!this.isConfigured()) {
+      throw new LlmFailure('setup_problem', 'LlmClient is not configured (LLM_API_KEY is unset)');
+    }
+
+    let attempt = 0;
+    // Retry wraps establishing the stream AND reaching its first non-empty
+    // chunk — everything `complete()` retries, just delayed until content
+    // actually exists to check. The returned iterator is what's left to
+    // drain after that first chunk, so nothing is fetched twice.
+    const first = await withRetry(async () => {
+      attempt += 1;
+      try {
+        const stream = await this.ai().models.generateContentStream({
+          model: this.model,
+          contents: user,
+          config: this.generateConfig(system, grounded),
+        });
+        const iterator = stream[Symbol.asyncIterator]();
+        const result = await iterator.next();
+        const text = result.done ? undefined : result.value.text;
+        if (!text) {
+          throw new Error('Gemini returned an empty response');
+        }
+        return { text, iterator };
+      } catch (err) {
+        this.logger.warn(`Gemini stream attempt ${attempt} failed: ${(err as Error).message}`);
+        throw err;
+      }
+    });
+
+    yield first.text;
+    for (let next = await first.iterator.next(); !next.done; next = await first.iterator.next()) {
+      if (next.value.text) yield next.value.text;
+    }
+  }
+
+  private generateConfig(system: string, grounded: boolean | undefined) {
+    return {
+      systemInstruction: system,
+      // Gemini enables Google Search grounding by attaching the tool; no
+      // grounded request is made unless the caller opts in.
+      ...(grounded ? { tools: [{ googleSearch: {} }] } : {}),
+      ...(this.thinkingLevel ? { thinkingConfig: { thinkingLevel: this.thinkingLevel } } : {}),
+    };
   }
 
   private ai(): GoogleGenAI {
