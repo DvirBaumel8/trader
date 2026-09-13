@@ -1,7 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { PerformanceService, type Range } from './performance.service.js';
-
-const RANGES: Range[] = ['1W', '1M', '6M', 'YTD', '1Y', 'ALL'];
+import { PerformanceService } from './performance.service.js';
+import { RANGES, type Range } from '../common/date-range.js';
 
 @Controller('performance')
 export class PerformanceController {

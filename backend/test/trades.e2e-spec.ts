@@ -45,6 +45,69 @@ describe('Trades (e2e)', () => {
     await app.close();
   });
 
+  describe('GET /portfolio/stats — range', () => {
+    // Computed relative to "now" rather than hardcoded, so the suite stays
+    // correct whenever it actually runs. Recent: yesterday. Old: two years
+    // back, safely outside every preset shorter than ALL.
+    const iso = (d: Date) => d.toISOString();
+    const daysAgo = (n: number) => {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - n);
+      return d;
+    };
+
+    async function journalRoundTrip(symbol: string, closedAt: Date) {
+      const opened = new Date(closedAt);
+      opened.setUTCDate(opened.getUTCDate() - 1);
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'entry',
+          occurredAt: iso(opened),
+          trade: { symbol, quantity: 10, price: 100, fee: 0 },
+        })
+        .expect(201);
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'exit',
+          occurredAt: iso(closedAt),
+          trade: { symbol, quantity: -10, price: 120, fee: 0 },
+        })
+        .expect(201);
+    }
+
+    it('recomputes every figure for the window, not just the trades list', async () => {
+      await journalRoundTrip('NVDA', daysAgo(1)); // recent: +200 realized
+      await journalRoundTrip('AAPL', daysAgo(730)); // old: +200 realized, outside 1W
+
+      const week = await http(app, token)
+        .get('/portfolio/stats?range=1W')
+        .expect(200);
+      expect(week.body.trades.map((t: { symbol: string }) => t.symbol)).toEqual([
+        'NVDA',
+      ]);
+      expect(week.body.totalPnl).toBe(200);
+      expect(week.body.closedCount).toBe(1);
+
+      const all = await http(app, token).get('/portfolio/stats').expect(200);
+      expect(all.body.trades).toHaveLength(2);
+      expect(all.body.totalPnl).toBe(400);
+      expect(all.body.closedCount).toBe(2);
+    });
+
+    it('falls back to ALL for an unrecognised range value, the same way the benchmark endpoint does', async () => {
+      await journalRoundTrip('NVDA', daysAgo(730));
+
+      const res = await http(app, token)
+        .get('/portfolio/stats?range=nonsense')
+        .expect(200);
+      expect(res.body.trades).toHaveLength(1);
+    });
+  });
+
   it('404s an unparseable trade id', async () => {
     await http(app, token).get('/portfolio/trades/nonsense').expect(404);
   });

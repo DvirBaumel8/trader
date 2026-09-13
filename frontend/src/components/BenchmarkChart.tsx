@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { formatPercent, signClass } from './format';
 import { longDay, shortDay } from '../lib/chartDates';
-import { RANGES, type Point, type Range } from '../lib/benchmarkRange';
+import type { Point, Range } from '../lib/benchmarkRange';
+import { RangeSelector } from './ui/RangeSelector';
 
 /**
  * Validated with the dataviz palette validator against the dark chart surface
@@ -54,23 +55,7 @@ export function BenchmarkChart({
 
   return (
     <section className="space-y-3">
-      <div className="flex gap-1">
-        {RANGES.map((r) => (
-          <button
-            key={r.value}
-            type="button"
-            aria-pressed={range === r.value}
-            onClick={() => onRangeChange(r.value)}
-            className={`flex-1 rounded-lg border py-1 text-xs transition-colors ${
-              range === r.value
-                ? 'border-accent/40 bg-accent/10 text-accent'
-                : 'border-border text-muted'
-            }`}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
+      <RangeSelector range={range} onRangeChange={onRangeChange} />
 
       {points.length < 2 ? (
         <p className="rounded-xl border border-border bg-surface-1 p-3 text-xs text-muted">

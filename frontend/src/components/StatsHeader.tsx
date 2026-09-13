@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { Money } from './Money';
+import { Stat } from './ui/Stat';
 
 interface Stats {
   closedCount: number;
@@ -11,28 +12,6 @@ interface Stats {
   expectancyDollars: number | null;
   expectancyR: number | null;
   rTradeCount: number;
-}
-
-function Stat({
-  label,
-  value,
-  sub,
-  tone = '',
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: string;
-}) {
-  return (
-    <div className="flex-1 rounded-xl border border-border bg-surface-1 p-2.5 text-center">
-      <div className="text-[10px] tracking-wide text-muted uppercase">
-        {label}
-      </div>
-      <div className={`mt-0.5 text-lg font-semibold ${tone}`}>{value}</div>
-      {sub && <div className="text-[10px] text-muted">{sub}</div>}
-    </div>
-  );
 }
 
 export function StatsHeader() {

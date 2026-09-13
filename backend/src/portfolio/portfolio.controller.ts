@@ -26,6 +26,7 @@ import { TradesService } from './trades.service.js';
 import { StopLevelDto } from '../journal/journal.dto.js';
 import { computeRisk, computeRiskFromCurrentPrice } from './risk.js';
 import type { FeePeriod } from './fee-buckets.js';
+import { RANGES, type Range } from '../common/date-range.js';
 
 /** A plan being typed, not one being saved — see the `stop-risk` route. */
 class StopRiskDto {
@@ -112,8 +113,9 @@ export class PortfolioController {
   }
 
   @Get('stats')
-  stats() {
-    return this.trades.getStats();
+  stats(@Query('range') range?: string) {
+    const valid = RANGES.includes(range as Range) ? (range as Range) : 'ALL';
+    return this.trades.getStats(valid);
   }
 
   /**

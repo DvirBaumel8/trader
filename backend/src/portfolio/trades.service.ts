@@ -13,7 +13,13 @@ import { MarketDataService } from '../market-data/market-data.service.js';
 import { UsersService } from '../users/users.service.js';
 import { JournalService } from '../journal/journal.service.js';
 import type { StopLevelSpec } from '../journal/journal.service.js';
-import { deriveTrades, summariseTrades, type DerivedTrade } from './derive-trades.js';
+import {
+  deriveTrades,
+  summariseTrades,
+  filterTradesByDate,
+  type DerivedTrade,
+} from './derive-trades.js';
+import { rangeStartDate, type Range } from '../common/date-range.js';
 import { parseTradeId, windowBounds } from './trade-window.js';
 import {
   computeFavorablePrice,
@@ -192,8 +198,21 @@ export class TradesService {
     return out;
   }
 
-  async getStats() {
-    const trades = await this.deriveAllTrades();
+  /**
+   * `range` recomputes every figure for that window, not just the list —
+   * both `summariseTrades` and the `trades` array below are filtered from
+   * the SAME set, so the stats and the rows shown can never disagree about
+   * what's "in" the period. Anchored to today's real date rather than the
+   * latest daily-close bar: trade outcomes aren't tied to `daily_closes`
+   * freshness the way the benchmark series is.
+   */
+  async getStats(range: Range = 'ALL') {
+    const all = await this.deriveAllTrades();
+    const fromDate =
+      range === 'ALL'
+        ? null
+        : rangeStartDate(range, new Date().toISOString().slice(0, 10), '0000-01-01');
+    const trades = filterTradesByDate(all, fromDate);
     const tagsByEntry = await this.tagsByEntryId();
 
     return {

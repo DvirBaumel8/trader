@@ -1,6 +1,7 @@
 import {
   deriveTrades,
   summariseTrades,
+  filterTradesByDate,
   selectEntryStops,
   selectCurrentStops,
   computeEffectiveStops,
@@ -9,6 +10,7 @@ import {
   type TradeTxn,
   type StopRevisionInput,
   type ReducingFill,
+  type DerivedTrade,
 } from './derive-trades.js';
 import type { StopLevelInput } from './risk.js';
 
@@ -645,6 +647,65 @@ describe('summariseTrades', () => {
     // Break-even is not a win; counting it as one flatters the win rate.
     const s = summariseTrades([closed(0), closed(100)]);
     expect(s.winRate).toBe(0.5);
+  });
+
+  it('sums realized P&L across every closed trade, wins and losses both', () => {
+    const s = summariseTrades([closed(300), closed(-100), closed(50)]);
+    expect(s.totalPnl).toBe(250);
+  });
+
+  it('leaves total P&L null with no closed trades, not zero', () => {
+    // Zero would read as "you broke exactly even" rather than "nothing to
+    // total" — the same distinction avgRisk already draws with null.
+    const s = summariseTrades([]);
+    expect(s.totalPnl).toBeNull();
+  });
+
+  it('excludes open trades from the total, same as every other outcome stat', () => {
+    const s = summariseTrades([
+      closed(300),
+      { realizedPnl: null, isOpen: true, isWin: null, rMultiple: null, riskAmount: null },
+    ]);
+    expect(s.totalPnl).toBe(300);
+  });
+});
+
+describe('filterTradesByDate', () => {
+  // Date.UTC, not `new Date(2026, 0, n)`: the latter is local-midnight and
+  // shifts by a day under `.toISOString()` on any machine not already at
+  // UTC+0 — exactly the day-shift bug this function itself must not have.
+  const day = (n: number) => new Date(Date.UTC(2026, 0, n));
+  const trade = (
+    entered: number,
+    exited: number | null,
+  ): Pick<DerivedTrade, 'enteredAt' | 'exitedAt'> => ({
+    enteredAt: day(entered),
+    exitedAt: exited === null ? null : day(exited),
+  });
+
+  it('returns everything unfiltered when there is no lower bound', () => {
+    const trades = [trade(1, 5), trade(10, 20)];
+    expect(filterTradesByDate(trades, null)).toEqual(trades);
+  });
+
+  it('keeps a closed trade by its exit date, not its entry date', () => {
+    // Entered before the window, but closed inside it — "trades in
+    // September" means trades that resolved in September, mirroring the
+    // frontend's own filterTrades.
+    const trades = [trade(1, 15)];
+    expect(filterTradesByDate(trades, '2026-01-10')).toEqual(trades);
+    expect(filterTradesByDate(trades, '2026-01-20')).toEqual([]);
+  });
+
+  it('falls back to the entry date for a still-open trade', () => {
+    const trades = [trade(15, null)];
+    expect(filterTradesByDate(trades, '2026-01-10')).toEqual(trades);
+    expect(filterTradesByDate(trades, '2026-01-20')).toEqual([]);
+  });
+
+  it('is inclusive of the boundary date itself', () => {
+    const trades = [trade(1, 10)];
+    expect(filterTradesByDate(trades, '2026-01-10')).toEqual(trades);
   });
 });
 

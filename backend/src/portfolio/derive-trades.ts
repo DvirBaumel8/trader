@@ -624,6 +624,12 @@ export interface TradeSummary {
   expectancyR: number | null;
   /** How many trades the R figure is based on, so the number stays honest. */
   rTradeCount: number;
+  /**
+   * Summed, not averaged, across every closed trade — "what did I make."
+   * Null with no closed trades, not zero: zero reads as "broke exactly
+   * even," the same distinction `avgRisk` already draws.
+   */
+  totalPnl: number | null;
 }
 
 type Summarisable = Pick<
@@ -664,7 +670,28 @@ export function summariseTrades(trades: Summarisable[]): TradeSummary {
     expectancyDollars: mean(closed.map((t) => t.realizedPnl as number)),
     expectancyR: mean(withR.map((t) => t.rMultiple as number)),
     rTradeCount: withR.length,
+    totalPnl:
+      closed.length === 0
+        ? null
+        : round(closed.reduce((sum, t) => sum + (t.realizedPnl as number), 0)),
   };
+}
+
+/**
+ * Trades whose OUTCOME falls on or after `fromDate` (inclusive, YYYY-MM-DD)
+ * — a closed trade by its exit date, a still-open one by its entry date
+ * since it has no exit yet. Mirrors `filterTrades` in the frontend's
+ * `entryFilters.ts` exactly, so the list a period shows and the stats
+ * computed for that period can never disagree about which trades are "in"
+ * it. `fromDate: null` means no lower bound — every trade passes.
+ */
+export function filterTradesByDate<
+  T extends Pick<DerivedTrade, 'enteredAt' | 'exitedAt'>,
+>(trades: T[], fromDate: string | null): T[] {
+  if (fromDate === null) return trades;
+  return trades.filter(
+    (t) => (t.exitedAt ?? t.enteredAt).toISOString().slice(0, 10) >= fromDate,
+  );
 }
 
 function round(n: number): number {

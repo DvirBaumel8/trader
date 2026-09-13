@@ -30,6 +30,7 @@ export function FilterBar({
   sortLabels,
   resultCount,
   totalCount,
+  showDateFilter = true,
 }: {
   filters: Filters;
   onFiltersChange: (f: Filters) => void;
@@ -39,6 +40,12 @@ export function FilterBar({
   sortLabels?: Partial<Record<SortValue, string>>;
   resultCount: number;
   totalCount: number;
+  /**
+   * Off on the Trades tab, which has its own period picker (RangeSelector)
+   * doing the same job — two date controls on one screen answering the same
+   * question would be confusing, not just redundant.
+   */
+  showDateFilter?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const active = hasActiveFilters(filters);
@@ -103,26 +110,28 @@ export function FilterBar({
             spellCheck={false}
             className={controlClass}
           />
-          <div className="grid grid-cols-2 gap-2">
-            <label className="min-w-0 space-y-1">
-              <span className="block text-[10px] text-muted">From</span>
-              <input
-                type="date"
-                value={filters.from}
-                onChange={(e) => set({ from: e.target.value })}
-                className={controlClass}
-              />
-            </label>
-            <label className="min-w-0 space-y-1">
-              <span className="block text-[10px] text-muted">To</span>
-              <input
-                type="date"
-                value={filters.to}
-                onChange={(e) => set({ to: e.target.value })}
-                className={controlClass}
-              />
-            </label>
-          </div>
+          {showDateFilter && (
+            <div className="grid grid-cols-2 gap-2">
+              <label className="min-w-0 space-y-1">
+                <span className="block text-[10px] text-muted">From</span>
+                <input
+                  type="date"
+                  value={filters.from}
+                  onChange={(e) => set({ from: e.target.value })}
+                  className={controlClass}
+                />
+              </label>
+              <label className="min-w-0 space-y-1">
+                <span className="block text-[10px] text-muted">To</span>
+                <input
+                  type="date"
+                  value={filters.to}
+                  onChange={(e) => set({ to: e.target.value })}
+                  className={controlClass}
+                />
+              </label>
+            </div>
+          )}
           {active && (
             <button
               type="button"

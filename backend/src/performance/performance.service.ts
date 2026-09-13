@@ -14,8 +14,9 @@ import {
   rebase,
   toCumulativeReturns,
 } from './series.js';
+import { rangeStartDate, type Range } from '../common/date-range.js';
 
-export type Range = '1W' | '1M' | '6M' | 'YTD' | '1Y' | 'ALL';
+export type { Range };
 
 @Injectable()
 export class PerformanceService {
@@ -93,7 +94,11 @@ export class PerformanceService {
     let dates = [...spy.keys()].sort();
 
     if (firstActivity) dates = dates.filter((d) => d >= firstActivity);
-    dates = dates.filter((d) => d >= startOf(range, dates));
+    const from =
+      dates.length === 0
+        ? '0000-01-01'
+        : rangeStartDate(range, dates[dates.length - 1], dates[0]);
+    dates = dates.filter((d) => d >= from);
 
     const { days: valuation, unpricedSymbols } = buildValuationSeries({
       dates,
@@ -152,22 +157,6 @@ export class PerformanceService {
       unpricedSymbols,
     };
   }
-}
-
-/** The first date inside the requested range, given the available calendar. */
-function startOf(range: Range, dates: string[]): string {
-  if (range === 'ALL' || dates.length === 0) return dates[0] ?? '0000-01-01';
-  const latest = new Date(dates[dates.length - 1]);
-  if (range === 'YTD') return `${latest.getUTCFullYear()}-01-01`;
-  if (range === '1W') {
-    const from = new Date(latest);
-    from.setUTCDate(from.getUTCDate() - 7);
-    return from.toISOString().slice(0, 10);
-  }
-  const months = range === '1M' ? 1 : range === '6M' ? 6 : 12;
-  const from = new Date(latest);
-  from.setUTCMonth(from.getUTCMonth() - months);
-  return from.toISOString().slice(0, 10);
 }
 
 function round(n: number): number {
