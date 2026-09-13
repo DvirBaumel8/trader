@@ -228,16 +228,39 @@ correctly rendering a real quota-exceeded response once the day's free
 Gemini quota ran out from all the session's testing — confirming the
 error path renders live through the same code as the success path.
 
-Deliberately NOT this slice: Trade Review and Symbol Pattern come next
-(each has a `[..._META]` block at the START that must be buffered and
-stripped before any text streams — one new rule, otherwise identical to
-this slice). Trade Idea is last and hardest — `{{WEIGHT:LMND}}`-style
+**Streaming, slice 2, shipped 2026-09-13: Trade Review and Symbol
+Pattern.** Both have a `[REVIEW_META]`/`[PATTERN_META]` block at the
+START of the raw model text that must never reach the screen — the new
+`streamAfterMetaBlock` (`meta-block-stream.ts`) buffers and discards it,
+yielding nothing until the closing tag is seen, then relays the rest of
+the stream untouched. Its own return value is the complete raw text
+(meta block included), so each service still runs its EXISTING parser
+(`parseReviewMeta`, `parsePatternMeta`) against it exactly as the
+non-streaming path always did — no second, incremental parser to keep in
+sync with the first. One real subtlety: yielding a per-chunk delta from
+inside the streaming generator, while ALSO needing that helper's return
+value once draining finishes (to parse score/headline), doesn't fit
+`for await...of` (it throws away return values) — both services manually
+drive the inner generator's `.next()` in a loop instead. An initial
+`drainStream` helper meant to paper over exactly this turned out not to
+fit either, for a more basic reason: `yield` can't cross out of a nested
+callback into the enclosing generator, so it was removed unused rather
+than kept as dead abstraction.
+
+Verified live end-to-end for both: a real Symbol Pattern re-read on NVDA
+streamed in in seconds with a fresh headline and no `PATTERN_META` text
+visible at any point; a real Trade Review on the same trade streamed a
+"Grade F" post-mortem with its verdict, metrics strip and full markdown
+body all rendering correctly, no `REVIEW_META` leakage.
+
+Trade Idea remains last and hardest — `{{WEIGHT:LMND}}`-style
 placeholders can appear ANYWHERE in its body and must never be shown raw,
 so naive streaming risks flashing placeholder syntax or missing a
-substitution split across a chunk boundary. Watchlist Ranking is excluded
-entirely — its output is a structured ranked list, not prose, and
-streaming a list building up character-by-character would read as broken
-rather than responsive.
+substitution split across a chunk boundary; the meta-block trick above
+doesn't cover this case since a placeholder isn't confined to one spot at
+the start. Watchlist Ranking is still excluded entirely — its output is a
+structured ranked list, not prose, and streaming a list building up
+character-by-character would read as broken rather than responsive.
 
 ## Features requested, not yet designed
 
