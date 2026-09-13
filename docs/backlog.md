@@ -339,6 +339,12 @@ not run layout and cannot check pixel alignment directly; re-verified
 live via `getBoundingClientRect` against his own portfolio data (the
 header's right edge and a row's matched to the pixel).
 
+**Extended again: sort by number of trades.** Two more `sortSymbols`
+options, `TRADES_MOST`/`TRADES_FEWEST`, alongside the existing
+NEWEST/OLDEST/LARGEST/SMALLEST/FEES_HIGH/FEES_LOW — kept as their own pair
+rather than folded into an existing one, since a symbol's trade count is a
+third independent dimension from its P&L and its fee total.
+
 **Slice 2, not started: the AI reading of his history in this name.**
 Deliberately split out — it's the riskiest part (new prompt, new persisted
 entity, exactly where "the model misquotes the app's own figures" would
