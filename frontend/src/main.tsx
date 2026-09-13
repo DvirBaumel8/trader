@@ -14,6 +14,8 @@ import { Ideas } from './routes/Ideas';
 import { Watchlist } from './routes/Watchlist';
 import { Login } from './routes/Login';
 import { TradeDetail } from './routes/TradeDetail';
+import { Stocks } from './routes/Stocks';
+import { StockDetail } from './routes/StockDetail';
 import './index.css';
 
 const queryClient = new QueryClient();
@@ -33,6 +35,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="ideas" element={<Ideas />} />
             <Route path="watchlist" element={<Watchlist />} />
             <Route path="trades/:id" element={<TradeDetail />} />
+            <Route path="stocks" element={<Stocks />} />
+            <Route path="stocks/:symbol" element={<StockDetail />} />
             <Route path="seed" element={<Seed />} />
             <Route path="probe" element={<TickerProbe />} />
           </Route>

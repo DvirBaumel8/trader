@@ -45,40 +45,46 @@ describe('Trades (e2e)', () => {
     await app.close();
   });
 
+  // Computed relative to "now" rather than hardcoded, so the suite stays
+  // correct whenever it actually runs. Recent: yesterday. Old: two years
+  // back, safely outside every preset shorter than ALL. Shared by the range
+  // and symbols describe blocks below.
+  const iso = (d: Date) => d.toISOString();
+  const daysAgo = (n: number) => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - n);
+    return d;
+  };
+
+  async function journalRoundTrip(
+    symbol: string,
+    closedAt: Date,
+    prices: { entry: number; exit: number } = { entry: 100, exit: 120 },
+    fee = 0,
+  ) {
+    const opened = new Date(closedAt);
+    opened.setUTCDate(opened.getUTCDate() - 1);
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'entry',
+        occurredAt: iso(opened),
+        trade: { symbol, quantity: 10, price: prices.entry, fee },
+      })
+      .expect(201);
+    await http(app, token)
+      .post('/journal')
+      .send({
+        kind: 'TRADE',
+        body: 'exit',
+        occurredAt: iso(closedAt),
+        trade: { symbol, quantity: -10, price: prices.exit, fee },
+      })
+      .expect(201);
+  }
+
   describe('GET /portfolio/stats — range', () => {
-    // Computed relative to "now" rather than hardcoded, so the suite stays
-    // correct whenever it actually runs. Recent: yesterday. Old: two years
-    // back, safely outside every preset shorter than ALL.
-    const iso = (d: Date) => d.toISOString();
-    const daysAgo = (n: number) => {
-      const d = new Date();
-      d.setUTCDate(d.getUTCDate() - n);
-      return d;
-    };
-
-    async function journalRoundTrip(symbol: string, closedAt: Date) {
-      const opened = new Date(closedAt);
-      opened.setUTCDate(opened.getUTCDate() - 1);
-      await http(app, token)
-        .post('/journal')
-        .send({
-          kind: 'TRADE',
-          body: 'entry',
-          occurredAt: iso(opened),
-          trade: { symbol, quantity: 10, price: 100, fee: 0 },
-        })
-        .expect(201);
-      await http(app, token)
-        .post('/journal')
-        .send({
-          kind: 'TRADE',
-          body: 'exit',
-          occurredAt: iso(closedAt),
-          trade: { symbol, quantity: -10, price: 120, fee: 0 },
-        })
-        .expect(201);
-    }
-
     it('recomputes every figure for the window, not just the trades list', async () => {
       await journalRoundTrip('NVDA', daysAgo(1)); // recent: +200 realized
       await journalRoundTrip('AAPL', daysAgo(730)); // old: +200 realized, outside 1W
@@ -105,6 +111,73 @@ describe('Trades (e2e)', () => {
         .get('/portfolio/stats?range=nonsense')
         .expect(200);
       expect(res.body.trades).toHaveLength(1);
+    });
+  });
+
+  describe('GET /portfolio/symbols', () => {
+    it('lists only symbols with at least one closed trade, most recently active first', async () => {
+      await journalRoundTrip('AAPL', daysAgo(30));
+      await journalRoundTrip('NVDA', daysAgo(1));
+      // An open-only position must not appear — it has no closed trade yet.
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'still open',
+          occurredAt: iso(daysAgo(1)),
+          trade: { symbol: 'MSFT', quantity: 5, price: 300, fee: 0 },
+        })
+        .expect(201);
+
+      const res = await http(app, token).get('/portfolio/symbols').expect(200);
+      expect(res.body.map((r: { symbol: string }) => r.symbol)).toEqual([
+        'NVDA',
+        'AAPL',
+      ]);
+      expect(res.body[0]).toMatchObject({ closedCount: 1, totalPnl: 200 });
+    });
+
+    it('returns an empty list rather than erroring with no closed trades at all', async () => {
+      const res = await http(app, token).get('/portfolio/symbols').expect(200);
+      expect(res.body).toEqual([]);
+    });
+  });
+
+  describe('GET /portfolio/symbols/:symbol', () => {
+    it('recomputes stats, fees and the trade list for one symbol, scoped to the window', async () => {
+      await journalRoundTrip(
+        'NVDA',
+        daysAgo(1),
+        { entry: 100, exit: 120 },
+        4,
+      ); // (120-100)*10 - 4 - 4 = 192, recent
+      await journalRoundTrip(
+        'NVDA',
+        daysAgo(730),
+        { entry: 50, exit: 60 },
+        2,
+      ); // (60-50)*10 - 2 - 2 = 96, old — outside 1W
+      await journalRoundTrip('AAPL', daysAgo(1)); // a different symbol entirely
+
+      const week = await http(app, token)
+        .get('/portfolio/symbols/NVDA?range=1W')
+        .expect(200);
+      expect(week.body.symbol).toBe('NVDA');
+      expect(week.body.closedCount).toBe(1);
+      expect(week.body.totalPnl).toBe(192);
+      expect(week.body.feesPaid).toBe(8);
+      expect(week.body.trades).toHaveLength(1);
+
+      const all = await http(app, token)
+        .get('/portfolio/symbols/nvda') // case-insensitive, no range = ALL
+        .expect(200);
+      expect(all.body.closedCount).toBe(2);
+      expect(all.body.totalPnl).toBe(288);
+      expect(all.body.feesPaid).toBe(12);
+    });
+
+    it('404s a symbol with no trades at all, same as an unknown trade id', async () => {
+      await http(app, token).get('/portfolio/symbols/ZZZZNOTREAL').expect(404);
     });
   });
 

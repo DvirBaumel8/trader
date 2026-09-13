@@ -17,6 +17,7 @@ import {
   deriveTrades,
   summariseTrades,
   filterTradesByDate,
+  round,
   type DerivedTrade,
 } from './derive-trades.js';
 import { rangeStartDate, type Range } from '../common/date-range.js';
@@ -208,29 +209,112 @@ export class TradesService {
    */
   async getStats(range: Range = 'ALL') {
     const all = await this.deriveAllTrades();
-    const fromDate =
-      range === 'ALL'
-        ? null
-        : rangeStartDate(range, new Date().toISOString().slice(0, 10), '0000-01-01');
-    const trades = filterTradesByDate(all, fromDate);
+    const trades = filterTradesByDate(all, this.resolveFromDate(range));
     const tagsByEntry = await this.tagsByEntryId();
 
     return {
       ...summariseTrades(trades),
-      // Fills are for the detail screen; sending them for every trade would
-      // bloat a response the list view re-fetches often. Their tags are kept,
-      // collapsed onto the trade: what the owner called the setup, and what he
-      // called the mistake, are the only part of a fill the list wants.
-      trades: trades.map(({ fills, currentStops: _stops, ...rest }) => {
-        const setups = new Set<string>();
-        const mistakes = new Set<string>();
-        for (const f of fills) {
-          const found = f.entryId ? tagsByEntry.get(f.entryId) : undefined;
-          for (const t of found?.setups ?? []) setups.add(t);
-          for (const t of found?.mistakes ?? []) mistakes.add(t);
-        }
-        return { ...rest, setups: [...setups], mistakes: [...mistakes] };
-      }),
+      trades: this.collapseTagsOntoTrades(trades, tagsByEntry),
+    };
+  }
+
+  /** `range` → the inclusive lower date bound, or `null` for no bound (ALL).
+   * Anchored to today's real date rather than the latest daily-close bar:
+   * trade outcomes aren't tied to `daily_closes` freshness the way the
+   * benchmark series is. */
+  private resolveFromDate(range: Range): string | null {
+    return range === 'ALL'
+      ? null
+      : rangeStartDate(range, new Date().toISOString().slice(0, 10), '0000-01-01');
+  }
+
+  /**
+   * Fills are for the detail screen; sending them for every trade in a list
+   * response would bloat something re-fetched often. Their tags are kept,
+   * collapsed onto the trade: what the owner called the setup, and what he
+   * called the mistake, are the only part of a fill a list wants. Shared by
+   * `getStats` and `getSymbolSummary` so the two trade lists in this app
+   * never describe a fill's tags two slightly different ways.
+   */
+  private collapseTagsOntoTrades(
+    trades: DerivedTrade[],
+    tagsByEntry: Map<string, { setups: string[]; mistakes: string[] }>,
+  ) {
+    return trades.map(({ fills, currentStops: _stops, ...rest }) => {
+      const setups = new Set<string>();
+      const mistakes = new Set<string>();
+      for (const f of fills) {
+        const found = f.entryId ? tagsByEntry.get(f.entryId) : undefined;
+        for (const t of found?.setups ?? []) setups.add(t);
+        for (const t of found?.mistakes ?? []) mistakes.add(t);
+      }
+      return { ...rest, setups: [...setups], mistakes: [...mistakes] };
+    });
+  }
+
+  /**
+   * One row per symbol with at least one closed trade — the "pick a stock"
+   * index for the Stocks tab. All-time only: a symbol you closed a trade in
+   * last year still belongs on this list even while looking at "this week"
+   * elsewhere, since this list's job is discovery, not a period's totals.
+   */
+  async getSymbolIndex() {
+    const all = await this.deriveAllTrades();
+    const bySymbol = new Map<string, DerivedTrade[]>();
+    for (const t of all) {
+      const list = bySymbol.get(t.symbol);
+      if (list) list.push(t);
+      else bySymbol.set(t.symbol, [t]);
+    }
+
+    return [...bySymbol.entries()]
+      .map(([symbol, trades]) => {
+        const summary = summariseTrades(trades);
+        const latestExit = trades
+          .filter((t): t is DerivedTrade & { exitedAt: Date } => t.exitedAt !== null)
+          .reduce<Date | null>(
+            (latest, t) => (latest === null || t.exitedAt > latest ? t.exitedAt : latest),
+            null,
+          );
+        return {
+          symbol,
+          closedCount: summary.closedCount,
+          totalPnl: summary.totalPnl,
+          latestExit,
+        };
+      })
+      .filter((row) => row.closedCount > 0)
+      // Most recently active name first — the same recency bias the
+      // Trades tab's own default sort already uses.
+      .sort((a, b) => (b.latestExit?.getTime() ?? 0) - (a.latestExit?.getTime() ?? 0))
+      .map(({ latestExit: _latestExit, ...row }) => row);
+  }
+
+  /**
+   * One symbol's whole story: every round trip in `range`, and the same
+   * figures `getStats` computes, scoped to just this ticker. `range`
+   * filters the SAME trade set the stats and the fee total are both built
+   * from, for the reason `getStats`'s own doc comment gives.
+   */
+  async getSymbolSummary(symbol: string, range: Range = 'ALL') {
+    const upper = symbol.toUpperCase();
+    const all = await this.deriveAllTrades();
+    const forSymbol = all.filter((t) => t.symbol.toUpperCase() === upper);
+    if (forSymbol.length === 0) {
+      throw new NotFoundException(`Unknown ticker: ${upper}`);
+    }
+
+    const trades = filterTradesByDate(forSymbol, this.resolveFromDate(range));
+    const tagsByEntry = await this.tagsByEntryId();
+
+    return {
+      symbol: upper,
+      ...summariseTrades(trades),
+      // Every fee actually paid on this name in the window, open trades
+      // included — an entry fee is paid whether or not the position has
+      // closed yet, so excluding open trades here would understate it.
+      feesPaid: round(trades.reduce((sum, t) => sum + t.feesPaid, 0)),
+      trades: this.collapseTagsOntoTrades(trades, tagsByEntry),
     };
   }
 

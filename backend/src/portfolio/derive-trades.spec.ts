@@ -529,12 +529,27 @@ describe('summariseTrades', () => {
     pnl: number,
     r: number | null = null,
     riskAmount: number | null = null,
+    extra: { quantity?: number; avgEntry?: number; holdingDays?: number | null } = {},
   ) => ({
     realizedPnl: pnl,
     isOpen: false,
     isWin: pnl > 0,
     rMultiple: r,
     riskAmount,
+    quantity: extra.quantity ?? 10,
+    avgEntry: extra.avgEntry ?? 100,
+    holdingDays: extra.holdingDays ?? 5,
+  });
+
+  const open = (riskAmount: number | null) => ({
+    realizedPnl: null,
+    isOpen: true,
+    isWin: null,
+    rMultiple: null,
+    riskAmount,
+    quantity: 10,
+    avgEntry: 100,
+    holdingDays: null,
   });
 
   it('is empty with no closed trades', () => {
@@ -546,15 +561,7 @@ describe('summariseTrades', () => {
   });
 
   it('ignores open trades in the outcome stats', () => {
-    const s = summariseTrades([
-      {
-        realizedPnl: null,
-        isOpen: true,
-        isWin: null,
-        rMultiple: null,
-        riskAmount: null,
-      },
-    ]);
+    const s = summariseTrades([open(null)]);
     expect(s.closedCount).toBe(0);
     expect(s.winRate).toBeNull();
   });
@@ -581,16 +588,7 @@ describe('summariseTrades', () => {
   });
 
   it('counts an open trade in average risk, since risk is known at entry', () => {
-    const s = summariseTrades([
-      closed(300, 3, 100),
-      {
-        realizedPnl: null,
-        isOpen: true,
-        isWin: null,
-        rMultiple: null,
-        riskAmount: 300,
-      },
-    ]);
+    const s = summariseTrades([closed(300, 3, 100), open(300)]);
     expect(s.avgRisk).toBe(200);
     expect(s.riskTradeCount).toBe(2);
     expect(s.closedCount).toBe(1);
@@ -601,16 +599,7 @@ describe('summariseTrades', () => {
     // zero in would shrink the figure used to size the next position — and
     // several real positions have this shape, because a trailed-up plan is
     // recorded against the entry.
-    const s = summariseTrades([
-      closed(300, 3, 100),
-      {
-        realizedPnl: null,
-        isOpen: true,
-        isWin: null,
-        rMultiple: null,
-        riskAmount: 0,
-      },
-    ]);
+    const s = summariseTrades([closed(300, 3, 100), open(0)]);
     expect(s.avgRisk).toBe(100);
     expect(s.riskTradeCount).toBe(1);
   });
@@ -662,11 +651,40 @@ describe('summariseTrades', () => {
   });
 
   it('excludes open trades from the total, same as every other outcome stat', () => {
-    const s = summariseTrades([
-      closed(300),
-      { realizedPnl: null, isOpen: true, isWin: null, rMultiple: null, riskAmount: null },
-    ]);
+    const s = summariseTrades([closed(300), open(null)]);
     expect(s.totalPnl).toBe(300);
+  });
+
+  it('averages position size (dollar cost basis) over closed trades', () => {
+    const s = summariseTrades([
+      closed(100, null, null, { quantity: 10, avgEntry: 100 }), // $1,000
+      closed(-50, null, null, { quantity: 20, avgEntry: 50 }), // $1,000
+    ]);
+    expect(s.avgPositionSize).toBe(1000);
+  });
+
+  it('excludes open trades from average position size, matching hold time and the other outcome stats', () => {
+    const s = summariseTrades([
+      closed(100, null, null, { quantity: 10, avgEntry: 100 }), // $1,000
+      open(null), // 10 * 100 = $1,000 too, but must not count — it hasn't concluded
+    ]);
+    expect(s.avgPositionSize).toBe(1000);
+  });
+
+  it('leaves average position size null with no closed trades', () => {
+    expect(summariseTrades([]).avgPositionSize).toBeNull();
+  });
+
+  it('averages hold time in days over closed trades', () => {
+    const s = summariseTrades([
+      closed(100, null, null, { holdingDays: 3 }),
+      closed(-50, null, null, { holdingDays: 7 }),
+    ]);
+    expect(s.avgHoldingDays).toBe(5);
+  });
+
+  it('leaves average hold time null with no closed trades', () => {
+    expect(summariseTrades([]).avgHoldingDays).toBeNull();
   });
 });
 

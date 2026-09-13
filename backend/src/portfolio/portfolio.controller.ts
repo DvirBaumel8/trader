@@ -118,6 +118,23 @@ export class PortfolioController {
     return this.trades.getStats(valid);
   }
 
+  /** Every symbol with at least one closed trade — the Stocks tab's index. */
+  @Get('symbols')
+  symbolIndex() {
+    return this.trades.getSymbolIndex();
+  }
+
+  /** One symbol's whole story: every round trip in `range`, and the same
+   * figures `stats` computes, scoped to just this ticker. */
+  @Get('symbols/:symbol')
+  symbolSummary(
+    @Param('symbol') symbol: string,
+    @Query('range') range?: string,
+  ) {
+    const valid = RANGES.includes(range as Range) ? (range as Range) : 'ALL';
+    return this.trades.getSymbolSummary(symbol, valid);
+  }
+
   /**
    * The id is a `symbol:ISO-timestamp` composite, URL-encoded by the client.
    * Nest gives back the decoded segment, so no manual decode here.

@@ -630,11 +630,28 @@ export interface TradeSummary {
    * even," the same distinction `avgRisk` already draws.
    */
   totalPnl: number | null;
+  /**
+   * Dollar cost basis at entry (`avgEntry * quantity`), averaged over
+   * closed trades only — matching hold time and every other outcome stat,
+   * not `avgRisk`'s open-trades-count rule: "what I typically make on a
+   * trade" is a retrospective question, unlike "what I typically risk,"
+   * which is fixed the moment a still-open trade is entered.
+   */
+  avgPositionSize: number | null;
+  /** In calendar days, averaged over closed trades. */
+  avgHoldingDays: number | null;
 }
 
 type Summarisable = Pick<
   DerivedTrade,
-  'realizedPnl' | 'isOpen' | 'isWin' | 'rMultiple' | 'riskAmount'
+  | 'realizedPnl'
+  | 'isOpen'
+  | 'isWin'
+  | 'rMultiple'
+  | 'riskAmount'
+  | 'quantity'
+  | 'avgEntry'
+  | 'holdingDays'
 >;
 
 export function summariseTrades(trades: Summarisable[]): TradeSummary {
@@ -674,6 +691,12 @@ export function summariseTrades(trades: Summarisable[]): TradeSummary {
       closed.length === 0
         ? null
         : round(closed.reduce((sum, t) => sum + (t.realizedPnl as number), 0)),
+    avgPositionSize: mean(closed.map((t) => t.avgEntry * t.quantity)),
+    avgHoldingDays: mean(
+      closed
+        .map((t) => t.holdingDays)
+        .filter((d): d is number => d !== null),
+    ),
   };
 }
 
@@ -694,7 +717,7 @@ export function filterTradesByDate<
   );
 }
 
-function round(n: number): number {
+export function round(n: number): number {
   return Math.round(n * 1e8) / 1e8;
 }
 
