@@ -272,26 +272,19 @@ here so nothing is lost, not as an instruction to start building.
 Raised 2026-09-12. These produce documents and decisions, not features. Each
 is a sit-down with the owner, not something to complete alone and present.
 
-- [ ] **Competitor investigation.** Who else builds a trading journal, what
-  their product actually is, and what their front end does well. Deliverable:
-  one document per competitor — a short summary of the company and product —
-  plus a conclusions section and a list of proposed actions for us.
-
-  **Do the front end properly rather than from marketing pages.** Screenshots
-  and pricing pages say what a company wants to be seen as; the interaction
-  is where the lessons are. Where a product has a free tier or a public demo,
-  use it and record what the flows feel like — how an entry gets logged, how
-  a trade is reviewed, what the mobile experience is.
-
-  The list to start from (to confirm with him): Tradervue, TraderSync,
-  Edgewonk, TradeZella, Chartlog, Stonk Journal. Worth including at least one
-  adjacent non-journal product for the UI alone.
-
-  **The conclusions must be opinionated.** "They all have a calendar view" is
-  an observation; "we should not build a calendar view, because X" is the
-  deliverable. The brief's "resist features" applies hardest here — a
-  competitor scan is the single most reliable way to talk yourself into ten
-  features that add no value.
+**Closed, 2026-09-13: competitor investigation, scoped down and done.**
+Trimmed with him to four of the six named competitors (Tradervue, TradeZella,
+Chartlog, Stonk Journal — TraderSync, Edgewonk and the adjacent non-journal
+product dropped) and done as a fast pass — public pages and reviews, no
+accounts created — rather than the hands-on depth originally asked for.
+Delivered as "Journal Comps," a document per competitor plus an opinionated
+conclusions section and a proposed-actions list. One action already promoted
+to its own backlog entry (the calendar heatmap, in Features above); the rest
+(a strategy/playbook layer over setup tags, natural-language draft-prefill,
+closing the offline-support gap) were deliberately left in the research doc
+rather than duplicated here — each needs its own design pass before it's
+backlog material. Re-open only to go deeper on these four or to cover the
+three that were dropped.
 
 - [ ] **A working session on how the app uses AI.** Two halves, both
   collaborative:
