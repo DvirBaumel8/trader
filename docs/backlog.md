@@ -322,6 +322,23 @@ needed no changes; it wasn't asserting on the removed width classes.
 Also renamed `StockDetail`'s "Avg hold" tile to **"Avg hold (days)"** — the
 unit wasn't named anywhere on screen.
 
+**Fixed the same day, from a phone screenshot: the header and the numeric
+columns drifted out of alignment down the list.** Root cause: the header
+row and each data row were separate CSS grids, so `auto` column widths
+were computed from each one's own content alone — the header lined up
+with whatever row happened to have similarly-wide fee/P&L figures and
+drifted from every other. The browser check done when this shipped used
+stub fees that were identical ($8.00) on both rows, which hid it; his real
+data, with fee and P&L strings of very different widths, showed it
+plainly. Fixed by merging the header and every row into one shared grid —
+each row is now an `<a>` with `display: contents` so its cells become
+direct items of that grid, with a full-width div standing in for the
+divider the row's own box used to draw. Covered by a test asserting the
+header and every row resolve to the same grid ancestor, since jsdom does
+not run layout and cannot check pixel alignment directly; re-verified
+live via `getBoundingClientRect` against his own portfolio data (the
+header's right edge and a row's matched to the pixel).
+
 **Slice 2, not started: the AI reading of his history in this name.**
 Deliberately split out — it's the riskiest part (new prompt, new persisted
 entity, exactly where "the model misquotes the app's own figures" would
