@@ -65,6 +65,31 @@ describe('Stocks', () => {
     expect(screen.getByText('$4.00')).toBeInTheDocument();
   });
 
+  it('keeps the header and every row in one shared grid, so columns cannot drift row to row', async () => {
+    // A header and each row built as SEPARATE grids each auto-size their
+    // columns from their own content only — this is what let the header
+    // line up with one row's figures and drift from the next the moment
+    // fee/P&L strings differed in width. Sharing one parent grid element is
+    // what makes the browser size every column from the widest value across
+    // the whole table, header included.
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+      row({ symbol: 'NVDA', totalPnl: 450, feesPaid: 12 }),
+      row({ symbol: 'LMND', totalPnl: -20, feesPaid: 4 }),
+    ]);
+    renderStocks();
+
+    // A row's own <a> is `display: contents`, which the browser skips when
+    // building the grid's box tree — its cells become items of whichever
+    // grid ancestor is next, exactly like the header's. `.closest('.grid')`
+    // walks the DOM the same way, so this is true precisely when the fix
+    // holds: one grid, not one link-shaped grid per row.
+    const header = await screen.findByText('Closed');
+    const firstRowCell = screen.getByText('NVDA');
+    const secondRowCell = screen.getByText('LMND');
+    expect(header.closest('.grid')).toBe(firstRowCell.closest('.grid'));
+    expect(header.closest('.grid')).toBe(secondRowCell.closest('.grid'));
+  });
+
   it('links each row to its symbol page', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue([row()]);
     renderStocks();

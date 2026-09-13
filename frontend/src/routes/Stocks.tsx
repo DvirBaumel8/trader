@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
@@ -18,9 +18,12 @@ const SORTS: { value: SymbolSort; label: string }[] = [
   { value: 'FEES_LOW', label: 'Fees: lowest first' },
 ];
 
-// Three narrow numeric columns plus the symbol, which takes whatever is
-// left. Named once, here, rather than once per label and once per row.
-const GRID = 'grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3';
+const HEADER_CELL = 'text-[10px] tracking-wide text-muted uppercase';
+// A row's own hover/tap feedback and vertical rhythm, applied per cell
+// rather than to the row as a box — see the comment on the grid below for
+// why there is no row box to put it on.
+const ROW_CELL =
+  'py-3 transition-colors group-hover:bg-surface-1 group-active:bg-surface-2';
 
 /**
  * Pick a stock, see its whole story. One row per symbol with at least one
@@ -57,44 +60,56 @@ export function Stocks() {
           </div>
 
           {/*
-            A header row names each column once, rather than every row
-            repeating "closed" and "fees" down the whole list — the reason
-            this moved off plain flex rows and onto a grid.
+            Header and every row share ONE grid, not one each — a header
+            and a body row built as separate grids auto-size their `auto`
+            columns from their own content alone, so "Fees" lined up with
+            one row's figure and drifted from the next the moment fee or
+            P&L strings differed in width. A shared grid instance is the
+            only way the three numeric columns size from the widest value
+            across the whole table, header included.
+            Each row is an `<a>` with `contents` so its cells become direct
+            items of this grid with no extra nesting level; since that
+            removes the row's own box, its hover/tap background moves onto
+            every cell (via `group`) and the divider between rows becomes
+            its own full-width grid item instead of a border on the row.
           */}
-          <div
-            className={`${GRID} px-0.5 text-[10px] tracking-wide text-muted uppercase`}
-          >
-            <span>Symbol</span>
-            <span className="text-right">Closed</span>
-            <span className="text-right">Fees</span>
-            <span className="text-right">P&amp;L</span>
-          </div>
+          <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3">
+            <span className={`px-0.5 ${HEADER_CELL}`}>Symbol</span>
+            <span className={`text-right ${HEADER_CELL}`}>Closed</span>
+            <span className={`text-right ${HEADER_CELL}`}>Fees</span>
+            <span className={`text-right ${HEADER_CELL}`}>P&amp;L</span>
 
-          <ul>
-            {rows.map((r) => (
-              <li key={r.symbol} className="border-b border-border last:border-0">
+            {rows.map((r, i) => (
+              <Fragment key={r.symbol}>
                 <Link
                   to={`/stocks/${encodeURIComponent(r.symbol)}`}
-                  className={`${GRID} py-3 transition-colors hover:bg-surface-1 active:bg-surface-2`}
+                  className="group contents"
                 >
-                  <span className="truncate text-[15px] font-semibold">
+                  <span className={`truncate text-[15px] font-semibold ${ROW_CELL}`}>
                     {r.symbol}
                   </span>
-                  <span className="text-right text-[13px] tabular-nums text-muted">
+                  <span
+                    className={`text-right text-[13px] tabular-nums text-muted ${ROW_CELL}`}
+                  >
                     {r.closedCount}
                   </span>
-                  <span className="text-right text-[13px] tabular-nums text-muted">
+                  <span
+                    className={`text-right text-[13px] tabular-nums text-muted ${ROW_CELL}`}
+                  >
                     <Money value={r.feesPaid} />
                   </span>
                   <span
-                    className={`text-right text-[15px] font-semibold tabular-nums ${signClass(r.totalPnl)}`}
+                    className={`text-right text-[15px] font-semibold tabular-nums ${signClass(r.totalPnl)} ${ROW_CELL}`}
                   >
                     <Money value={r.totalPnl} signed />
                   </span>
                 </Link>
-              </li>
+                {i < rows.length - 1 && (
+                  <div className="col-span-full border-b border-border" />
+                )}
+              </Fragment>
             ))}
-          </ul>
+          </div>
         </>
       )}
     </div>
