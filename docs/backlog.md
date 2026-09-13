@@ -121,48 +121,43 @@ shapes from each other last time; the missing piece was always the
   is unreadable on a phone, label only the levels that carry the decision —
   stop and target — and leave fills to their lines plus the text beneath.
 
-## The trade-idea prompt (design agreed, not built)
+## The trade-idea prompt
 
-Approved in conversation, no code yet. The failure that motivated it: an
+Shipped. The failure that motivated building it in the first place: an
 opinion on buying BITX that lectured the owner about having no crypto in his
 profile, while he held 4,600 shares of it. It answered "should I open this?"
 when the question was "should I add to this winner?".
 
-- [ ] **The model misquotes the app's own figures.** Found while checking
-  whether the enlarged prompt improved the answer — it did, decisively (see
-  below), but the same answer overstated two portfolio aggregates.
+**Fixed, 2026-09-13: the model misquoting the app's own figures.** Verified
+against the database for the BITX opinion of 2026-09-04 16:49 — every small
+per-position number matched to within a tenth of a point (ruling out a
+live-quote-versus-close timing difference as the cause), but two aggregates
+were inflated: LMND's weight (36.1% stated, 22.1% actual — +63%) and gross
+exposure ($538,203/2.67x stated, $480,726/2.37x actual — +12%). The book
+section already handed over the correct numbers under "computed by the app,
+quote these, do not recalculate" — so a stronger instruction was not the fix,
+because the model already had the right number and wrote a different one
+anyway.
 
-  Verified against the database for the BITX opinion of 2026-09-04 16:49:
-
-  | Figure | Model said | Actually | |
-  |---|---|---|---|
-  | BITX weight | 9.0% | 9.0% | ok |
-  | ETHU / HOOD / IREN weights | 6.5 / 8.8 / 7.4% | 6.4 / 8.9 / 7.5% | ok |
-  | BITX holding | 1,000 sh, $18,150 | 1,000 sh, $18,155 | ok |
-  | Prior BITX profit | $7,172 | $7,172 | ok |
-  | **LMND weight** | **36.1%** | **22.1%** | **inflated by 63%** |
-  | **Gross exposure** | **$538,203 / 2.67x** | **$480,726 / 2.37x** | **inflated by 12%** |
-
-  The small per-position numbers match to within a tenth of a point, which
-  is what rules out my method as the cause: those figures come from the same
-  snapshot at the same moment, so a live-quote-versus-close difference
-  cannot explain fourteen points on LMND. The two that are wrong are the two
-  aggregates, and both are load-bearing — the recommendation leans on
-  "LMND occupying 36.1% of the account" and on total leverage.
-
-  The book section already hands these over under the heading "computed by
-  the app, quote these, do not recalculate", and LMND's correct 22.1% was in
-  the prompt. So a stronger instruction is not the fix; the model overrode a
-  number it had been given. This is the exact failure the product brief
-  refuses — a plausible figure that is wrong — and it is worse inside prose,
-  where there is no axis to check it against.
-
-  Directions, none obviously right: have the UI show the app's own
-  concentration figures beside the opinion so a mismatch is visible; or
-  cross-check the numerals in the answer against the facts snapshot and flag
-  disagreements; or stop giving the model aggregates it can restate and let
-  it reason only about the position in question. Worth deciding before the
-  Ideas tab is trusted for sizing.
+**The fix removes the model's ability to type these figures at all**, rather
+than trying to catch a wrong one after the fact (cross-checking numerals in
+free prose was considered and rejected — no reliable way to tell which of
+several percentages in a paragraph is meant to be which known fact) or
+hiding the real UI panel behind a decision the owner didn't want (a
+duplicate-of-the-Portfolio-tab display was proposed and rejected — "why do we
+need to duplicate the portfolio? We just need to take care the BE and LLM do
+things right"). Instead, extending the pattern already proven for the
+LEVELS block: the prompt now tells the model to write `{{GROSS_EXPOSURE}}`,
+`{{GROSS_EXPOSURE_MULTIPLE}}` or `{{WEIGHT:<SYMBOL>}}` instead of typing a
+number, for ANY position in the book, not only the one being asked about —
+that's what would have caught the LMND case, since LMND was cited for
+context on a BITX question. `substituteBookPlaceholders` (new, in
+`trade-idea-context.ts`) fills these in with the real computed value before
+the opinion is returned or saved, so both the live answer and its history
+row carry the correct figure. An unresolved placeholder (invented ticker,
+typo'd token) renders as a plain "—", never raw `{{...}}` syntax and never a
+guess. The model still sees every real number as context for its own
+reasoning — it just never writes one down itself.
 
 - [ ] **Ideas answers are slow — the model's own time is untouched.** The pre-model work (ticker facts, record, book, profile) was parallelised, with the old error-ordering semantics pinned by `ticker-facts.service.spec.ts` and `trade-idea.service.spec.ts`.
 
