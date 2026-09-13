@@ -45,6 +45,17 @@ export class LlmController {
     return this.tradeReviews.reviewTrade(tradeId);
   }
 
+  /** Newline-delimited JSON — see `portfolioSummaryStream`'s own doc comment
+   * for why `@Res()` is used directly here. */
+  @Post('trade-reviews/:tradeId/stream')
+  async reviewTradeStream(@Param('tradeId') tradeId: string, @Res() res: Response) {
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    for await (const line of this.tradeReviews.reviewTradeStream(tradeId)) {
+      res.write(line);
+    }
+    res.end();
+  }
+
   @Get('trade-reviews/:tradeId')
   getTradeReview(@Param('tradeId') tradeId: string) {
     return this.tradeReviews.getReview(tradeId);
@@ -81,6 +92,22 @@ export class LlmController {
   generateSymbolPattern(@Param('symbol') symbol: string, @Query('range') range?: string) {
     const valid = RANGES.includes(range as Range) ? (range as Range) : 'ALL';
     return this.symbolPatterns.generate(symbol, valid);
+  }
+
+  /** Newline-delimited JSON — see `portfolioSummaryStream`'s own doc comment
+   * for why `@Res()` is used directly here. */
+  @Post('symbol-patterns/:symbol/stream')
+  async generateSymbolPatternStream(
+    @Param('symbol') symbol: string,
+    @Query('range') range: string | undefined,
+    @Res() res: Response,
+  ) {
+    const valid = RANGES.includes(range as Range) ? (range as Range) : 'ALL';
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    for await (const line of this.symbolPatterns.generateStream(symbol, valid)) {
+      res.write(line);
+    }
+    res.end();
   }
 
   @Post('portfolio-summary')

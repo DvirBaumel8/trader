@@ -14,6 +14,7 @@ import {
 import { buildTradeReviewPrompt } from './trade-review-prompt.js';
 import { parseReviewMeta, stripReviewMeta } from './trade-review-parse.js';
 import { readTraderProfile } from './trader-profile.js';
+import { streamAfterMetaBlock } from './meta-block-stream.js';
 
 export interface TradeReviewResult {
   configured: boolean;
@@ -27,6 +28,13 @@ export interface TradeReviewResult {
   error: string | null;
   errorKind: LlmFailureKind | null;
 }
+
+/** The final line of `reviewTradeStream` — everything `TradeReviewResult`
+ * carries except `review` itself, which the streamed `{"delta": "..."}`
+ * lines (already meta-block-free) already are. */
+export type TradeReviewStreamDone = Omit<TradeReviewResult, 'review'> & {
+  done: true;
+};
 
 @Injectable()
 export class TradeReviewService {
@@ -74,7 +82,10 @@ export class TradeReviewService {
     };
   }
 
-  async reviewTrade(tradeId: string): Promise<TradeReviewResult> {
+  /** Everything `reviewTrade` and `reviewTradeStream` share: the facts and
+   * the trade/symbol they're for. Neither the model call nor persistence
+   * lives here, so both callers stay free to handle those differently. */
+  private async buildReviewFacts(tradeId: string) {
     const user = await this.users.currentUser();
     const tradeData = await this.trades.getTrade(tradeId);
     if (!tradeData) {
@@ -83,7 +94,6 @@ export class TradeReviewService {
 
     const { trade, fills, stopLevels } = tradeData;
 
-    // Extract journal entries and tags
     const entryIds = fills
       .map((f) => f.entryId)
       .filter((id): id is string => Boolean(id));
@@ -114,6 +124,12 @@ export class TradeReviewService {
       tags: { setups: [...setups], mistakes: [...mistakes] },
       journalNotes,
     });
+
+    return { user, trade, facts };
+  }
+
+  async reviewTrade(tradeId: string): Promise<TradeReviewResult> {
+    const { user, trade, facts } = await this.buildReviewFacts(tradeId);
 
     if (!this.llm.isConfigured()) {
       return {
@@ -189,6 +205,98 @@ export class TradeReviewService {
         error: ERROR_COPY[kind],
         errorKind: kind,
       };
+    }
+  }
+
+  /**
+   * Same call as `reviewTrade`, streamed. Yields newline-delimited JSON —
+   * see `LlmService.portfolioSummaryStream`'s doc comment for the general
+   * shape. The one addition here: `[REVIEW_META]...[/REVIEW_META]` sits at
+   * the START of the raw model text and must never reach the screen, so
+   * `streamAfterMetaBlock` buffers it before any `{"delta": ...}` line is
+   * yielded — everything after is the review body, streamed untouched.
+   */
+  async *reviewTradeStream(tradeId: string): AsyncGenerator<string> {
+    const emit = (data: TradeReviewStreamDone) => `${JSON.stringify(data)}\n`;
+    const { user, trade, facts } = await this.buildReviewFacts(tradeId);
+
+    if (!this.llm.isConfigured()) {
+      yield emit({
+        done: true,
+        configured: false,
+        tradeId,
+        symbol: trade.symbol,
+        score: null,
+        verdict: null,
+        facts,
+        createdAt: null,
+        error: null,
+        errorKind: null,
+      });
+      return;
+    }
+
+    const profileText = await readTraderProfile();
+    const { system, user: userPrompt } = buildTradeReviewPrompt(facts, profileText);
+
+    try {
+      const raw = this.llm.completeStream({ system, user: userPrompt, grounded: false });
+      const body = streamAfterMetaBlock(raw);
+      // Manually driven, not `for await...of`: the meta-stripped body needs
+      // relaying chunk by chunk AS it arrives (a plain loop's `yield` stays
+      // in this generator's own body, unlike a callback's would), and the
+      // full raw text — `body`'s own return value — is still needed once
+      // draining finishes, to parse score/verdict from it.
+      let next = await body.next();
+      while (!next.done) {
+        yield `${JSON.stringify({ delta: next.value })}\n`;
+        next = await body.next();
+      }
+      const rawText = next.value;
+      const { score, verdict } = parseReviewMeta(rawText);
+      const cleanReview = stripReviewMeta(rawText);
+
+      const record = this.reviews.create({
+        userId: user.id,
+        tradeId,
+        symbol: trade.symbol,
+        score,
+        verdict,
+        review: cleanReview,
+        factsSnapshot: JSON.stringify(facts),
+        model: this.llm.modelName(),
+      });
+      await this.reviews.save(record);
+
+      yield emit({
+        done: true,
+        configured: true,
+        tradeId,
+        symbol: trade.symbol,
+        score,
+        verdict,
+        facts,
+        createdAt: record.createdAt?.toISOString() ?? new Date().toISOString(),
+        error: null,
+        errorKind: null,
+      });
+    } catch (err) {
+      const kind: LlmFailureKind = err instanceof LlmFailure ? err.kind : 'unknown';
+      this.logger.warn(
+        `AI Trade Review stream failed for ${tradeId} (${kind}): ${(err as Error).message}`,
+      );
+      yield emit({
+        done: true,
+        configured: true,
+        tradeId,
+        symbol: trade.symbol,
+        score: null,
+        verdict: null,
+        facts,
+        createdAt: null,
+        error: ERROR_COPY[kind],
+        errorKind: kind,
+      });
     }
   }
 }

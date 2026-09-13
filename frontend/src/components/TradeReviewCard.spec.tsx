@@ -44,6 +44,100 @@ function renderCard() {
   );
 }
 
+/** Builds a fetch Response streaming the given ndjson lines, one read() per
+ * array entry — mirrors POST /ai/trade-reviews/:id/stream's real shape. */
+function streamedNdjsonResponse(lines: string[], status = 200): Response {
+  const encoder = new TextEncoder();
+  let i = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i < lines.length) {
+        controller.enqueue(encoder.encode(lines[i]));
+        i += 1;
+      } else {
+        controller.close();
+      }
+    },
+  });
+  return new Response(body, { status });
+}
+
+describe('TradeReviewCard generation', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function renderNoSavedReview() {
+    return render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TradeReviewCard tradeId="NVDA:2026-01-03T14:30:00.000Z" />
+      </QueryClientProvider>,
+    );
+  }
+
+  it('shows the finished, graded review once the done line arrives, with the meta block never shown', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      streamedNdjsonResponse([
+        '{"delta":"### Process vs Outcome\\nExemplary adherence to risk boundaries."}\n',
+        '{"done":true,"configured":true,"tradeId":"t1","symbol":"NVDA","score":"A","verdict":"Disciplined Target Exit","facts":null,"createdAt":"2026-01-05T12:00:00.000Z","error":null,"errorKind":null}\n',
+      ]),
+    );
+    const user = userEvent.setup();
+    renderNoSavedReview();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Run AI Discipline Review' }),
+    );
+
+    expect(await screen.findByText(/Exemplary adherence/)).toBeInTheDocument();
+    expect(screen.getByText('Disciplined Target Exit')).toBeInTheDocument();
+    expect(screen.getByText(/Grade A/)).toBeInTheDocument();
+    expect(screen.queryByText(/REVIEW_META/)).not.toBeInTheDocument();
+  });
+
+  it('shows a plain error message when the stream ends without ever sending a done line', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      streamedNdjsonResponse(['{"delta":"partial review"}\n']),
+    );
+    const user = userEvent.setup();
+    renderNoSavedReview();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Run AI Discipline Review' }),
+    );
+
+    expect(
+      await screen.findByText(
+        'Something went wrong generating the review. Try again in a bit.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/partial review/)).not.toBeInTheDocument();
+  });
+
+  it('shows an unconfigured message when the stream reports no key set', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      streamedNdjsonResponse([
+        '{"done":true,"configured":false,"tradeId":"t1","symbol":"NVDA","score":null,"verdict":null,"facts":null,"createdAt":null,"error":null,"errorKind":null}\n',
+      ]),
+    );
+    const user = userEvent.setup();
+    renderNoSavedReview();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Run AI Discipline Review' }),
+    );
+
+    expect(
+      await screen.findByText(/AI features are not configured yet/),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('TradeReviewCard', () => {
   it('opens showing the review, since it was just asked for', async () => {
     renderCard();

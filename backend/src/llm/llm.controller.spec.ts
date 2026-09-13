@@ -26,6 +26,7 @@ function fakeTradeReviews(): TradeReviewService {
   return {
     reviewTrade: vi.fn(),
     getReview: vi.fn(),
+    reviewTradeStream: vi.fn(),
   } as unknown as TradeReviewService;
 }
 
@@ -42,6 +43,7 @@ function fakeSymbolPatterns(): SymbolPatternService {
   return {
     getLatest: vi.fn(),
     generate: vi.fn(),
+    generateStream: vi.fn(),
   } as unknown as SymbolPatternService;
 }
 
@@ -107,6 +109,89 @@ describe('LlmController', () => {
       '{"done":true,"configured":true,"factsAsOf":"x","error":null,"errorKind":null,"id":"1"}\n',
     ]);
     expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /ai/trade-reviews/:tradeId/stream writes every yielded line and sets the ndjson content type', async () => {
+    async function* lines() {
+      yield '{"delta":"Solid execution."}\n';
+      yield '{"done":true,"configured":true,"tradeId":"t1","symbol":"NVDA","score":"A","verdict":"x","facts":null,"createdAt":"x","error":null,"errorKind":null}\n';
+    }
+    const tradeReviews = fakeTradeReviews();
+    (tradeReviews.reviewTradeStream as ReturnType<typeof vi.fn>).mockReturnValue(lines());
+    const controller = new LlmController(
+      {} as LlmService,
+      fakeSummaries(),
+      fakeTradeIdeas(),
+      fakeTradeIdeaHistory(),
+      tradeReviews,
+      fakeSymbolPatterns(),
+    );
+    const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn() };
+
+    await controller.reviewTradeStream('t1', res as never);
+
+    expect(tradeReviews.reviewTradeStream).toHaveBeenCalledWith('t1');
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/x-ndjson; charset=utf-8',
+    );
+    expect(res.write.mock.calls.map((c) => c[0])).toEqual([
+      '{"delta":"Solid execution."}\n',
+      '{"done":true,"configured":true,"tradeId":"t1","symbol":"NVDA","score":"A","verdict":"x","facts":null,"createdAt":"x","error":null,"errorKind":null}\n',
+    ]);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /ai/symbol-patterns/:symbol/stream defaults range to ALL and writes every yielded line', async () => {
+    async function* lines() {
+      yield '{"delta":"You tend to hold winners"}\n';
+      yield '{"done":true,"configured":true,"symbol":"NVDA","range":"ALL","headline":"x","facts":null,"createdAt":"x","error":null,"errorKind":null}\n';
+    }
+    const symbolPatterns = fakeSymbolPatterns();
+    (symbolPatterns.generateStream as ReturnType<typeof vi.fn>).mockReturnValue(lines());
+    const controller = new LlmController(
+      {} as LlmService,
+      fakeSummaries(),
+      fakeTradeIdeas(),
+      fakeTradeIdeaHistory(),
+      fakeTradeReviews(),
+      symbolPatterns,
+    );
+    const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn() };
+
+    await controller.generateSymbolPatternStream('nvda', undefined, res as never);
+
+    expect(symbolPatterns.generateStream).toHaveBeenCalledWith('nvda', 'ALL');
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/x-ndjson; charset=utf-8',
+    );
+    expect(res.write.mock.calls.map((c) => c[0])).toEqual([
+      '{"delta":"You tend to hold winners"}\n',
+      '{"done":true,"configured":true,"symbol":"NVDA","range":"ALL","headline":"x","facts":null,"createdAt":"x","error":null,"errorKind":null}\n',
+    ]);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /ai/symbol-patterns/:symbol/stream passes through a valid range', async () => {
+    async function* lines() {
+      yield '{"done":true,"configured":true,"symbol":"NVDA","range":"1M","headline":null,"facts":null,"createdAt":null,"error":null,"errorKind":null}\n';
+    }
+    const symbolPatterns = fakeSymbolPatterns();
+    (symbolPatterns.generateStream as ReturnType<typeof vi.fn>).mockReturnValue(lines());
+    const controller = new LlmController(
+      {} as LlmService,
+      fakeSummaries(),
+      fakeTradeIdeas(),
+      fakeTradeIdeaHistory(),
+      fakeTradeReviews(),
+      symbolPatterns,
+    );
+    const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn() };
+
+    await controller.generateSymbolPatternStream('nvda', '1M', res as never);
+
+    expect(symbolPatterns.generateStream).toHaveBeenCalledWith('nvda', '1M');
   });
 
   it('GET /ai/summaries delegates to AiSummaryService.list', async () => {

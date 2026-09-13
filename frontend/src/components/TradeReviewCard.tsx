@@ -1,5 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
+import { streamNdjson } from '../api/streamNdjson';
 import { formatTimestamp } from './format';
 import { Markdown } from './Markdown';
 import { CollapsibleCard } from './ui/CollapsibleCard';
@@ -53,6 +55,23 @@ interface TradeReviewResponse {
   errorKind: string | null;
 }
 
+/** One line of `POST /ai/trade-reviews/:id/stream`'s newline-delimited
+ * JSON — either a text delta (already past the `[REVIEW_META]` block the
+ * backend strips before streaming), or the one final line carrying
+ * everything else `TradeReviewResponse` has. */
+type ReviewStreamLine =
+  | { delta: string }
+  | (Omit<TradeReviewResponse, 'review'> & { done: true });
+
+const UNREACHABLE_ERROR = "Couldn't reach the AI review right now. Try again in a bit.";
+const GENERATION_ERROR = 'Something went wrong generating the review. Try again in a bit.';
+
+type ReviewState =
+  | { status: 'idle' }
+  | { status: 'streaming'; text: string }
+  | { status: 'done'; result: TradeReviewResponse }
+  | { status: 'error'; message: string };
+
 function scoreStyle(score: string | null): { badge: string; text: string } {
   switch (score?.toUpperCase()) {
     case 'A':
@@ -89,7 +108,6 @@ function scoreStyle(score: string | null): { badge: string; text: string } {
 }
 
 export function TradeReviewCard({ tradeId }: { tradeId: string }) {
-  const queryClient = useQueryClient();
   const queryKey = ['trade-review', tradeId];
 
   const { data, isLoading } = useQuery({
@@ -98,15 +116,39 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
     retry: false,
   });
 
-  const reviewMutation = useMutation({
-    mutationFn: () =>
-      api<TradeReviewResponse>(`/ai/trade-reviews/${encodeURIComponent(tradeId)}`, {
-        method: 'POST',
-      }),
-    onSuccess: (result) => {
-      queryClient.setQueryData(queryKey, result);
-    },
-  });
+  const [reviewState, setReviewState] = useState<ReviewState>({ status: 'idle' });
+
+  async function generate() {
+    setReviewState({ status: 'streaming', text: '' });
+    let text = '';
+    let receivedDone = false;
+
+    try {
+      await streamNdjson<ReviewStreamLine>(
+        `/ai/trade-reviews/${encodeURIComponent(tradeId)}/stream`,
+        (line) => {
+          if ('done' in line) {
+            receivedDone = true;
+            const { done: _done, ...result } = line;
+            setReviewState({ status: 'done', result: { ...result, review: text } });
+          } else {
+            text += line.delta;
+            setReviewState({ status: 'streaming', text });
+          }
+        },
+      );
+    } catch (err) {
+      setReviewState({
+        status: 'error',
+        message: err instanceof ApiError ? UNREACHABLE_ERROR : GENERATION_ERROR,
+      });
+      return;
+    }
+
+    if (!receivedDone) {
+      setReviewState({ status: 'error', message: GENERATION_ERROR });
+    }
+  }
 
   if (isLoading) {
     return (
@@ -116,8 +158,16 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
     );
   }
 
-  const reviewData = reviewMutation.data ?? data;
-  const isGenerating = reviewMutation.isPending;
+  if (reviewState.status === 'streaming' && reviewState.text) {
+    return (
+      <div className="rounded-xl border border-dashed border-accent/40 bg-surface-1 p-3">
+        <Markdown text={reviewState.text} />
+      </div>
+    );
+  }
+
+  const reviewData = reviewState.status === 'done' ? reviewState.result : data;
+  const isGenerating = reviewState.status === 'streaming';
 
   // Unconfigured LLM message
   if (reviewData && !reviewData.configured) {
@@ -136,12 +186,9 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
   }
 
   // Error during generation
-  if (reviewMutation.isError || (reviewData && reviewData.error)) {
+  if (reviewState.status === 'error' || (reviewData && reviewData.error)) {
     const errorMsg =
-      reviewData?.error ??
-      (reviewMutation.error instanceof ApiError
-        ? reviewMutation.error.message
-        : "Couldn't generate review just now.");
+      reviewData?.error ?? (reviewState.status === 'error' ? reviewState.message : GENERATION_ERROR);
 
     return (
       <div className="rounded-xl border border-dashed border-down/30 bg-surface-1 p-4 space-y-3">
@@ -151,7 +198,7 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
           </span>
           <button
             type="button"
-            onClick={() => reviewMutation.mutate()}
+            onClick={() => void generate()}
             disabled={isGenerating}
             className="text-xs text-accent underline hover:opacity-80"
           >
@@ -183,7 +230,7 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
         <div>
           <button
             type="button"
-            onClick={() => reviewMutation.mutate()}
+            onClick={() => void generate()}
             disabled={isGenerating}
             className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
@@ -222,7 +269,7 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
       actions={
         <button
           type="button"
-          onClick={() => reviewMutation.mutate()}
+          onClick={() => void generate()}
           disabled={isGenerating}
           className="text-[11px] text-accent hover:underline disabled:opacity-50"
         >

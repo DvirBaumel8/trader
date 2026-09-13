@@ -16,6 +16,7 @@ import {
 import { buildSymbolPatternPrompt } from './symbol-pattern-prompt.js';
 import { parsePatternMeta, stripPatternMeta } from './symbol-pattern-parse.js';
 import { readTraderProfile } from './trader-profile.js';
+import { streamAfterMetaBlock } from './meta-block-stream.js';
 
 export interface SymbolPatternResult {
   configured: boolean;
@@ -28,6 +29,13 @@ export interface SymbolPatternResult {
   error: string | null;
   errorKind: LlmFailureKind | null;
 }
+
+/** The final line of `generateStream` — everything `SymbolPatternResult`
+ * carries except `read` itself, which the streamed `{"delta": "..."}`
+ * lines (already meta-block-free) already are. */
+export type SymbolPatternStreamDone = Omit<SymbolPatternResult, 'read'> & {
+  done: true;
+};
 
 @Injectable()
 export class SymbolPatternService {
@@ -84,7 +92,10 @@ export class SymbolPatternService {
     };
   }
 
-  async generate(symbol: string, range: Range): Promise<SymbolPatternResult> {
+  /** Everything `generate` and `generateStream` share: the facts for one
+   * symbol/range. Neither the model call nor persistence lives here, so
+   * both callers stay free to handle those differently. */
+  private async buildPatternFacts(symbol: string, range: Range) {
     const user = await this.users.currentUser();
 
     // Throws NotFoundException for an unknown ticker — the same guard the
@@ -140,6 +151,12 @@ export class SymbolPatternService {
       trades: summary.trades,
       notes,
     });
+
+    return { user, summary, facts };
+  }
+
+  async generate(symbol: string, range: Range): Promise<SymbolPatternResult> {
+    const { user, summary, facts } = await this.buildPatternFacts(symbol, range);
 
     if (!this.llm.isConfigured()) {
       return {
@@ -206,6 +223,91 @@ export class SymbolPatternService {
         error: ERROR_COPY[kind],
         errorKind: kind,
       };
+    }
+  }
+
+  /**
+   * Same call as `generate`, streamed. Yields newline-delimited JSON — see
+   * `LlmService.portfolioSummaryStream`'s doc comment for the general
+   * shape. The one addition: `[PATTERN_META]...[/PATTERN_META]` sits at the
+   * START of the raw model text and must never reach the screen, so
+   * `streamAfterMetaBlock` buffers it before any `{"delta": ...}` line is
+   * yielded — everything after is the read's body, streamed untouched.
+   */
+  async *generateStream(symbol: string, range: Range): AsyncGenerator<string> {
+    const emit = (data: SymbolPatternStreamDone) => `${JSON.stringify(data)}\n`;
+    const { user, summary, facts } = await this.buildPatternFacts(symbol, range);
+
+    if (!this.llm.isConfigured()) {
+      yield emit({
+        done: true,
+        configured: false,
+        symbol: summary.symbol,
+        range,
+        headline: null,
+        facts,
+        createdAt: null,
+        error: null,
+        errorKind: null,
+      });
+      return;
+    }
+
+    const profileText = await readTraderProfile();
+    const { system, user: userPrompt } = buildSymbolPatternPrompt(facts, profileText);
+
+    try {
+      const raw = this.llm.completeStream({ system, user: userPrompt, grounded: false });
+      const body = streamAfterMetaBlock(raw);
+      // Manually driven, not `for await...of` — see the identical comment
+      // in `TradeReviewService.reviewTradeStream` for why.
+      let next = await body.next();
+      while (!next.done) {
+        yield `${JSON.stringify({ delta: next.value })}\n`;
+        next = await body.next();
+      }
+      const rawText = next.value;
+      const { headline } = parsePatternMeta(rawText);
+      const cleanRead = stripPatternMeta(rawText);
+
+      const record = this.reads.create({
+        userId: user.id,
+        symbol: summary.symbol,
+        range,
+        headline,
+        read: cleanRead,
+        factsSnapshot: JSON.stringify(facts),
+        model: this.llm.modelName(),
+      });
+      await this.reads.save(record);
+
+      yield emit({
+        done: true,
+        configured: true,
+        symbol: summary.symbol,
+        range,
+        headline,
+        facts,
+        createdAt: record.createdAt?.toISOString() ?? new Date().toISOString(),
+        error: null,
+        errorKind: null,
+      });
+    } catch (err) {
+      const kind: LlmFailureKind = err instanceof LlmFailure ? err.kind : 'unknown';
+      this.logger.warn(
+        `AI Symbol Pattern stream failed for ${summary.symbol} (${kind}): ${(err as Error).message}`,
+      );
+      yield emit({
+        done: true,
+        configured: true,
+        symbol: summary.symbol,
+        range,
+        headline: null,
+        facts,
+        createdAt: null,
+        error: ERROR_COPY[kind],
+        errorKind: kind,
+      });
     }
   }
 }

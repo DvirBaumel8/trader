@@ -13,8 +13,14 @@ vi.mock('../api/client', async () => {
 });
 import { api } from '../api/client';
 
-beforeEach(() => vi.clearAllMocks());
-afterEach(cleanup);
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubGlobal('fetch', vi.fn());
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const savedRead = {
   configured: true,
@@ -33,6 +39,28 @@ function renderCard() {
     </QueryClientProvider>,
   );
 }
+
+/** Builds a fetch Response streaming the given ndjson lines, one read() per
+ * array entry — mirrors POST /ai/symbol-patterns/:symbol/stream's real shape. */
+function streamedNdjsonResponse(lines: string[], status = 200): Response {
+  const encoder = new TextEncoder();
+  let i = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i < lines.length) {
+        controller.enqueue(encoder.encode(lines[i]));
+        i += 1;
+      } else {
+        controller.close();
+      }
+    },
+  });
+  return new Response(body, { status });
+}
+
+const savedReadDoneLine =
+  '{"delta":"You tend to let NVDA winners run past your usual exit."}\n' +
+  '{"done":true,"configured":true,"symbol":"NVDA","range":"ALL","headline":"You hold winners here longer than your average","createdAt":"2026-01-05T12:00:00.000Z","error":null,"errorKind":null}\n';
 
 /** Lets a test switch `range` on an already-mounted card, the way StockDetail's
  * own RangeSelector does — the shape both regression tests below need. */
@@ -68,9 +96,10 @@ describe('SymbolPatternCard', () => {
   });
 
   it('generates a read on click and shows it open, since it was just asked for', async () => {
-    (api as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(savedRead);
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      streamedNdjsonResponse([savedReadDoneLine]),
+    );
     const user = userEvent.setup();
     renderCard();
 
@@ -111,11 +140,10 @@ describe('SymbolPatternCard', () => {
   });
 
   it('does not keep showing a just-generated read after range changes to one with nothing saved', async () => {
-    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string, init?: RequestInit) => {
-      if (init?.method === 'POST') return Promise.resolve(savedRead);
-      if (path.includes('range=ALL')) return Promise.resolve(null);
-      return Promise.resolve(null); // range=1M: nothing saved either
-    });
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      streamedNdjsonResponse([savedReadDoneLine]),
+    );
     const user = userEvent.setup();
     const { switchTo } = renderSwitchableCard();
 
@@ -125,7 +153,7 @@ describe('SymbolPatternCard', () => {
     switchTo('1M');
 
     // The 1M range was never generated — it must show its own empty state,
-    // not the ALL range's read left over in the mutation's own result.
+    // not the ALL range's read left over in local component state.
     expect(
       await screen.findByRole('button', { name: 'Read My Pattern' }),
     ).toBeInTheDocument();
@@ -135,10 +163,10 @@ describe('SymbolPatternCard', () => {
   });
 
   it('clears a failed generate for one range when switching to a range that was never attempted', async () => {
-    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string, init?: RequestInit) => {
-      if (init?.method === 'POST') return Promise.reject(new Error('network down'));
-      return Promise.resolve(null);
-    });
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ message: 'network down' }), { status: 500 }),
+    );
     const user = userEvent.setup();
     const { switchTo } = renderSwitchableCard();
 

@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
+import { streamNdjson } from '../api/streamNdjson';
 import { formatTimestamp } from './format';
 import { Markdown } from './Markdown';
 import { CollapsibleCard } from './ui/CollapsibleCard';
@@ -17,6 +18,23 @@ interface SymbolPatternResponse {
   errorKind: string | null;
 }
 
+/** One line of `POST /ai/symbol-patterns/:symbol/stream`'s newline-delimited
+ * JSON — either a text delta (already past the `[PATTERN_META]` block the
+ * backend strips before streaming), or the one final line carrying
+ * everything else `SymbolPatternResponse` has. */
+type PatternStreamLine =
+  | { delta: string }
+  | (Omit<SymbolPatternResponse, 'read'> & { done: true });
+
+const UNREACHABLE_ERROR = "Couldn't reach the AI pattern read right now. Try again in a bit.";
+const GENERATION_ERROR = 'Something went wrong reading your history. Try again in a bit.';
+
+type PatternState =
+  | { status: 'idle' }
+  | { status: 'streaming'; text: string }
+  | { status: 'done'; result: SymbolPatternResponse }
+  | { status: 'error'; message: string };
+
 /**
  * A retrospective AI read of how the owner actually trades ONE name,
  * compared to his own overall record over the same period — never a
@@ -26,7 +44,6 @@ interface SymbolPatternResponse {
  * changes since the content is scoped to it.
  */
 export function SymbolPatternCard({ symbol, range }: { symbol: string; range: Range }) {
-  const queryClient = useQueryClient();
   const queryKey = ['symbol-pattern', symbol, range];
 
   const { data, isLoading } = useQuery({
@@ -38,26 +55,47 @@ export function SymbolPatternCard({ symbol, range }: { symbol: string; range: Ra
     retry: false,
   });
 
-  const generateMutation = useMutation({
-    mutationFn: () =>
-      api<SymbolPatternResponse>(
-        `/ai/symbol-patterns/${encodeURIComponent(symbol)}?range=${range}`,
-        { method: 'POST' },
-      ),
-    onSuccess: (result) => {
-      queryClient.setQueryData(queryKey, result);
-    },
-  });
+  const [patternState, setPatternState] = useState<PatternState>({ status: 'idle' });
 
-  // A failed mutation's `isError`/`error` otherwise survives a `range`
-  // change indefinitely — the same staleness the comment below guards
-  // against for `data`, just for the error path instead of the success one.
-  // Without this, switching to a range that was never attempted could show
-  // the previous range's failure message.
-  const { reset: resetGenerate } = generateMutation;
+  // This card stays mounted across a `range` change, so a just-generated
+  // read (or a failed attempt) for the PREVIOUS range must not keep showing
+  // once the range changes — the new range's own (possibly empty) state,
+  // read fresh from `data`, is what belongs on screen.
   useEffect(() => {
-    resetGenerate();
-  }, [symbol, range, resetGenerate]);
+    setPatternState({ status: 'idle' });
+  }, [symbol, range]);
+
+  async function generate() {
+    setPatternState({ status: 'streaming', text: '' });
+    let text = '';
+    let receivedDone = false;
+
+    try {
+      await streamNdjson<PatternStreamLine>(
+        `/ai/symbol-patterns/${encodeURIComponent(symbol)}/stream?range=${range}`,
+        (line) => {
+          if ('done' in line) {
+            receivedDone = true;
+            const { done: _done, ...result } = line;
+            setPatternState({ status: 'done', result: { ...result, read: text } });
+          } else {
+            text += line.delta;
+            setPatternState({ status: 'streaming', text });
+          }
+        },
+      );
+    } catch (err) {
+      setPatternState({
+        status: 'error',
+        message: err instanceof ApiError ? UNREACHABLE_ERROR : GENERATION_ERROR,
+      });
+      return;
+    }
+
+    if (!receivedDone) {
+      setPatternState({ status: 'error', message: GENERATION_ERROR });
+    }
+  }
 
   if (isLoading) {
     return (
@@ -67,15 +105,16 @@ export function SymbolPatternCard({ symbol, range }: { symbol: string; range: Ra
     );
   }
 
-  // Never `generateMutation.data ?? data`: unlike a trade review (mounted
-  // once per fixed tradeId), this card stays mounted across a `range`
-  // change, and a stale mutation result would otherwise keep showing the
-  // PREVIOUS range's just-generated read instead of the new range's own
-  // (possibly empty) one. `data` alone is correct because the mutation's
-  // `onSuccess` already writes its result into the query cache under that
-  // exact key.
-  const readData = data;
-  const isGenerating = generateMutation.isPending;
+  if (patternState.status === 'streaming' && patternState.text) {
+    return (
+      <div className="rounded-xl border border-dashed border-accent/40 bg-surface-1 p-3">
+        <Markdown text={patternState.text} />
+      </div>
+    );
+  }
+
+  const readData = patternState.status === 'done' ? patternState.result : data;
+  const isGenerating = patternState.status === 'streaming';
 
   if (readData && !readData.configured) {
     return (
@@ -91,12 +130,9 @@ export function SymbolPatternCard({ symbol, range }: { symbol: string; range: Ra
     );
   }
 
-  if (generateMutation.isError || (readData && readData.error)) {
+  if (patternState.status === 'error' || (readData && readData.error)) {
     const errorMsg =
-      readData?.error ??
-      (generateMutation.error instanceof ApiError
-        ? generateMutation.error.message
-        : "Couldn't read your history just now.");
+      readData?.error ?? (patternState.status === 'error' ? patternState.message : GENERATION_ERROR);
 
     return (
       <div className="space-y-3 rounded-xl border border-dashed border-down/30 bg-surface-1 p-4">
@@ -106,7 +142,7 @@ export function SymbolPatternCard({ symbol, range }: { symbol: string; range: Ra
           </span>
           <button
             type="button"
-            onClick={() => generateMutation.mutate()}
+            onClick={() => void generate()}
             disabled={isGenerating}
             className="text-xs text-accent underline hover:opacity-80"
           >
@@ -138,7 +174,7 @@ export function SymbolPatternCard({ symbol, range }: { symbol: string; range: Ra
         <div>
           <button
             type="button"
-            onClick={() => generateMutation.mutate()}
+            onClick={() => void generate()}
             disabled={isGenerating}
             className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
@@ -176,7 +212,7 @@ export function SymbolPatternCard({ symbol, range }: { symbol: string; range: Ra
       actions={
         <button
           type="button"
-          onClick={() => generateMutation.mutate()}
+          onClick={() => void generate()}
           disabled={isGenerating}
           className="text-[11px] text-accent hover:underline disabled:opacity-50"
         >

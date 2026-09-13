@@ -58,6 +58,7 @@ const overallStats = {
 function makeService(opts: {
   isConfigured?: boolean;
   llmComplete?: () => Promise<string>;
+  llmCompleteStream?: () => AsyncIterable<string>;
   savedRead?: any;
 }) {
   const trades = {
@@ -97,6 +98,11 @@ function makeService(opts: {
     ]),
   };
 
+  async function* defaultStream() {
+    yield '[PATTERN_META]\nHEADLINE: You hold winners here longer than your average\n[/PATTERN_META]\n\n';
+    yield 'You tend to let NVDA winners run past your usual exit.';
+  }
+
   const llm = {
     isConfigured: () => opts.isConfigured ?? true,
     modelName: () => 'gemini-2.5-flash',
@@ -107,6 +113,7 @@ HEADLINE: You hold winners here longer than your average
 [/PATTERN_META]
 
 You tend to let NVDA winners run past your usual exit.`),
+    completeStream: opts.llmCompleteStream ?? (() => defaultStream()),
   } as unknown as LlmClient;
 
   return {
@@ -178,5 +185,73 @@ describe('SymbolPatternService', () => {
     const { service } = makeService({ savedRead: null });
     const result = await service.getLatest('NVDA', 'ALL');
     expect(result).toBeNull();
+  });
+});
+
+async function collectLines(stream: AsyncGenerator<string>): Promise<unknown[]> {
+  const lines: unknown[] = [];
+  for await (const line of stream) lines.push(JSON.parse(line));
+  return lines;
+}
+
+describe('SymbolPatternService.generateStream', () => {
+  it('yields a single done line, unconfigured, without calling the model', async () => {
+    const { service } = makeService({ isConfigured: false });
+    const lines = await collectLines(service.generateStream('nvda', 'ALL'));
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ done: true, configured: false, headline: null });
+  });
+
+  it('never yields the [PATTERN_META] block as a delta, only the body after it', async () => {
+    const { service } = makeService({ isConfigured: true });
+    const lines = await collectLines(service.generateStream('nvda', 'ALL'));
+
+    const deltas = lines.filter((l): l is { delta: string } => 'delta' in (l as object));
+    const joined = deltas.map((d) => d.delta).join('');
+    expect(joined).not.toContain('PATTERN_META');
+    expect(joined).toContain('You tend to let NVDA winners run');
+  });
+
+  it('yields a final done line with the parsed headline and persists the clean read', async () => {
+    const { service, reads } = makeService({ isConfigured: true });
+    const lines = await collectLines(service.generateStream('nvda', 'ALL'));
+
+    const done = lines.at(-1) as Record<string, unknown>;
+    expect(done).toMatchObject({
+      done: true,
+      configured: true,
+      symbol: 'NVDA',
+      headline: 'You hold winners here longer than your average',
+      error: null,
+    });
+    expect(reads.save).toHaveBeenCalled();
+    const saved = (reads.save as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(saved.read).not.toContain('PATTERN_META');
+    expect(saved.read).toContain('You tend to let NVDA winners run');
+  });
+
+  it('yields a done line with the error copy, and no delta lines, when the stream fails before any text', async () => {
+    const { service, reads } = makeService({
+      isConfigured: true,
+      llmCompleteStream: () => ({
+        [Symbol.asyncIterator]: () => ({
+          next: () => Promise.reject(new Error('boom')),
+        }),
+      }),
+    });
+
+    const lines = await collectLines(service.generateStream('nvda', 'ALL'));
+
+    expect(lines).toEqual([
+      expect.objectContaining({
+        done: true,
+        configured: true,
+        headline: null,
+        error: expect.any(String),
+        errorKind: 'unknown',
+      }),
+    ]);
+    expect(reads.save).not.toHaveBeenCalled();
   });
 });
