@@ -159,9 +159,42 @@ typo'd token) renders as a plain "—", never raw `{{...}}` syntax and never a
 guess. The model still sees every real number as context for its own
 reasoning — it just never writes one down itself.
 
-- [ ] **Ideas answers are slow — the model's own time is untouched.** The pre-model work (ticker facts, record, book, profile) was parallelised, with the old error-ordering semantics pinned by `ticker-facts.service.spec.ts` and `trade-idea.service.spec.ts`.
+**Shipped, 2026-09-13: the model's own time, found and cut.** The
+pre-model work (ticker facts, record, book, profile) was already
+parallelised — this closes the other half, the model call itself, which
+the previous entry left as "needs the owner" because measuring it needs a
+real key.
 
-  **Not done, and needs the owner:** the model call itself. It is already `gemini-3.6-flash`, so there is little headroom in a smaller first pass, and measuring needs a real key — the suite blanks `LLM_API_KEY` on purpose. Streaming is the other lever and is a UI change, not a latency one: it would make the wait *legible* rather than shorter. The facts snapshot grew from ~1,600 to ~4,600 characters with no measurement of what the growth bought.
+**Measured against the real API** (3 live `POST /api/ai/trade-idea`
+calls): 16.5s, 17.9s, 15.9s, no retries — one successful call, genuinely
+that slow. Gemini's own usage metadata broke it open: a representative
+call spent **1,356 hidden "thinking" tokens** against **263 visible
+ones** — the model was burning most of its time on an internal reasoning
+pass that never reaches the screen, using the provider's default
+(automatic) thinking budget that `llm.client.ts` never configured either
+way.
+
+**The fix:** `GeminiClient` now reads `LLM_THINKING_LEVEL` and passes it
+as `thinkingConfig.thinkingLevel` when set (unset = the exact old
+behaviour, the provider's own automatic budget — this is a knob, not a
+new default, since less reasoning is a real quality trade-off on harder
+cases). A/B tested directly against the real API on two deliberately
+hard, mixed-signal cases — a trade idea on a name already held with a
+prior chase-loss in it, and a subtle 6-trade win/loss pattern — `MINIMAL`
+reached the same verdicts, cited the same real figures and tags
+correctly, kept the same caveats, while cutting **22.2s→4.1s** and
+**12.0s→4.9s**, at zero billed thinking tokens either time. No quality
+regression found in that comparison. Set to `MINIMAL` in
+`backend/.env` locally and in `render.yaml` for production (a plain
+value, not a secret, so it applies on every deploy same as
+`NODE_VERSION`/`DATABASE_SSL` already do) — his call to raise if a harder
+real case ever reads shallower than before.
+
+Streaming remains the other, undone lever, and is still a UI change, not
+a latency one — it would make the wait legible rather than shorter, which
+matters less now that the wait itself is ~4x shorter. The facts snapshot
+size question (grew from ~1,600 to ~4,600 characters with no measurement
+of what the growth bought) is also still open, separate from this fix.
 
 ## Features requested, not yet designed
 
