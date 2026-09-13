@@ -254,25 +254,35 @@ live in a real browser (journaled a trade, watched the period picker
 refetch and the tiles update correctly) after the usual local port-3000
 contention forced a temporary Vite proxy retarget, reverted after.
 
-- [ ] **A per-stock summary page.** One ticker, one page, over a chosen date
-  range:
-  - every transaction in the range, in full detail
-  - total profit and loss on that ticker
-  - averages — position size, hold time, R, win and loss
-  - **fees paid on this ticker**, which nothing surfaces per-symbol today
-  - an **AI reading of his history in this name** specifically
+**Shipped, 2026-09-13 (slice 1 of 2): the per-stock summary page, without
+AI.** A new top-level **Stocks** tab — his call, over a buried link from
+Portfolio/Watchlist/Trades — lists every symbol with at least one closed
+trade (count, all-time total P&L), and tapping one opens `/stocks/:symbol`:
+the same `RangeSelector` reused again, win rate, total P&L, two genuinely
+new averages (position size — dollar cost basis at entry — and hold time in
+days), fees paid on that ticker (open positions included, since an entry
+fee is paid whether or not the position has closed), and the round-trip
+trade list via the existing `TradeCard`.
 
-  Much of this exists in pieces: `derive-trades.ts` already produces round
-  trips per instrument, the fees tab already aggregates by period, and the
-  trade-idea prompt already assembles a record section. The page is mostly
-  assembly plus one new aggregation — but it is the first screen whose whole
-  subject is a single symbol, so it deserves its own design pass.
+Backend: `GET /portfolio/symbols` (the index) and
+`GET /portfolio/symbols/:symbol?range=` (the detail), both on
+`TradesService` — `getStats`'s tag-collapsing logic pulled into a shared
+private method so the two trade lists in the app never describe a fill's
+tags two different ways. `avgPositionSize` and `avgHoldingDays` added to
+`summariseTrades` itself rather than a second, parallel stats function,
+computed over closed trades only like every other outcome stat (unlike
+`avgRisk`, which deliberately also counts open trades — "what I typically
+make" is retrospective in a way "what I typically risk" is not).
 
-  The AI reading should reuse the existing pattern rather than invent one:
-  `CollapsibleCard`, a stored `factsSnapshot`, and the model quoting the
-  app's computed figures rather than recomputing them (see "The model
-  misquotes the app's own figures" above — a per-ticker answer is exactly
-  where that failure would bite).
+**Slice 2, not started: the AI reading of his history in this name.**
+Deliberately split out — it's the riskiest part (new prompt, new persisted
+entity, exactly where "the model misquotes the app's own figures" would
+bite a per-ticker answer) and the project's own "small testable slices"
+rule says it earns its own checkpoint rather than shipping bundled with
+the assembly work above. Reuse the existing pattern when it's built:
+`CollapsibleCard`, a stored `factsSnapshot`, and — per the fix already
+shipped for the trade-idea prompt — the model citing figures through
+placeholders the backend fills in, never typing them itself.
 
 ## Research and working sessions (no code)
 
