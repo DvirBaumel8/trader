@@ -274,6 +274,21 @@ computed over closed trades only like every other outcome stat (unlike
 `avgRisk`, which deliberately also counts open trades — "what I typically
 make" is retrospective in a way "what I typically risk" is not).
 
+**Extended the same day: the index also filters by period, and sorts.**
+Raised after first landing all-time-only — a symbol closed last year no
+longer sits on the list while looking at "this week." `getSymbolIndex` now
+takes the same `range` param as `getStats`/`getSymbolSummary` and returns
+`latestExit` per row (not just used to order server-side) so the frontend
+can offer its own NEWEST/OLDEST/LARGEST/SMALLEST sort — the exact vocabulary
+`sortTrades` already uses, via a new `sortSymbols` in `entryFilters.ts`
+rather than a fourth ad hoc scheme. The sort *control* itself is a new
+shared `ui/Select`, extracted after this exact dropdown shell (a `<select>`
+paired with this chevron) turned up independently in Dashboard's and Stops'
+own sort pickers — both refactored onto it rather than becoming a third
+Stocks-specific copy. That refactor caught a real bug in all three
+originals: the chevron span had no `aria-hidden`, so every sort control's
+accessible name silently included a trailing "▼".
+
 **Slice 2, not started: the AI reading of his history in this name.**
 Deliberately split out — it's the riskiest part (new prompt, new persisted
 entity, exactly where "the model misquotes the app's own figures" would
