@@ -292,6 +292,37 @@ rather than responsive.
 Raised 2026-09-12. Each needs its own brainstorm before any plan — written
 here so nothing is lost, not as an instruction to start building.
 
+**Shipped, 2026-09-14: the exit reason chips default to "Stop executed" on
+a closing fill.** Small, two-item ask. `EntrySheet.tsx` already had the
+concept it needed — `fillContext(...).closing` already decided whether to
+show entry or exit reason chips at all — so the default just rides that
+same signal: an untouched, closing, new (not edited) entry pre-selects
+`EXIT_STOP_EXECUTED`, most sells being exactly that. A `reasonsTouched`
+flag (mirroring the existing `quantityTouched` one that already governs
+the prefilled quantity) makes a deliberate untap stick rather than
+reappearing on the next render — the toggle handler now reads from the
+possibly-defaulted `selectedReasons`, not the raw (still-empty) draft, so
+"tap it off" actually means off. Editing an existing entry never gets the
+default — its saved reasons, even none, are what was actually recorded.
+
+**Shipped, 2026-09-14: selling out a position adds it to the watchlist.**
+The natural backend home (`JournalService`, where trades are written)
+can't import `WatchlistService` without a new circular module dependency
+— `WatchlistModule` already imports `PortfolioModule`, which already
+imports `JournalModule` — so this was deliberately built frontend-side
+instead, the same trade-off call made explicit and confirmed with him
+rather than assumed: `EntrySheet.tsx` captures whether the fill was
+closing at submit time (before a new-entry save resets the draft), and
+once the save's own portfolio refetch lands, checks whether the symbol is
+still among the open positions. If not, it calls the existing
+`POST /watchlist` — the same upsert every manual add already goes
+through, so no second "create a watchlist row" implementation to drift
+from the real one. Best-effort and silent on failure (a provider hiccup,
+the watchlist already at its 50-ticker cap): a background convenience
+action must never read as the trade itself failing to save. Verified
+live: selling the full 10-share NVDA position added NVDA to the
+watchlist with no target set; the journal entry shows "Stop executed".
+
 - [ ] **A calendar heatmap of daily P&L.** Raised 2026-09-13, from a
   competitor scan of four trading journals (Tradervue, TradeZella, Chartlog,
   Stonk Journal): two of the four lead with a month-at-a-glance calendar
