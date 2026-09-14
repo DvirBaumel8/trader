@@ -253,14 +253,39 @@ visible at any point; a real Trade Review on the same trade streamed a
 "Grade F" post-mortem with its verdict, metrics strip and full markdown
 body all rendering correctly, no `REVIEW_META` leakage.
 
-Trade Idea remains last and hardest — `{{WEIGHT:LMND}}`-style
-placeholders can appear ANYWHERE in its body and must never be shown raw,
-so naive streaming risks flashing placeholder syntax or missing a
-substitution split across a chunk boundary; the meta-block trick above
-doesn't cover this case since a placeholder isn't confined to one spot at
-the start. Watchlist Ranking is still excluded entirely — its output is a
-structured ranked list, not prose, and streaming a list building up
-character-by-character would read as broken rather than responsive.
+**Streaming, slice 3 of 3, shipped 2026-09-14: Trade Idea — the hard one,
+done last on purpose.** `{{WEIGHT:LMND}}`-style placeholders can appear
+ANYWHERE in the body, not confined to one spot the way a meta block is,
+and the trailing `LEVELS` block has no closing tag at all — unlike
+`[REVIEW_META]`, "is this the block starting" can only be answered by
+holding back a short trailing window and re-checking as more text
+arrives. `streamTradeIdeaBody` (`trade-idea-stream.ts`) runs both rules
+at once: a `LEVELS_HOLDBACK` (20 chars, comfortably past `"\nLEVELS\n"`'s
+8) so the marker is never partially visible while still arriving, and a
+from-the-last-`{{`-or-lone-`{` buffer so a placeholder split across a
+chunk boundary is never shown raw or substituted from a truncated token.
+Found one real bug while writing it: a lone `{` (half of `{{`) was being
+flushed before its pair arrived under small enough chunks (character-by-
+character streaming), since `lastIndexOf('{{')` can't see a pair that
+hasn't fully landed yet — fixed by holding back a trailing lone `{` too.
+Caught by a systematic test that splits the LEVELS marker, and separately
+the placeholder, at EVERY possible chunk boundary in the string, not just
+one hand-picked split point — the level of rigor this specific code
+earned, given the whole placeholder mechanism exists because of a prior
+bug where the model's own figures reached the screen unsubstituted.
+
+Verified live: a real LMND idea streamed in, saved correctly to history
+(visible immediately in Past Ideas), full risk panel (stop/target/R:R)
+computed from the model's proposed levels, reasoning expandable with no
+`LEVELS` or `{{...}}` text anywhere in it.
+
+This closes the streaming project: **Portfolio Summary, Trade Review,
+Symbol Pattern and Trade Idea all stream now** — the wait for an AI
+answer is visible from the first sentence instead of a blank spinner
+until the whole thing lands. Watchlist Ranking stays permanently
+excluded — its output is a structured ranked list, not prose, and
+streaming a list building up character-by-character would read as broken
+rather than responsive.
 
 ## Features requested, not yet designed
 
