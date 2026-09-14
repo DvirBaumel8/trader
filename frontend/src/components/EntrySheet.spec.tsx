@@ -237,7 +237,7 @@ describe('EntrySheet reason chips', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('sends the codes of the chips that are on', async () => {
+  it('sends the codes of the chips that are on, including the closing default', async () => {
     stubApi([{ symbol: 'NVDA', quantity: 500 }]);
     const user = userEvent.setup();
     renderHarness();
@@ -245,6 +245,8 @@ describe('EntrySheet reason chips', () => {
     await user.click(screen.getByText('New entry'));
     await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
     await user.click(screen.getByRole('button', { name: 'SELL' }));
+    // "Stop executed" is already on by default for a closing fill — tapping
+    // "Risk off" adds to it rather than replacing it.
     await user.click(await screen.findByRole('button', { name: 'Risk off' }));
     await user.type(screen.getByPlaceholderText('price'), '100');
     await user.click(screen.getByText('Save entry'));
@@ -254,7 +256,10 @@ describe('EntrySheet reason chips', () => {
         (c) => c[0] === '/journal',
       );
       expect(save).toBeDefined();
-      expect(bodyOf(save as unknown[]).reasons).toEqual(['EXIT_RISK_OFF']);
+      expect(bodyOf(save as unknown[]).reasons).toEqual([
+        'EXIT_STOP_EXECUTED',
+        'EXIT_RISK_OFF',
+      ]);
     });
   });
 
@@ -270,5 +275,232 @@ describe('EntrySheet reason chips', () => {
     expect(chip).toHaveAttribute('aria-pressed', 'true');
     await user.click(chip);
     expect(chip).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('defaults "Stop executed" to on for a closing fill, before any tap', async () => {
+    stubApi([{ symbol: 'NVDA', quantity: 500 }]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+
+    const chip = await screen.findByRole('button', { name: 'Stop executed' });
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps the default "Stop executed" chip off once tapped off, rather than reappearing', async () => {
+    stubApi([{ symbol: 'NVDA', quantity: 500 }]);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+
+    const chip = await screen.findByRole('button', { name: 'Stop executed' });
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    await user.click(chip);
+    expect(chip).toHaveAttribute('aria-pressed', 'false');
+    // Typing elsewhere (a re-render trigger) must not bring it back.
+    await user.type(screen.getByPlaceholderText('price'), '100');
+    expect(chip).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('does not default a saved entry\'s cleared reasons back to "Stop executed" when editing', async () => {
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/portfolio')
+        return Promise.resolve({ positions: [{ symbol: 'NVDA', quantity: 500 }] });
+      if (path === '/settings')
+        return Promise.resolve({
+          defaultFee: 4,
+          reasons: {
+            opening: [{ code: 'ENTRY_BREAKOUT', label: 'Breakout' }],
+            closing: [{ code: 'EXIT_STOP_EXECUTED', label: 'Stop executed' }],
+          },
+        });
+      return Promise.resolve({ id: 'created-1' });
+    });
+    const savedEntry: Entry = {
+      id: 'entry-1',
+      kind: 'TRADE',
+      body: '',
+      occurredAt: '2026-09-01T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA',
+        side: 'SELL',
+        quantity: 100,
+        price: 220,
+        fee: 4,
+        plannedTarget: null,
+        stopLevels: [],
+        riskAmount: null,
+        exitKind: null,
+        stopExecutions: [],
+      },
+      cash: null,
+      dividend: null,
+      tags: [],
+      reasons: [],
+    };
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <EntrySheet open onClose={() => {}} defaultFee={4} editing={savedEntry} />
+      </QueryClientProvider>,
+    );
+
+    const chip = await screen.findByRole('button', { name: 'Stop executed' });
+    expect(chip).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
+/** Routes the mocked api by path AND method, and lets `/portfolio` answer
+ * differently before vs. after the save — the shape the auto-watch tests
+ * below need, since the whole point is "the position was there, then it
+ * wasn't". */
+function stubApiForSale(opts: {
+  beforePositions: { symbol: string; quantity: number }[];
+  afterPositions: { symbol: string; quantity: number }[];
+}) {
+  let portfolioCalls = 0;
+  (api as ReturnType<typeof vi.fn>).mockImplementation(
+    (path: string) => {
+      if (path === '/portfolio') {
+        portfolioCalls += 1;
+        return Promise.resolve({
+          positions: portfolioCalls === 1 ? opts.beforePositions : opts.afterPositions,
+        });
+      }
+      if (path === '/settings') {
+        return Promise.resolve({
+          defaultFee: 4,
+          reasons: {
+            opening: [{ code: 'ENTRY_BREAKOUT', label: 'Breakout' }],
+            closing: [{ code: 'EXIT_STOP_EXECUTED', label: 'Stop executed' }],
+          },
+        });
+      }
+      if (path === '/journal') return Promise.resolve({ id: 'created-1' });
+      if (path === '/watchlist') return Promise.resolve({ id: 'wl-1' });
+      return Promise.resolve({});
+    },
+  );
+}
+
+describe('EntrySheet, auto-watching a name once fully sold', () => {
+  it('adds the symbol to the watchlist when a sell empties the position out', async () => {
+    stubApiForSale({
+      beforePositions: [{ symbol: 'NVDA', quantity: 500 }],
+      afterPositions: [],
+    });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('qty')).toHaveValue(500),
+    );
+    await user.type(screen.getByPlaceholderText('price'), '220');
+    await user.click(screen.getByText('Save entry'));
+
+    await waitFor(() => {
+      const watch = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/watchlist',
+      );
+      expect(watch).toBeDefined();
+      expect(bodyOf(watch as unknown[])).toEqual({ symbol: 'NVDA' });
+    });
+  });
+
+  it('does not add to the watchlist when the sell only reduces the position, not closes it', async () => {
+    stubApiForSale({
+      beforePositions: [{ symbol: 'NVDA', quantity: 500 }],
+      // Still holds some after the sell — a partial exit, not a full one.
+      afterPositions: [{ symbol: 'NVDA', quantity: 200 }],
+    });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+    await user.clear(screen.getByPlaceholderText('qty'));
+    await user.type(screen.getByPlaceholderText('qty'), '300');
+    await user.type(screen.getByPlaceholderText('price'), '220');
+    await user.click(screen.getByText('Save entry'));
+
+    await waitFor(() => {
+      expect(
+        (api as ReturnType<typeof vi.fn>).mock.calls.some((c) => c[0] === '/journal'),
+      ).toBe(true);
+    });
+    expect(
+      (api as ReturnType<typeof vi.fn>).mock.calls.some((c) => c[0] === '/watchlist'),
+    ).toBe(false);
+  });
+
+  it('does not add to the watchlist for a fill that opens a position', async () => {
+    stubApiForSale({ beforePositions: [], afterPositions: [] });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'TSLA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+    await user.type(screen.getByPlaceholderText('price'), '220');
+    await user.click(screen.getByText('Save entry'));
+
+    await waitFor(() => {
+      expect(
+        (api as ReturnType<typeof vi.fn>).mock.calls.some((c) => c[0] === '/journal'),
+      ).toBe(true);
+    });
+    expect(
+      (api as ReturnType<typeof vi.fn>).mock.calls.some((c) => c[0] === '/watchlist'),
+    ).toBe(false);
+  });
+
+  it('still closes the sheet even when the auto-watch call itself fails', async () => {
+    (api as ReturnType<typeof vi.fn>).mockImplementation(
+      (path: string, init?: RequestInit) => {
+        if (path === '/portfolio') {
+          return Promise.resolve({ positions: [{ symbol: 'NVDA', quantity: 500 }] });
+        }
+        if (path === '/settings') {
+          return Promise.resolve({
+            defaultFee: 4,
+            reasons: {
+              opening: [],
+              closing: [{ code: 'EXIT_STOP_EXECUTED', label: 'Stop executed' }],
+            },
+          });
+        }
+        if (path === '/journal' && init?.method === 'POST') {
+          return Promise.resolve({ id: 'created-1' });
+        }
+        if (path === '/watchlist') return Promise.reject(new Error('provider down'));
+        return Promise.resolve({});
+      },
+    );
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('qty')).toHaveValue(500),
+    );
+    await user.type(screen.getByPlaceholderText('price'), '220');
+    await user.click(screen.getByText('Save entry'));
+
+    // The sheet closes regardless — a failed best-effort watchlist add must
+    // never read as the trade itself failing to save.
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText('price')).not.toBeInTheDocument(),
+    );
   });
 });

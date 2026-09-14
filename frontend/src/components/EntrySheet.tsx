@@ -33,6 +33,12 @@ const KINDS: { value: EntryKind; label: string }[] = [
 /** Everything the entry touches, refetched together after any write. */
 const AFFECTED = ['journal', 'portfolio', 'stats', 'tags'];
 
+/** Mirrors `EXIT_REASONS[0].code` in `backend/src/journal/reasons.ts` — the
+ * default a closing fill's reason chips start on, most sells being exactly
+ * this. A plain string rather than an import: the frontend never holds its
+ * own copy of the vocabulary, only the one code it needs to pre-select. */
+const DEFAULT_EXIT_REASON = 'EXIT_STOP_EXECUTED';
+
 function draftFromEntry(entry: Entry, defaultFee: number): EntryDraft {
   return {
     kind: entry.kind,
@@ -109,6 +115,14 @@ export function EntrySheet({
    */
   const [quantityTouched, setQuantityTouched] = useState(false);
 
+  /**
+   * Same rule as `quantityTouched`, for the exit reason chips: a closing
+   * fill with no reason picked yet defaults to "Stop executed" — most sells
+   * are — but a deliberate tap to change or clear it must stick, not keep
+   * reappearing because the draft still reads as untouched.
+   */
+  const [reasonsTouched, setReasonsTouched] = useState(false);
+
   const { data: settings } = useSettings();
 
   /**
@@ -126,6 +140,15 @@ export function EntrySheet({
   // Debounced so a half-typed ticker doesn't flash somebody else's position.
   const symbol = useDebounced(draft.symbol);
   const context = fillContext(portfolio?.positions, symbol, draft.side);
+
+  /**
+   * Set only when this fill reduces a position — captured now, not
+   * re-derived inside the mutation's `onSuccess`, since a new-entry save
+   * resets `draft` (and so `symbol`/`context`) before `onSuccess` runs.
+   * Whether the position actually closed out (vs. merely shrank) is only
+   * knowable after the save, once the portfolio has been refetched.
+   */
+  const closingSymbol = context.closing ? symbol.trim().toUpperCase() : null;
 
   /**
    * The quantity shown. Derived rather than written into the draft: the
@@ -148,9 +171,24 @@ export function EntrySheet({
     (context.closing
       ? settings?.reasons?.closing
       : settings?.reasons?.opening) ?? [];
-  const selectedReasons = draft.reasons.filter((code) =>
+  const touchedReasons = draft.reasons.filter((code) =>
     reasonOptions.some((option) => option.code === code),
   );
+  /**
+   * Defaults to "Stop executed" on a fresh, untouched, closing fill — not
+   * on an edit (an existing entry's saved reasons, even none, are what was
+   * actually recorded) and not once the owner has tapped a chip, so
+   * deliberately clearing it sticks rather than reappearing next render.
+   */
+  const defaultsToStopExecuted =
+    !editing &&
+    !reasonsTouched &&
+    context.closing &&
+    touchedReasons.length === 0 &&
+    reasonOptions.some((option) => option.code === DEFAULT_EXIT_REASON);
+  const selectedReasons = defaultsToStopExecuted
+    ? [DEFAULT_EXIT_REASON]
+    : touchedReasons;
 
   // When opened on an existing entry the draft mirrors it. Editing must never
   // clobber an unsaved new entry, so only the new-entry draft is persisted.
@@ -159,6 +197,7 @@ export function EntrySheet({
     if (editing) {
       setDraft(draftFromEntry(editing, defaultFee));
       setQuantityTouched(false);
+      setReasonsTouched(false);
       return;
     }
     // The one exception to starting blank: this same form coming back after
@@ -173,6 +212,7 @@ export function EntrySheet({
     // with it, so nothing can resurface later.
     setDraft(emptyDraft(defaultFee));
     setQuantityTouched(false);
+    setReasonsTouched(false);
     clearDraft(DRAFT_KEY);
   }, [open, editing, defaultFee, resuming]);
 
@@ -258,8 +298,35 @@ export function EntrySheet({
         clearDraft(DRAFT_KEY);
         setDraft(emptyDraft(defaultFee));
         setQuantityTouched(false);
+        setReasonsTouched(false);
       }
       await invalidate();
+
+      // A closing fill that emptied the position out entirely — add it to
+      // the watchlist so it stays visible after it drops off the open
+      // positions list. Best-effort: a failed add (a provider hiccup, the
+      // watchlist already full) must never block closing the sheet or read
+      // as if the trade itself failed to save.
+      if (closingSymbol) {
+        const fresh = queryClient.getQueryData<{ positions: HeldPosition[] }>([
+          'portfolio',
+        ]);
+        const stillOpen = fresh?.positions.some(
+          (p) => p.symbol.toUpperCase() === closingSymbol,
+        );
+        if (!stillOpen) {
+          try {
+            await api('/watchlist', {
+              method: 'POST',
+              body: JSON.stringify({ symbol: closingSymbol }),
+            });
+            void queryClient.invalidateQueries({ queryKey: ['watchlist'] });
+          } catch {
+            // Silent on purpose — see the comment above.
+          }
+        }
+      }
+
       onClose();
     },
   });
@@ -451,13 +518,14 @@ export function EntrySheet({
                   key={option.code}
                   type="button"
                   aria-pressed={on}
-                  onClick={() =>
+                  onClick={() => {
+                    setReasonsTouched(true);
                     set({
                       reasons: on
-                        ? draft.reasons.filter((c) => c !== option.code)
-                        : [...draft.reasons, option.code],
-                    })
-                  }
+                        ? selectedReasons.filter((c) => c !== option.code)
+                        : [...selectedReasons, option.code],
+                    });
+                  }}
                   className={`rounded-lg border px-3 py-2 text-xs transition-colors ${
                     on
                       ? 'border-accent/40 bg-accent/10 text-accent'
