@@ -158,4 +158,46 @@ describe('Stocks', () => {
     const symbols = screen.getAllByText(/^(FEW|MANY)$/).map((el) => el.textContent);
     expect(symbols).toEqual(['MANY', 'FEW']);
   });
+
+  it('narrows the list once two characters are typed into the search box', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+      row({ symbol: 'NVDA' }),
+      row({ symbol: 'AAPL' }),
+    ]);
+    const user = userEvent.setup();
+    renderStocks();
+
+    await screen.findByText('NVDA');
+    await user.type(screen.getByRole('textbox', { name: 'Search symbol' }), 'nv');
+
+    expect(screen.getByText('NVDA')).toBeInTheDocument();
+    expect(screen.queryByText('AAPL')).not.toBeInTheDocument();
+  });
+
+  it('does not filter on a single character', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+      row({ symbol: 'NVDA' }),
+      row({ symbol: 'AAPL' }),
+    ]);
+    const user = userEvent.setup();
+    renderStocks();
+
+    await screen.findByText('NVDA');
+    await user.type(screen.getByRole('textbox', { name: 'Search symbol' }), 'n');
+
+    expect(screen.getByText('NVDA')).toBeInTheDocument();
+    expect(screen.getByText('AAPL')).toBeInTheDocument();
+  });
+
+  it('shows a distinct message when the search matches nothing, leaving the range message unused', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([row({ symbol: 'NVDA' })]);
+    const user = userEvent.setup();
+    renderStocks();
+
+    await screen.findByText('NVDA');
+    await user.type(screen.getByRole('textbox', { name: 'Search symbol' }), 'zz');
+
+    expect(await screen.findByText('No symbol matches "zz".')).toBeInTheDocument();
+    expect(screen.queryByText(/No trades closed in this period/)).not.toBeInTheDocument();
+  });
 });

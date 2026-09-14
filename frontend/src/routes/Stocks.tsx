@@ -6,8 +6,14 @@ import { Money } from '../components/Money';
 import { signClass } from '../components/format';
 import { RangeSelector } from '../components/ui/RangeSelector';
 import { Select } from '../components/ui/Select';
+import { inputClasses } from '../components/ui/inputClasses';
 import type { Range } from '../lib/benchmarkRange';
-import { sortSymbols, type SymbolRow, type SymbolSort } from '../lib/entryFilters';
+import {
+  filterSymbols,
+  sortSymbols,
+  type SymbolRow,
+  type SymbolSort,
+} from '../lib/entryFilters';
 
 const SORTS: { value: SymbolSort; label: string }[] = [
   { value: 'NEWEST', label: 'Newest first' },
@@ -36,6 +42,7 @@ const ROW_CELL =
 export function Stocks() {
   const [range, setRange] = useState<Range>('ALL');
   const [sort, setSort] = useState<SymbolSort>('NEWEST');
+  const [search, setSearch] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['symbols', range],
@@ -43,13 +50,14 @@ export function Stocks() {
   });
 
   if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
-  const rows = sortSymbols(data ?? [], sort);
+  const bySymbol = data ?? [];
+  const rows = sortSymbols(filterSymbols(bySymbol, search), sort);
 
   return (
     <div className="space-y-3">
       <RangeSelector range={range} onRangeChange={setRange} />
 
-      {rows.length === 0 ? (
+      {bySymbol.length === 0 ? (
         <p className="text-sm text-muted">
           {range === 'ALL'
             ? 'No closed trades yet. A ticker shows up here once you have closed at least one trade in it.'
@@ -57,61 +65,75 @@ export function Stocks() {
         </p>
       ) : (
         <>
-          <div className="flex justify-end">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search symbol…"
+              aria-label="Search symbol"
+              className={inputClasses('sm', 'flex-1')}
+            />
             <Select value={sort} onChange={setSort} options={SORTS} srLabel="Sort" />
           </div>
 
-          {/*
-            Header and every row share ONE grid, not one each — a header
-            and a body row built as separate grids auto-size their `auto`
-            columns from their own content alone, so "Fees" lined up with
-            one row's figure and drifted from the next the moment fee or
-            P&L strings differed in width. A shared grid instance is the
-            only way the three numeric columns size from the widest value
-            across the whole table, header included.
-            Each row is an `<a>` with `contents` so its cells become direct
-            items of this grid with no extra nesting level; since that
-            removes the row's own box, its hover/tap background moves onto
-            every cell (via `group`) and the divider between rows becomes
-            its own full-width grid item instead of a border on the row.
-          */}
-          <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3">
-            <span className={`px-0.5 ${HEADER_CELL}`}>Symbol</span>
-            <span className={`text-right ${HEADER_CELL}`}>Closed</span>
-            <span className={`text-right ${HEADER_CELL}`}>Fees</span>
-            <span className={`text-right ${HEADER_CELL}`}>P&amp;L</span>
+          {rows.length === 0 ? (
+            <p className="text-sm text-muted">
+              No symbol matches &quot;{search.trim()}&quot;.
+            </p>
+          ) : (
+            /*
+              Header and every row share ONE grid, not one each — a header
+              and a body row built as separate grids auto-size their `auto`
+              columns from their own content alone, so "Fees" lined up with
+              one row's figure and drifted from the next the moment fee or
+              P&L strings differed in width. A shared grid instance is the
+              only way the three numeric columns size from the widest value
+              across the whole table, header included.
+              Each row is an `<a>` with `contents` so its cells become direct
+              items of this grid with no extra nesting level; since that
+              removes the row's own box, its hover/tap background moves onto
+              every cell (via `group`) and the divider between rows becomes
+              its own full-width grid item instead of a border on the row.
+            */
+            <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3">
+              <span className={`px-0.5 ${HEADER_CELL}`}>Symbol</span>
+              <span className={`text-right ${HEADER_CELL}`}>Closed</span>
+              <span className={`text-right ${HEADER_CELL}`}>Fees</span>
+              <span className={`text-right ${HEADER_CELL}`}>P&amp;L</span>
 
-            {rows.map((r, i) => (
-              <Fragment key={r.symbol}>
-                <Link
-                  to={`/stocks/${encodeURIComponent(r.symbol)}`}
-                  className="group contents"
-                >
-                  <span className={`truncate text-[15px] font-semibold ${ROW_CELL}`}>
-                    {r.symbol}
-                  </span>
-                  <span
-                    className={`text-right text-[13px] tabular-nums text-muted ${ROW_CELL}`}
+              {rows.map((r, i) => (
+                <Fragment key={r.symbol}>
+                  <Link
+                    to={`/stocks/${encodeURIComponent(r.symbol)}`}
+                    className="group contents"
                   >
-                    {r.closedCount}
-                  </span>
-                  <span
-                    className={`text-right text-[13px] tabular-nums text-muted ${ROW_CELL}`}
-                  >
-                    <Money value={r.feesPaid} />
-                  </span>
-                  <span
-                    className={`text-right text-[15px] font-semibold tabular-nums ${signClass(r.totalPnl)} ${ROW_CELL}`}
-                  >
-                    <Money value={r.totalPnl} signed />
-                  </span>
-                </Link>
-                {i < rows.length - 1 && (
-                  <div className="col-span-full border-b border-border" />
-                )}
-              </Fragment>
-            ))}
-          </div>
+                    <span className={`truncate text-[15px] font-semibold ${ROW_CELL}`}>
+                      {r.symbol}
+                    </span>
+                    <span
+                      className={`text-right text-[13px] tabular-nums text-muted ${ROW_CELL}`}
+                    >
+                      {r.closedCount}
+                    </span>
+                    <span
+                      className={`text-right text-[13px] tabular-nums text-muted ${ROW_CELL}`}
+                    >
+                      <Money value={r.feesPaid} />
+                    </span>
+                    <span
+                      className={`text-right text-[15px] font-semibold tabular-nums ${signClass(r.totalPnl)} ${ROW_CELL}`}
+                    >
+                      <Money value={r.totalPnl} signed />
+                    </span>
+                  </Link>
+                  {i < rows.length - 1 && (
+                    <div className="col-span-full border-b border-border" />
+                  )}
+                </Fragment>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>

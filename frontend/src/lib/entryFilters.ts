@@ -184,6 +184,25 @@ export function sortSymbols(rows: SymbolRow[], sort: SymbolSort): SymbolRow[] {
 }
 
 /**
+ * Narrows the Trades index to symbols matching a typed search — the same
+ * comma-means-OR convention `searchTerms` already gives the Journal's own
+ * search box, reused rather than a second scheme invented for this list.
+ *
+ * Does nothing below two characters: a single keystroke is rarely a
+ * deliberate search yet, and re-filtering the whole list on it would just
+ * flash a near-empty screen before the next character arrives.
+ */
+export function filterSymbols(rows: SymbolRow[], search: string): SymbolRow[] {
+  if (search.trim().length < 2) return rows;
+  const terms = searchTerms(search);
+  if (terms.length === 0) return rows;
+  return rows.filter((r) => {
+    const symbol = r.symbol.toLowerCase();
+    return terms.some((term) => symbol.includes(term));
+  });
+}
+
+/**
  * Filters as query-string parameters for `GET /journal`.
  *
  * Selecting which entries match is the server's job — this only says what was

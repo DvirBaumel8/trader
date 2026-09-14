@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   emptyFilters,
   entryValue,
+  filterSymbols,
   filterTrades,
   hasActiveFilters,
   sortEntries,
@@ -305,5 +306,40 @@ describe('sortSymbols', () => {
       'SOME',
       'MANY',
     ]);
+  });
+});
+
+describe('filterSymbols', () => {
+  const row = (symbol: string): SymbolRow => ({
+    symbol,
+    closedCount: 1,
+    totalPnl: 0,
+    feesPaid: 0,
+    latestExit: null,
+  });
+
+  const rows = [row('NVDA'), row('AAPL'), row('META')];
+
+  it('matches a symbol substring case-insensitively', () => {
+    expect(filterSymbols(rows, 'nvd').map((r) => r.symbol)).toEqual(['NVDA']);
+  });
+
+  it('matches any of a comma-separated list', () => {
+    expect(filterSymbols(rows, 'NVDA, META').map((r) => r.symbol)).toEqual([
+      'NVDA',
+      'META',
+    ]);
+  });
+
+  it('does nothing below two characters', () => {
+    expect(filterSymbols(rows, 'n')).toEqual(rows);
+  });
+
+  it('does nothing for whitespace-only search', () => {
+    expect(filterSymbols(rows, '   ')).toEqual(rows);
+  });
+
+  it('returns nothing when a real search matches no symbol', () => {
+    expect(filterSymbols(rows, 'ZZZZ')).toEqual([]);
   });
 });
