@@ -323,6 +323,26 @@ action must never read as the trade itself failing to save. Verified
 live: selling the full 10-share NVDA position added NVDA to the
 watchlist with no target set; the journal entry shows "Stop executed".
 
+**Shipped, 2026-09-14: a search box on the Trades page, filtering by
+symbol.** His ask: "maybe a search bar? When I add 2 chars it will start to
+filter the screen." Reused rather than invented — `entryFilters.ts` already
+had `searchTerms()` and its "comma means OR" convention from the Journal's
+own ticker search, so `filterSymbols(rows, search)` is a thin new pure
+function on top of it, not a second matching scheme. It narrows the
+already-fetched `SymbolRow[]` list client-side, the same way `sortSymbols`
+on this same page already works — a substring match is a display concern,
+not something a new endpoint should compute. The two-character threshold
+came straight from his own wording and is baked into the function's own
+contract (`search.trim().length < 2` returns every row unfiltered), not
+left as a UI-layer decision, so it can't drift the next time this list is
+rendered somewhere else. The input sits beside the existing sort dropdown
+rather than pulling in `FilterBar` wholesale, which would have duplicated
+the date-range and sort controls this page already has of its own. A
+distinct "No symbol matches…" message covers the search-emptied-it case,
+separate from the existing "no trades in this period" one. Verified live:
+typing one character left both real symbols showing, a second narrowed to
+the match, and `nvda, aapl` matched both via the comma convention.
+
 - [ ] **A calendar heatmap of daily P&L.** Raised 2026-09-13, from a
   competitor scan of four trading journals (Tradervue, TradeZella, Chartlog,
   Stonk Journal): two of the four lead with a month-at-a-glance calendar
