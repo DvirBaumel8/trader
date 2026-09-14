@@ -18,7 +18,7 @@ function fakeSummaries(): AiSummaryService {
 
 /** Unused by these tests; present only so the constructor is satisfied. */
 function fakeTradeIdeas(): TradeIdeaService {
-  return { analyse: vi.fn() } as unknown as TradeIdeaService;
+  return { analyse: vi.fn(), analyseStream: vi.fn() } as unknown as TradeIdeaService;
 }
 
 /** Unused by these tests; present only so the constructor is satisfied. */
@@ -48,6 +48,37 @@ function fakeSymbolPatterns(): SymbolPatternService {
 }
 
 describe('LlmController', () => {
+  it('POST /ai/trade-idea/stream writes every yielded line and sets the ndjson content type', async () => {
+    async function* lines() {
+      yield '{"delta":"This looks like a solid setup."}\n';
+      yield '{"done":true,"configured":true,"symbol":"NVDA","facts":null,"levels":{"stop":10,"target":20},"risk":null,"levelsUnreadable":false,"error":null,"errorKind":null}\n';
+    }
+    const tradeIdeas = fakeTradeIdeas();
+    (tradeIdeas.analyseStream as ReturnType<typeof vi.fn>).mockReturnValue(lines());
+    const controller = new LlmController(
+      {} as LlmService,
+      fakeSummaries(),
+      tradeIdeas,
+      fakeTradeIdeaHistory(),
+      fakeTradeReviews(),
+      fakeSymbolPatterns(),
+    );
+    const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn() };
+
+    await controller.tradeIdeaStream({ symbol: 'nvda' }, res as never);
+
+    expect(tradeIdeas.analyseStream).toHaveBeenCalledWith('nvda');
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/x-ndjson; charset=utf-8',
+    );
+    expect(res.write.mock.calls.map((c) => c[0])).toEqual([
+      '{"delta":"This looks like a solid setup."}\n',
+      '{"done":true,"configured":true,"symbol":"NVDA","facts":null,"levels":{"stop":10,"target":20},"risk":null,"levelsUnreadable":false,"error":null,"errorKind":null}\n',
+    ]);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
   it('POST /ai/portfolio-summary returns whatever the service produces, unconfigured included', async () => {
     const unconfigured = {
       configured: false,

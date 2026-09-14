@@ -65,6 +65,24 @@ describe('streamNdjson', () => {
     expect(lines).toEqual([{ done: true }]);
   });
 
+  it('sends the given body as JSON when one is passed', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(streamedResponse(['{"done":true}']));
+
+    await streamNdjson('/ai/trade-idea/stream', () => {}, { symbol: 'NVDA' });
+
+    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(init.body).toBe(JSON.stringify({ symbol: 'NVDA' }));
+  });
+
+  it('sends no body at all when none is passed', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(streamedResponse(['{"done":true}']));
+
+    await streamNdjson('/ai/portfolio-summary/stream', () => {});
+
+    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(init.body).toBeUndefined();
+  });
+
   it('throws an ApiError on a non-ok response instead of trying to stream it', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
       new Response(JSON.stringify({ message: 'nope' }), { status: 500 }),

@@ -16,6 +16,7 @@ import { clearToken, getToken } from '../lib/auth';
 export async function streamNdjson<T>(
   path: string,
   onLine: (line: T) => void,
+  body?: unknown,
 ): Promise<void> {
   const token = getToken();
   const res = await fetch(apiUrl(path), {
@@ -24,6 +25,7 @@ export async function streamNdjson<T>(
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
 
   if (res.status === 401) {

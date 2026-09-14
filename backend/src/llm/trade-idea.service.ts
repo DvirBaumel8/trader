@@ -13,6 +13,7 @@ import {
   substituteBookPlaceholders,
 } from './trade-idea-context.js';
 import { parseProposedLevels, stripLevelsBlock } from './trade-idea-parse.js';
+import { streamTradeIdeaBody } from './trade-idea-stream.js';
 import {
   TickerFactsService,
   type TickerFacts,
@@ -37,6 +38,13 @@ export interface TradeIdeaResult {
   error: string | null;
   errorKind: LlmFailureKind | null;
 }
+
+/** The final line of `analyseStream` — everything `TradeIdeaResult` carries
+ * except `opinion` itself, which the streamed `{"delta": "..."}` lines
+ * (already LEVELS-free and placeholder-substituted) already are. */
+export type TradeIdeaStreamDone = Omit<TradeIdeaResult, 'opinion'> & {
+  done: true;
+};
 
 /**
  * A pre-trade opinion: name a ticker, hear what the app and the model make of
@@ -65,26 +73,11 @@ export class TradeIdeaService {
     private readonly users: UsersService,
   ) {}
 
-  async analyse(symbol: string): Promise<TradeIdeaResult> {
-    const upper = symbol.trim().toUpperCase();
-
-    // Short-circuit before any market data is fetched: with no key there is
-    // no opinion to give, and hitting Yahoo would spend a request on an
-    // answer that cannot be produced.
-    if (!this.llm.isConfigured()) {
-      return {
-        configured: false,
-        symbol: upper,
-        facts: null,
-        opinion: null,
-        levels: null,
-        risk: null,
-        levelsUnreadable: false,
-        error: null,
-        errorKind: null,
-      };
-    }
-
+  /** Everything `analyse` and `analyseStream` share: the facts, the book,
+   * the usual risk, and the assembled prompt. Neither the model call nor
+   * persistence lives here, so both callers stay free to handle those
+   * differently. */
+  private async buildIdeaContext(upper: string) {
     // The book and the record, not just the chart. Without them the model
     // answered "should I open this?" when he already held 4,600 shares of the
     // name — see trade-idea-context.ts.
@@ -124,6 +117,31 @@ export class TradeIdeaService {
       book: buildBookSection(book, upper),
       record: buildRecordSection(stats, upper),
     });
+
+    return { facts, book, usualRisk, system, user };
+  }
+
+  async analyse(symbol: string): Promise<TradeIdeaResult> {
+    const upper = symbol.trim().toUpperCase();
+
+    // Short-circuit before any market data is fetched: with no key there is
+    // no opinion to give, and hitting Yahoo would spend a request on an
+    // answer that cannot be produced.
+    if (!this.llm.isConfigured()) {
+      return {
+        configured: false,
+        symbol: upper,
+        facts: null,
+        opinion: null,
+        levels: null,
+        risk: null,
+        levelsUnreadable: false,
+        error: null,
+        errorKind: null,
+      };
+    }
+
+    const { facts, book, usualRisk, system, user } = await this.buildIdeaContext(upper);
 
     let raw: string;
     try {
@@ -198,5 +216,105 @@ export class TradeIdeaService {
       error: null,
       errorKind: null,
     };
+  }
+
+  /**
+   * Same call as `analyse`, streamed. Yields newline-delimited JSON — see
+   * `LlmService.portfolioSummaryStream`'s doc comment for the general shape.
+   * The hard part lives in `streamTradeIdeaBody`: unlike a meta block, the
+   * trailing LEVELS block has no closing tag, and `{{WEIGHT:LMND}}`-style
+   * placeholders can appear anywhere in the body rather than in one fixed
+   * spot — both must never reach the screen raw. Every `{"delta": ...}`
+   * line here is already LEVELS-free and placeholder-substituted; nothing
+   * further needs doing to it before display.
+   */
+  async *analyseStream(symbol: string): AsyncGenerator<string> {
+    const emit = (data: TradeIdeaStreamDone) => `${JSON.stringify(data)}\n`;
+    const upper = symbol.trim().toUpperCase();
+
+    if (!this.llm.isConfigured()) {
+      yield emit({
+        done: true,
+        configured: false,
+        symbol: upper,
+        facts: null,
+        levels: null,
+        risk: null,
+        levelsUnreadable: false,
+        error: null,
+        errorKind: null,
+      });
+      return;
+    }
+
+    const { facts, book, usualRisk, system, user } = await this.buildIdeaContext(upper);
+
+    try {
+      const raw = this.llm.completeStream({ system, user, grounded: false });
+      const body = streamTradeIdeaBody(raw, book);
+      // Manually driven, not `for await...of` — see the identical comment
+      // in `TradeReviewService.reviewTradeStream` for why.
+      let next = await body.next();
+      while (!next.done) {
+        yield `${JSON.stringify({ delta: next.value })}\n`;
+        next = await body.next();
+      }
+      const rawText = next.value;
+
+      const levels = parseProposedLevels(rawText);
+      const opinion = substituteBookPlaceholders(stripLevelsBlock(rawText).trim(), book);
+      const risk = levels
+        ? computeTradeRisk({
+            entryPrice: facts.price,
+            stop: levels.stop,
+            target: levels.target,
+            usualRisk,
+          })
+        : null;
+
+      const owner = await this.users.currentUser();
+      await this.ideas.save(
+        this.ideas.create({
+          userId: owner.id,
+          symbol: upper,
+          entryPrice: facts.price,
+          priceStale: facts.stale,
+          stop: levels?.stop ?? null,
+          target: levels?.target ?? null,
+          riskReward: risk?.riskReward ?? null,
+          opinion,
+          factsSnapshot: user,
+          model: this.llm.modelName(),
+        }),
+      );
+
+      yield emit({
+        done: true,
+        configured: true,
+        symbol: upper,
+        facts,
+        levels,
+        risk,
+        levelsUnreadable: levels === null,
+        error: null,
+        errorKind: null,
+      });
+    } catch (err) {
+      const kind: LlmFailureKind = err instanceof LlmFailure ? err.kind : 'unknown';
+      this.logger.warn(
+        `Trade idea stream failed for ${upper} (${kind}): ${(err as Error).message}`,
+      );
+      yield emit({
+        done: true,
+        configured: true,
+        symbol: upper,
+        facts,
+        levels: null,
+        risk: null,
+        levelsUnreadable: false,
+        error: ERROR_COPY[kind],
+        errorKind: kind,
+      });
+    }
   }
 }

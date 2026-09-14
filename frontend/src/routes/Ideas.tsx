@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
+import { streamNdjson } from '../api/streamNdjson';
 import { formatMoney, formatPercent, formatQuantity, formatTimestamp } from '../components/format';
 import { Markdown } from '../components/Markdown';
 import { SessionBadge } from '../components/SessionBadge';
@@ -89,6 +90,18 @@ interface TradeIdeaDetail {
 }
 
 const HISTORY_QUERY_KEY = ['trade-ideas'];
+
+/** One line of `POST /ai/trade-idea/stream`'s newline-delimited JSON —
+ * either a text delta (already LEVELS-free and placeholder-substituted),
+ * or the one final line carrying everything else `TradeIdeaResult` has. */
+type IdeaStreamLine =
+  | { delta: string }
+  | (Omit<TradeIdeaResult, 'opinion'> & { done: true });
+
+type GenerateState =
+  | { status: 'idle' }
+  | { status: 'streaming'; text: string }
+  | { status: 'error'; message: string };
 
 /** A labelled figure. The label is small and quiet; the number is the thing. */
 function Figure({
@@ -488,17 +501,42 @@ export function Ideas() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
 
-  const mutation = useMutation({
-    mutationFn: (ticker: string) =>
-      api<TradeIdeaResult>('/ai/trade-idea', {
-        method: 'POST',
-        body: JSON.stringify({ symbol: ticker }),
-      }),
-    onSuccess: (data) => {
-      setLastResult(data);
-      void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
-    },
-  });
+  const [generateState, setGenerateState] = useState<GenerateState>({ status: 'idle' });
+
+  async function generate(ticker: string) {
+    setGenerateState({ status: 'streaming', text: '' });
+    let text = '';
+    let receivedDone = false;
+
+    try {
+      await streamNdjson<IdeaStreamLine>(
+        '/ai/trade-idea/stream',
+        (line) => {
+          if ('done' in line) {
+            receivedDone = true;
+            const { done: _done, ...result } = line;
+            setLastResult({ ...result, opinion: text });
+            setGenerateState({ status: 'idle' });
+            void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
+          } else {
+            text += line.delta;
+            setGenerateState({ status: 'streaming', text });
+          }
+        },
+        { symbol: ticker },
+      );
+    } catch (err) {
+      setGenerateState({ status: 'error', message: errorMessage(err) });
+      return;
+    }
+
+    if (!receivedDone) {
+      setGenerateState({
+        status: 'error',
+        message: 'Something went wrong getting an opinion. Try again in a bit.',
+      });
+    }
+  }
 
   const historyQuery = useQuery({
     queryKey: HISTORY_QUERY_KEY,
@@ -518,8 +556,8 @@ export function Ideas() {
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     const ticker = symbol.trim().toUpperCase();
-    if (!ticker || mutation.isPending) return;
-    mutation.mutate(ticker);
+    if (!ticker || generateState.status === 'streaming') return;
+    void generate(ticker);
   }
 
   /**
@@ -555,10 +593,10 @@ export function Ideas() {
         />
         <button
           type="submit"
-          disabled={mutation.isPending || !symbol.trim()}
+          disabled={generateState.status === 'streaming' || !symbol.trim()}
           className="shrink-0 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2.5 text-sm font-medium text-accent active:bg-accent/20 disabled:opacity-60"
         >
-          {mutation.isPending ? (
+          {generateState.status === 'streaming' ? (
             <span className="inline-flex items-center justify-center gap-2">
               <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
               Thinking…
@@ -569,14 +607,24 @@ export function Ideas() {
         </button>
       </form>
 
+      {generateState.status === 'streaming' && generateState.text && (
+        // Growing text, not yet the finished card — no levels/risk/facts
+        // are known until the final line confirms them.
+        <div className="rounded-xl border border-dashed border-accent/40 bg-surface-1 p-3">
+          <Markdown text={generateState.text} />
+        </div>
+      )}
+
       {/*
-        Read from the persisted copy rather than `mutation.data`, so the
-        answer is still here after iOS discards the tab. A new request
-        replaces it; a failed one leaves the previous answer alone rather
-        than blanking the screen.
+        Read from the persisted copy rather than local state, so the answer
+        is still here after iOS discards the tab. A new request replaces it
+        only once its own done line arrives; a failed one leaves the
+        previous answer alone rather than blanking the screen.
       */}
-      {lastResult && !mutation.isPending && <ResultCard result={lastResult} />}
-      {mutation.isError && <p className="text-xs text-down">{errorMessage(mutation.error)}</p>}
+      {lastResult && generateState.status !== 'streaming' && <ResultCard result={lastResult} />}
+      {generateState.status === 'error' && (
+        <p className="text-xs text-down">{generateState.message}</p>
+      )}
 
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-2">

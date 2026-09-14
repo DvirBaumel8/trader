@@ -18,6 +18,7 @@ function makeService(opts: {
   stats?: () => unknown;
   portfolio?: () => unknown;
   llmAnswer?: string;
+  llmCompleteStream?: () => AsyncIterable<string>;
   ideas?: { create: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn> };
 }) {
   const tickerFacts = {
@@ -33,8 +34,12 @@ function makeService(opts: {
       .fn()
       .mockImplementation(opts.portfolio ?? (async () => ({ positions: [] }))),
   } as unknown as PortfolioService;
+  async function* defaultStream() {
+    yield opts.llmAnswer ?? 'an opinion';
+  }
   const llm = {
     complete: vi.fn().mockResolvedValue(opts.llmAnswer ?? 'an opinion'),
+    completeStream: opts.llmCompleteStream ?? (() => defaultStream()),
     isConfigured: () => true,
     modelName: () => 'test-model',
   } as unknown as LlmClient;
@@ -149,5 +154,165 @@ describe('TradeIdeaService.analyse — book placeholders', () => {
     expect(ideas.save).toHaveBeenCalledWith(
       expect.objectContaining({ opinion: 'LMND is already 22.1% of your account.' }),
     );
+  });
+});
+
+async function collectLines(stream: AsyncGenerator<string>): Promise<unknown[]> {
+  const lines: unknown[] = [];
+  for await (const line of stream) lines.push(JSON.parse(line));
+  return lines;
+}
+
+const fullFacts = () => ({
+  symbol: 'NVDA',
+  name: null,
+  price: 200,
+  stale: false,
+  session: 'REGULAR',
+  extended: false,
+  peRatio: null,
+  priceAction: null,
+  indicators: {
+    sma20: null, sma50: null, sma150: null, sma200: null,
+    percentFromSma20: null, percentFromSma50: null,
+    percentFromSma150: null, percentFromSma200: null,
+    high52w: null, low52w: null,
+    percentFromHigh52w: null, percentFromLow52w: null,
+    atr14: null, atrPercentOfPrice: null,
+    relativeVolume: null, barsAvailable: 0,
+  },
+});
+
+const fullPortfolio = () => ({
+  positions: [{ symbol: 'LMND', quantity: 100, price: 221, marketValue: 22_100 }],
+  accountValue: 100_000,
+  cash: 0,
+  atRisk: { amount: null },
+});
+
+const fullStats = () => ({
+  winRate: null,
+  avgWin: null,
+  avgLoss: null,
+  avgRisk: null,
+  expectancyR: null,
+  closedCount: 0,
+  trades: [],
+});
+
+describe('TradeIdeaService.analyseStream', () => {
+  it('yields a single done line, unconfigured, without touching the portfolio', async () => {
+    const llm = {
+      isConfigured: () => false,
+      complete: vi.fn(),
+      completeStream: vi.fn(),
+      modelName: () => 'test-model',
+    } as unknown as LlmClient;
+    const tickerFacts = { get: vi.fn() } as unknown as TickerFactsService;
+    const portfolio = { getPortfolio: vi.fn() } as unknown as PortfolioService;
+    const trades = { getStats: vi.fn() } as unknown as TradesService;
+    const users = { currentUser: vi.fn() } as unknown as UsersService;
+    const service = new TradeIdeaService(
+      llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
+    );
+
+    const lines = await collectLines(service.analyseStream('nvda'));
+
+    expect(lines).toEqual([
+      {
+        done: true,
+        configured: false,
+        symbol: 'NVDA',
+        facts: null,
+        levels: null,
+        risk: null,
+        levelsUnreadable: false,
+        error: null,
+        errorKind: null,
+      },
+    ]);
+    expect(portfolio.getPortfolio).not.toHaveBeenCalled();
+  });
+
+  it('never yields the LEVELS block or a raw {{...}} placeholder, only the substituted body', async () => {
+    const ideas = { create: vi.fn((data: unknown) => data), save: vi.fn() };
+    const service = makeService({
+      facts: async () => fullFacts(),
+      portfolio: async () => fullPortfolio(),
+      stats: async () => fullStats(),
+      llmCompleteStream: async function* () {
+        yield 'LMND is already {{WEIGHT:LM';
+        yield 'ND}} of your account.\n\nLEVELS\nstop: 10\ntarget: 20';
+      },
+      ideas,
+    });
+
+    const lines = await collectLines(service.analyseStream('NVDA'));
+
+    const deltas = lines.filter((l): l is { delta: string } => 'delta' in (l as object));
+    // Trailing whitespace before the LEVELS block survives in the streamed
+    // deltas — only the persisted `opinion` goes through a final `.trim()`,
+    // same as every other streamed AI feature in the app.
+    const joined = deltas.map((d) => d.delta).join('').trim();
+    expect(joined).toBe('LMND is already 22.1% of your account.');
+    expect(joined).not.toContain('{{');
+    expect(joined).not.toContain('LEVELS');
+  });
+
+  it('yields a final done line with the parsed levels and persists the same substituted opinion', async () => {
+    const ideas = { create: vi.fn((data: unknown) => data), save: vi.fn() };
+    const service = makeService({
+      facts: async () => fullFacts(),
+      portfolio: async () => fullPortfolio(),
+      stats: async () => fullStats(),
+      llmCompleteStream: async function* () {
+        yield 'LMND is already {{WEIGHT:LMND}} of your account.\n\nLEVELS\nstop: 10\ntarget: 20';
+      },
+      ideas,
+    });
+
+    const lines = await collectLines(service.analyseStream('NVDA'));
+
+    const done = lines.at(-1) as Record<string, unknown>;
+    expect(done).toMatchObject({
+      done: true,
+      configured: true,
+      symbol: 'NVDA',
+      levels: { stop: 10, target: 20 },
+      levelsUnreadable: false,
+      error: null,
+    });
+    expect(ideas.save).toHaveBeenCalledWith(
+      expect.objectContaining({ opinion: 'LMND is already 22.1% of your account.' }),
+    );
+  });
+
+  it('yields a done line with the error copy, and no delta lines, when the stream fails before any text', async () => {
+    const ideas = { create: vi.fn(), save: vi.fn() };
+    const service = makeService({
+      facts: async () => fullFacts(),
+      portfolio: async () => fullPortfolio(),
+      stats: async () => fullStats(),
+      llmCompleteStream: () => ({
+        [Symbol.asyncIterator]: () => ({
+          next: () => Promise.reject(new Error('boom')),
+        }),
+      }),
+      ideas,
+    });
+
+    const lines = await collectLines(service.analyseStream('NVDA'));
+
+    expect(lines).toEqual([
+      expect.objectContaining({
+        done: true,
+        configured: true,
+        symbol: 'NVDA',
+        levels: null,
+        error: expect.any(String),
+        errorKind: 'unknown',
+      }),
+    ]);
+    expect(ideas.save).not.toHaveBeenCalled();
   });
 });

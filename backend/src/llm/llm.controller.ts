@@ -66,6 +66,17 @@ export class LlmController {
     return this.tradeIdeas.analyse(body.symbol);
   }
 
+  /** Newline-delimited JSON — see `portfolioSummaryStream`'s own doc comment
+   * for why `@Res()` is used directly here. */
+  @Post('trade-idea/stream')
+  async tradeIdeaStream(@Body() body: TradeIdeaDto, @Res() res: Response) {
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    for await (const line of this.tradeIdeas.analyseStream(body.symbol)) {
+      res.write(line);
+    }
+    res.end();
+  }
+
   @Get('trade-ideas')
   listTradeIdeas() {
     return this.tradeIdeaHistory.list();
