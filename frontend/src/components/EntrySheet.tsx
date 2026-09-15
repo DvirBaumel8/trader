@@ -327,7 +327,10 @@ export function EntrySheet({
         }
       }
 
-      onClose();
+      // New entries are intentionally chained in the same composer: the
+      // successful save above reset the draft, so the next activity is ready
+      // immediately. Editing remains a one-and-done flow.
+      if (editing) onClose();
     },
   });
 

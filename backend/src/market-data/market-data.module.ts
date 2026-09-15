@@ -11,6 +11,7 @@ import { MarketDataController } from './market-data.controller.js';
 import { DailyClose } from './daily-close.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
+import { EarningsService } from './earnings.service.js';
 import { InstrumentsModule } from '../instruments/instruments.module.js';
 
 @Module({
@@ -26,6 +27,7 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
     // is blocked from Render — see finnhub.client.ts. Inert without a key.
     FinnhubClient,
     FundamentalsService,
+    EarningsService,
     HistoryService,
     TickerFactsService,
     {
@@ -42,6 +44,7 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
     HistoryService,
     TickerFactsService,
     FundamentalsService,
+    EarningsService,
   ],
 })
 export class MarketDataModule {}

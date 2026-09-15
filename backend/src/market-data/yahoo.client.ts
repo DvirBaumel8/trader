@@ -1,6 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import YahooFinance from 'yahoo-finance2';
 import { selectPrice, type MarketSession } from './select-price.js';
+import { parseEarningsDate } from './earnings.js';
 
 export interface RawQuote {
   symbol: string;
@@ -113,6 +114,19 @@ export class YahooClient {
     } catch (err) {
       return this.quoteFromChart(symbol, err);
     }
+  }
+
+  async nextEarningsDate(symbol: string): Promise<string | null> {
+    const result = await this.yf.quoteSummary(symbol, {
+      modules: ['calendarEvents'],
+    });
+    const dates = (
+      result?.calendarEvents as
+        | { earnings?: { earningsDate?: unknown } }
+        | undefined
+    )?.earnings?.earningsDate;
+    const first = Array.isArray(dates) ? dates[0] : null;
+    return parseEarningsDate(first);
   }
 
   /**

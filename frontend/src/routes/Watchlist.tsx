@@ -26,6 +26,16 @@ interface WatchRow {
   reachedOn: string | null;
   note: string;
   tags: { id: string; label: string }[];
+  daysUntilEarnings: number | null;
+}
+
+function EarningsCell({ days }: { days: number | null }) {
+  return (
+    <div className="text-[10px] tabular-nums text-muted">
+      <span className="uppercase tracking-wide">Earnings</span>{' '}
+      <span>{days === null ? '—' : days === 0 ? 'today' : `${days}d`}</span>
+    </div>
+  );
 }
 
 /**
@@ -334,6 +344,7 @@ export function Watchlist() {
                     */
                     <div className="text-[10px] text-muted">no target set</div>
                   )}
+                  <EarningsCell days={r.daysUntilEarnings} />
                 </div>
               </div>
               {editMode && (

@@ -33,6 +33,14 @@ const position = (symbol: string, quantity: number) => ({
   unrealizedPnl: 1 * quantity,
   unrealizedPct: 10,
   tradeId: null,
+  daysUntilEarnings: null,
+});
+
+describe('Dashboard earnings column', () => {
+  it('shows days until earnings for a holding', async () => {
+    renderDashboard([{ ...position('NVDA', 100), daysUntilEarnings: 7 }]);
+    expect(await screen.findByText('7d')).toBeInTheDocument();
+  });
 });
 
 function renderDashboard(positions: ReturnType<typeof position>[]) {

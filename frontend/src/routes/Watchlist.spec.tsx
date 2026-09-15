@@ -34,6 +34,7 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
   reachedOn: null,
   note: '',
   tags: [],
+  daysUntilEarnings: null,
   ...over,
 });
 
@@ -190,6 +191,10 @@ describe('Watchlist target alerts', () => {
 });
 
 describe('Watchlist rows', () => {
+  it('shows days until the next earnings date', async () => {
+    renderWatchlist([row({ daysUntilEarnings: 12 })]);
+    expect(await screen.findByText('12d')).toBeInTheDocument();
+  });
   /**
    * A ticker with no target rendered as a bare symbol and a price, which
    * reads as half-loaded rather than as a deliberate state. The target stays

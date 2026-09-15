@@ -215,6 +215,25 @@ describe('chart fallback when the quote endpoint is blocked', () => {
   });
 });
 
+describe('next earnings date', () => {
+  it('reads the first calendar event returned by Yahoo', async () => {
+    const client = new YahooClient({
+      quoteSummary: async () => ({
+        calendarEvents: {
+          earnings: {
+            earningsDate: [
+              new Date('2026-09-25T12:00:00Z'),
+              new Date('2026-10-02T12:00:00Z'),
+            ],
+          },
+        },
+      }),
+    } as never);
+
+    expect(await client.nextEarningsDate('NVDA')).toBe('2026-09-25');
+  });
+});
+
 describe('quote P/E mapping', () => {
   it('exposes a trailing P/E when Yahoo reports one', async () => {
     const client = clientQuoting({

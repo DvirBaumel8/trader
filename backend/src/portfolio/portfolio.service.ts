@@ -12,6 +12,7 @@ import { DailyClose } from '../market-data/daily-close.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { MarketDataService } from '../market-data/market-data.service.js';
 import { FundamentalsService } from '../market-data/fundamentals.service.js';
+import { EarningsService } from '../market-data/earnings.service.js';
 import { HistoryService } from '../market-data/history.service.js';
 import { TradesService } from './trades.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -51,6 +52,7 @@ export class PortfolioService {
     private readonly instrumentsService: InstrumentsService,
     private readonly marketData: MarketDataService,
     private readonly fundamentals: FundamentalsService,
+    private readonly earnings: EarningsService,
     private readonly history: HistoryService,
     private readonly users: UsersService,
     private readonly journal: JournalService,
@@ -115,10 +117,12 @@ export class PortfolioService {
     const derived = derivePositions(derivedTxns).filter((p) => p.isOpen);
     const cash = deriveCash(derivedTxns, derivedFlows, derivedDividends);
 
-    const quotes = await this.marketData.getQuotes(
-      derived.map((p) => p.symbol),
-      opts.refresh === true,
-    );
+    const heldSymbols = derived.map((p) => p.symbol);
+    const heldInstruments = instrumentRows.filter((i) => heldSymbols.includes(i.symbol));
+    const [quotes, earningsBySymbol] = await Promise.all([
+      this.marketData.getQuotes(heldSymbols, opts.refresh === true),
+      this.earnings.daysUntil(heldInstruments),
+    ]);
     // Production prices come from Yahoo's chart endpoint, which carries no
     // fundamentals, so the multiple is computed from a separate provider's
     // trailing EPS. A no-op where the quote already had one.
@@ -189,6 +193,7 @@ export class PortfolioService {
       return {
         symbol: p.symbol,
         name: nameBySymbol.get(p.symbol) ?? null,
+        daysUntilEarnings: earningsBySymbol.get(p.symbol) ?? null,
         quantity: p.quantity,
         avgCost: p.avgCost,
         costBasis: p.costBasis,

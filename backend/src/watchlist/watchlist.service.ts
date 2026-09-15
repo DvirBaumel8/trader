@@ -16,6 +16,7 @@ import {
 } from './score.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { HistoryService } from '../market-data/history.service.js';
+import { EarningsService } from '../market-data/earnings.service.js';
 
 export interface WatchlistRow {
   id: string;
@@ -43,6 +44,7 @@ export interface WatchlistRow {
   reachedOn: string | null;
   note: string;
   tags: { id: string; label: string }[];
+  daysUntilEarnings: number | null;
 }
 
 export interface UpsertInput {
@@ -79,6 +81,7 @@ export class WatchlistService {
     private readonly instrumentsService: InstrumentsService,
     private readonly marketData: MarketDataService,
     private readonly users: UsersService,
+    private readonly earnings: EarningsService,
   ) {}
 
   async list(): Promise<WatchlistRow[]> {
@@ -96,9 +99,10 @@ export class WatchlistService {
 
     // One batched quote call for the whole list — the cache makes a repeat
     // visit free for 60s, and a per-row call would be N round trips.
-    const quotes = await this.marketData.getQuotes(
-      instruments.map((i) => i.symbol),
-    );
+    const [quotes, earningsBySymbol] = await Promise.all([
+      this.marketData.getQuotes(instruments.map((i) => i.symbol)),
+      this.earnings.daysUntil(instruments),
+    ]);
 
     /**
      * Daily bars for every watched instrument, so "did it reach my price"
@@ -154,6 +158,9 @@ export class WatchlistService {
         id: r.id,
         symbol: instrument?.symbol ?? 'UNKNOWN',
         name: instrument?.name ?? null,
+        daysUntilEarnings: instrument
+          ? earningsBySymbol.get(instrument.symbol) ?? null
+          : null,
         price,
         stale: quote?.stale ?? false,
         targetPrice: r.targetPrice,

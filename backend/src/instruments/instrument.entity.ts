@@ -27,6 +27,12 @@ export class Instrument {
   @Column({ default: false })
   isBenchmark: boolean;
 
+  @Column({ type: 'date', nullable: true })
+  nextEarningsDate?: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  earningsCheckedAt?: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

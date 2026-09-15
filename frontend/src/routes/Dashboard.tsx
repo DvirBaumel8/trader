@@ -41,6 +41,7 @@ interface Position {
   unrealizedPnl: number | null;
   unrealizedPct: number | null;
   tradeId: string | null;
+  daysUntilEarnings: number | null;
 }
 
 interface AtRisk {
@@ -166,6 +167,14 @@ function PositionRow({ p }: { p: Position }) {
           <span className={`text-[11px] opacity-70 ${signClass(p.unrealizedPnl)}`}>
             <Money value={p.unrealizedPnl} signed />
           </span>
+        </div>
+        <div className="mt-0.5 text-[10px] tabular-nums text-muted">
+          <span className="uppercase tracking-wide">Earnings</span>{' '}
+          {p.daysUntilEarnings === null
+            ? '—'
+            : p.daysUntilEarnings === 0
+              ? 'today'
+              : `${p.daysUntilEarnings}d`}
         </div>
       </div>
     </>

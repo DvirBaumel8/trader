@@ -54,7 +54,7 @@ function renderHarness() {
 }
 
 describe('EntrySheet, composing two new entries in a row', () => {
-  it('is blank the second time it is opened, after a clean save of the first', async () => {
+  it('stays open and resets to blank after saving a new entry', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
     const user = userEvent.setup();
     renderHarness();
@@ -69,15 +69,10 @@ describe('EntrySheet, composing two new entries in a row', () => {
     // Save entry 1.
     await user.click(screen.getByText('Save entry'));
 
-    // Wait for the dialog to close.
-    await waitFor(() =>
-      expect(screen.queryByPlaceholderText('NVDA')).not.toBeInTheDocument(),
-    );
-
-    // Open for entry 2 — must be blank, not carrying entry 1's details.
-    await user.click(screen.getByText('New entry'));
+    // The composer remains available for entry 2, but must be blank rather
+    // than carrying entry 1's details.
     const symbol2 = await screen.findByPlaceholderText('NVDA');
-
+    expect(symbol2).toBeVisible();
     expect(symbol2).toHaveValue('');
     expect(screen.getByPlaceholderText('qty')).toHaveValue(null);
   });
@@ -463,7 +458,7 @@ describe('EntrySheet, auto-watching a name once fully sold', () => {
     ).toBe(false);
   });
 
-  it('still closes the sheet even when the auto-watch call itself fails', async () => {
+  it('keeps the new-entry sheet open even when the auto-watch call itself fails', async () => {
     (api as ReturnType<typeof vi.fn>).mockImplementation(
       (path: string, init?: RequestInit) => {
         if (path === '/portfolio') {
@@ -497,10 +492,10 @@ describe('EntrySheet, auto-watching a name once fully sold', () => {
     await user.type(screen.getByPlaceholderText('price'), '220');
     await user.click(screen.getByText('Save entry'));
 
-    // The sheet closes regardless — a failed best-effort watchlist add must
-    // never read as the trade itself failing to save.
+    // A failed best-effort watchlist add must never read as the trade itself
+    // failing to save, and the new-entry composer remains chained.
     await waitFor(() =>
-      expect(screen.queryByPlaceholderText('price')).not.toBeInTheDocument(),
+      expect(screen.queryByPlaceholderText('price')).toBeInTheDocument(),
     );
   });
 });
