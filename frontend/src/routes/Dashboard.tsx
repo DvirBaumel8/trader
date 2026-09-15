@@ -291,13 +291,13 @@ export function Dashboard() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <MinimizableSection storageKey="trader.portfolio.overviewOpen" label="Overview">
       <section>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-text/70">
                 Account value
               </span>
               <SessionBadge
@@ -389,23 +389,25 @@ export function Dashboard() {
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs uppercase tracking-wide text-muted">
+          <span className="text-xs uppercase tracking-wide text-text/70">
             Holdings
           </span>
           <SortPicker sort={sort} onChange={changeSort} />
         </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-x-2">
-          <span className={HEADER_CELL}>Symbol</span>
-          <span className={`text-right ${HEADER_CELL}`}>Qty / Avg</span>
-          <span className={`text-right ${HEADER_CELL}`}>Market value</span>
-          <span className={`text-right ${HEADER_CELL}`}>P&amp;L</span>
-          <span className={`text-right ${HEADER_CELL}`}>Earnings</span>
-          {sortPositions(data.positions, sort.key, sort.dir).map((p, i) => (
-            <Fragment key={p.symbol}>
-              <PositionRow p={p} />
-              {i < data.positions.length - 1 && <div className="col-span-full border-b border-border" />}
-            </Fragment>
-          ))}
+        <div className="overflow-x-auto">
+          <div className="grid min-w-[34rem] grid-cols-[minmax(7rem,1fr)_auto_auto_auto_auto] items-center gap-x-3">
+            <span className={`${HEADER_CELL} whitespace-nowrap text-text/70`}>Symbol</span>
+            <span className={`whitespace-nowrap text-right ${HEADER_CELL} text-text/70`}>Qty / Avg</span>
+            <span className={`whitespace-nowrap text-right ${HEADER_CELL} text-text/70`}>Market value</span>
+            <span className={`whitespace-nowrap text-right ${HEADER_CELL} text-text/70`}>P&amp;L</span>
+            <span className={`whitespace-nowrap text-right ${HEADER_CELL} text-text/70`}>Earnings</span>
+            {sortPositions(data.positions, sort.key, sort.dir).map((p, i) => (
+              <Fragment key={p.symbol}>
+                <PositionRow p={p} />
+                {i < data.positions.length - 1 && <div className="col-span-full border-b border-border" />}
+              </Fragment>
+            ))}
+          </div>
         </div>
       </section>
 

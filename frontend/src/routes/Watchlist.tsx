@@ -273,14 +273,15 @@ export function Watchlist() {
           </p>
         )}
 
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-x-3">
-          <span className="text-[10px] uppercase tracking-wide text-muted">Symbol</span>
-          <span className="text-right text-[10px] uppercase tracking-wide text-muted">Price</span>
-          <span className="text-right text-[10px] uppercase tracking-wide text-muted">Target</span>
-          <span className="text-right text-[10px] uppercase tracking-wide text-muted">Earnings</span>
-          {shown.map((r, i) => (
-            <Fragment key={r.id}>
-              <div className="group contents">
+        <div className="overflow-x-auto">
+          <div className="grid min-w-[30rem] grid-cols-[minmax(7.5rem,1fr)_auto_auto_auto] items-start gap-x-3">
+            <span className="whitespace-nowrap text-[10px] uppercase tracking-wide text-text/70">Symbol</span>
+            <span className="whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70">Price</span>
+            <span className="whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70">Target</span>
+            <span className="whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70">Earnings</span>
+            {shown.map((r, i) => (
+              <Fragment key={r.id}>
+                <div className="group contents">
                 <div className="min-w-0 py-3 transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold">{r.symbol}</span>
@@ -321,17 +322,18 @@ export function Watchlist() {
                 <div className="py-3 text-right text-[11px] tabular-nums text-muted transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">
                   {r.daysUntilEarnings === null ? '—' : r.daysUntilEarnings === 0 ? 'today' : `${r.daysUntilEarnings}d`}
                 </div>
-              </div>
-              {editMode && (
-                <div className="col-span-full"><RowEditor
-                  row={r}
-                  onDelete={() => removeMutation.mutate(r.id)}
-                  onSaved={invalidate}
-                /></div>
-              )}
-              {i < shown.length - 1 && <div className="col-span-full border-b border-border" />}
-            </Fragment>
-          ))}
+                </div>
+                {editMode && (
+                  <div className="col-span-full"><RowEditor
+                    row={r}
+                    onDelete={() => removeMutation.mutate(r.id)}
+                    onSaved={invalidate}
+                  /></div>
+                )}
+                {i < shown.length - 1 && <div className="col-span-full border-b border-border" />}
+              </Fragment>
+            ))}
+          </div>
         </div>
       </section>
 
