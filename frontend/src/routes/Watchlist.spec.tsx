@@ -93,6 +93,14 @@ function renderWatchlist(
 }
 
 describe('Watchlist add form', () => {
+  it('keeps the add composer out of the page until requested', async () => {
+    renderWatchlist([]);
+    expect(screen.queryByPlaceholderText('NVDA, AMD, TSLA')).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Add stocks' }));
+    expect(screen.getByPlaceholderText('NVDA, AMD, TSLA')).toBeInTheDocument();
+  });
+
   /**
    * Tags and a note were only reachable through edit mode after a row
    * already existed — the pencil, the row, and Save, for a field the
@@ -100,6 +108,7 @@ describe('Watchlist add form', () => {
    */
   it('offers tags and a note up front, not only after adding', async () => {
     renderWatchlist([]);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Add stocks' }));
     expect(screen.getByPlaceholderText(/tags/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/why you are watching/)).toBeInTheDocument();
   });
@@ -107,13 +116,14 @@ describe('Watchlist add form', () => {
   it('sends the note and tags typed before adding, in the same request', async () => {
     const user = userEvent.setup();
     renderWatchlist([]);
-    await user.type(screen.getByPlaceholderText('NVDA'), 'nvda');
+    await user.click(screen.getByRole('button', { name: 'Add stocks' }));
+    await user.type(screen.getByPlaceholderText('NVDA, AMD, TSLA'), 'nvda');
     await user.type(screen.getByPlaceholderText(/tags/), 'semis, breakout');
     await user.type(
       screen.getByPlaceholderText(/why you are watching/),
       'earnings run',
     );
-    await user.click(screen.getByRole('button', { name: 'Watch' }));
+    await user.click(screen.getByRole('button', { name: 'Watch 1 stock' }));
 
     await waitFor(() => {
       const call = (api as ReturnType<typeof vi.fn>).mock.calls.find(
@@ -131,18 +141,40 @@ describe('Watchlist add form', () => {
   it('clears note and tags after a successful add, like the ticker field', async () => {
     const user = userEvent.setup();
     renderWatchlist([]);
+    await user.click(screen.getByRole('button', { name: 'Add stocks' }));
     await user.type(screen.getByPlaceholderText(/tags/), 'semis');
     await user.type(
       screen.getByPlaceholderText(/why you are watching/),
       'earnings run',
     );
-    await user.type(screen.getByPlaceholderText('NVDA'), 'nvda');
-    await user.click(screen.getByRole('button', { name: 'Watch' }));
+    await user.type(screen.getByPlaceholderText('NVDA, AMD, TSLA'), 'nvda');
+    await user.click(screen.getByRole('button', { name: 'Watch 1 stock' }));
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/tags/)).toHaveValue('');
     });
     expect(screen.getByPlaceholderText(/why you are watching/)).toHaveValue('');
+  });
+
+  it('adds comma- and newline-separated symbols in one batch', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([]);
+    await user.click(screen.getByRole('button', { name: 'Add stocks' }));
+    await user.type(screen.getByPlaceholderText('NVDA, AMD, TSLA'), 'nvda, amd\nTSLA');
+    await user.click(screen.getByRole('button', { name: 'Watch 3 stocks' }));
+
+    await waitFor(() => {
+      const calls = (api as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c) => c[0] === '/watchlist' && (c[1] as { method?: string })?.method === 'POST',
+      );
+      expect(calls).toHaveLength(3);
+      expect(calls.map((c) => JSON.parse((c[1] as { body: string }).body).symbol)).toEqual([
+        'NVDA',
+        'AMD',
+        'TSLA',
+      ]);
+    });
+    expect(screen.getByRole('dialog', { name: 'Add to watchlist' })).toBeInTheDocument();
   });
 });
 
@@ -231,8 +263,8 @@ describe('Watchlist rows', () => {
     await user.click(screen.getByRole('button', { name: 'Edit watchlist' }));
 
     expect(screen.getByPlaceholderText('target (blank to clear)')).toBeInTheDocument();
-    expect(screen.getAllByPlaceholderText(/tags/)).toHaveLength(2);
-    expect(screen.getAllByPlaceholderText(/why you are watching/)).toHaveLength(2);
+    expect(screen.getAllByPlaceholderText(/tags/)).toHaveLength(1);
+    expect(screen.getAllByPlaceholderText(/why you are watching/)).toHaveLength(1);
   });
 
   /** Clearing the field must REMOVE the target, not leave the old one. */

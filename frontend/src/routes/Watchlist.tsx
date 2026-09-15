@@ -1,6 +1,6 @@
 import { Fragment, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError } from '../api/client';
+import { api } from '../api/client';
 import { formatMoney, formatPercent } from '../components/format';
 import { Button } from '../components/ui/Button';
 import { inputClasses } from '../components/ui/inputClasses';
@@ -38,10 +38,11 @@ interface WatchRow {
  */
 export function Watchlist() {
   const queryClient = useQueryClient();
-  const [symbol, setSymbol] = useState('');
+  const [symbolText, setSymbolText] = useState('');
   const [target, setTarget] = useState('');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
+  const [composerOpen, setComposerOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   // Survives iOS discarding the tab mid-typing, like every other form here.
   const [tagFilter, setTagFilter] = usePersistentState<string | null>(
@@ -58,18 +59,24 @@ export function Watchlist() {
     queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
 
   const addMutation = useMutation({
-    mutationFn: (body: {
-      symbol: string;
-      targetPrice?: number;
-      note?: string;
-      tags?: string[];
-    }) =>
-      api<WatchRow>('/watchlist', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }),
-    onSuccess: async () => {
-      setSymbol('');
+    mutationFn: async (input: {
+      symbols: string[];
+      body: { targetPrice?: number; note?: string; tags?: string[] };
+    }) => {
+      const results = await Promise.allSettled(
+        input.symbols.map((symbol) =>
+          api<WatchRow>('/watchlist', {
+            method: 'POST',
+            body: JSON.stringify({ ...input.body, symbol }),
+          }),
+        ),
+      );
+      return {
+        failed: input.symbols.filter((_, index) => results[index].status === 'rejected'),
+      };
+    },
+    onSuccess: async ({ failed }) => {
+      setSymbolText(failed.join('\n'));
       setTarget('');
       setNote('');
       setTags('');
@@ -95,14 +102,21 @@ export function Watchlist() {
   const shown = tagFilter
     ? rows.filter((r) => r.tags.some((t) => t.label === tagFilter))
     : rows;
+  const enteredSymbols = [...new Set(
+    symbolText
+      .split(/[\s,;]+/)
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean),
+  )];
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const ticker = symbol.trim().toUpperCase();
-    if (!ticker) return;
+    if (enteredSymbols.length === 0) return;
     const parsed = parseFloat(target);
+    addMutation.reset();
     addMutation.mutate({
-      symbol: ticker,
+      symbols: enteredSymbols,
+      body: {
       ...(target.trim() !== '' && Number.isFinite(parsed) && parsed > 0
         ? { targetPrice: Math.abs(parsed) }
         : {}),
@@ -115,6 +129,7 @@ export function Watchlist() {
               .filter(Boolean),
           }
         : {}),
+      },
     });
   }
 
@@ -166,61 +181,6 @@ export function Watchlist() {
         </section>
       )}
 
-      <form onSubmit={submit} className="space-y-2">
-        <div className="flex gap-2">
-          <input
-            placeholder="NVDA"
-            autoCapitalize="characters"
-            autoCorrect="off"
-            spellCheck={false}
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            className={inputClass}
-          />
-          <input
-            type="number"
-            inputMode="decimal"
-            placeholder="target"
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            className={inputClass}
-          />
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={addMutation.isPending || !symbol.trim()}
-          >
-            {addMutation.isPending ? 'Adding…' : 'Watch'}
-          </Button>
-        </div>
-        {/*
-          Same fields RowEditor offers after the fact, moved up front —
-          they were always accepted by this same endpoint, just undiscoverable
-          without the pencil, the row, and Save. Optional, so a quick add
-          stays quick: leave them blank and nothing changes about that path.
-        */}
-        <input
-          placeholder="tags, comma separated"
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          className={inputClasses('sm')}
-        />
-        <input
-          placeholder="why you are watching it (optional)"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          className={inputClasses('sm')}
-        />
-      </form>
-      {addMutation.isError && (
-        <p className="text-xs text-down">
-          {addMutation.error instanceof ApiError &&
-          addMutation.error.status === 404
-            ? `No ticker called "${symbol.trim().toUpperCase()}". Check the symbol.`
-            : 'Could not add that just now.'}
-        </p>
-      )}
-
       {allTags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           <button
@@ -268,8 +228,8 @@ export function Watchlist() {
         {listQuery.isLoading && <p className="text-xs text-muted">Loading…</p>}
         {!listQuery.isLoading && rows.length === 0 && (
           <p className="text-xs text-muted">
-            Nothing watched yet. Add a ticker above, with the price you want to
-            be told about.
+            Nothing watched yet. Tap + to add stocks, with the price you want
+            to be told about.
           </p>
         )}
 
@@ -336,6 +296,83 @@ export function Watchlist() {
           </div>
         </div>
       </section>
+
+      <button
+        type="button"
+        onClick={() => setComposerOpen(true)}
+        aria-label="Add stocks"
+        className="fixed right-5 bottom-8 z-40 h-14 w-14 rounded-full bg-accent text-3xl leading-none font-light text-surface-0 shadow-lg"
+      >
+        +
+      </button>
+
+      {composerOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setComposerOpen(false)}
+            className="flex-1"
+          />
+          <form
+            role="dialog"
+            aria-label="Add to watchlist"
+            onSubmit={submit}
+            className="max-h-[88vh] space-y-4 overflow-y-auto rounded-t-2xl border-t border-border bg-surface-0 p-4 pb-10"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Add to watchlist</h2>
+              <button type="button" aria-label="Close" onClick={() => setComposerOpen(false)} className="text-sm text-muted">Close</button>
+            </div>
+            <textarea
+              placeholder="NVDA, AMD, TSLA"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              rows={3}
+              value={symbolText}
+              onChange={(e) => setSymbolText(e.target.value)}
+              className={`${inputClasses('md')} resize-none`}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                inputMode="decimal"
+                placeholder="target (optional)"
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                className={inputClass}
+              />
+              <input
+                placeholder="tags, comma separated"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <input
+              placeholder="why you are watching it (optional)"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className={inputClasses('sm')}
+            />
+            {addMutation.data?.failed.length ? (
+              <p className="text-xs text-down">Could not add: {addMutation.data.failed.join(', ')}. Check the symbols.</p>
+            ) : null}
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={addMutation.isPending || enteredSymbols.length === 0}
+            >
+              {addMutation.isPending
+                ? 'Adding…'
+                : enteredSymbols.length === 0
+                  ? 'Watch stocks'
+                  : `Watch ${enteredSymbols.length} ${enteredSymbols.length === 1 ? 'stock' : 'stocks'}`}
+            </Button>
+          </form>
+        </div>
+      )}
 
     </div>
   );
