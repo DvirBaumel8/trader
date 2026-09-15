@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { Fragment, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
 import { formatMoney, formatPercent } from '../components/format';
@@ -27,15 +27,6 @@ interface WatchRow {
   note: string;
   tags: { id: string; label: string }[];
   daysUntilEarnings: number | null;
-}
-
-function EarningsCell({ days }: { days: number | null }) {
-  return (
-    <div className="text-[10px] tabular-nums text-muted">
-      <span className="uppercase tracking-wide">Earnings</span>{' '}
-      <span>{days === null ? '—' : days === 0 ? 'today' : `${days}d`}</span>
-    </div>
-  );
 }
 
 /**
@@ -282,14 +273,15 @@ export function Watchlist() {
           </p>
         )}
 
-        <ul className="space-y-1.5">
-          {shown.map((r) => (
-            <li
-              key={r.id}
-              className="rounded-lg border border-border bg-surface-1 px-3 py-2"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-x-3">
+          <span className="text-[10px] uppercase tracking-wide text-muted">Symbol</span>
+          <span className="text-right text-[10px] uppercase tracking-wide text-muted">Price</span>
+          <span className="text-right text-[10px] uppercase tracking-wide text-muted">Target</span>
+          <span className="text-right text-[10px] uppercase tracking-wide text-muted">Earnings</span>
+          {shown.map((r, i) => (
+            <Fragment key={r.id}>
+              <div className="group contents">
+                <div className="min-w-0 py-3 transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold">{r.symbol}</span>
                     {r.reached && (
@@ -322,41 +314,25 @@ export function Watchlist() {
                     </div>
                   )}
                 </div>
-                <div className="shrink-0 text-right">
-                  <div className="text-sm tabular-nums">
-                    {r.price === null ? '—' : formatMoney(r.price)}
-                  </div>
-                  {r.targetPrice !== null ? (
-                    <div className="text-[10px] tabular-nums text-muted">
-                      target {formatMoney(r.targetPrice)}
-                      {r.distanceToTarget !== null && (
-                        <> · {formatPercent(r.distanceToTarget)} away</>
-                      )}
-                    </div>
-                  ) : (
-                    /*
-                      A ticker with no target rendered as a bare symbol and a
-                      price, which reads as something half-loaded rather than
-                      as a deliberate state. Saying so — and saying where to
-                      change it — costs one line and makes the row explain
-                      itself. The target stays optional; it just no longer
-                      looks like an omission.
-                    */
-                    <div className="text-[10px] text-muted">no target set</div>
-                  )}
-                  <EarningsCell days={r.daysUntilEarnings} />
+                <div className="py-3 text-right text-sm tabular-nums transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">{r.price === null ? '—' : formatMoney(r.price)}</div>
+                <div className="py-3 text-right text-[10px] tabular-nums text-muted transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">
+                  {r.targetPrice !== null ? <><span className="block">{formatMoney(r.targetPrice)}</span>{r.distanceToTarget !== null && <span>{formatPercent(r.distanceToTarget)} away</span>}</> : 'no target set'}
+                </div>
+                <div className="py-3 text-right text-[11px] tabular-nums text-muted transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">
+                  {r.daysUntilEarnings === null ? '—' : r.daysUntilEarnings === 0 ? 'today' : `${r.daysUntilEarnings}d`}
                 </div>
               </div>
               {editMode && (
-                <RowEditor
+                <div className="col-span-full"><RowEditor
                   row={r}
                   onDelete={() => removeMutation.mutate(r.id)}
                   onSaved={invalidate}
-                />
+                /></div>
               )}
-            </li>
+              {i < shown.length - 1 && <div className="col-span-full border-b border-border" />}
+            </Fragment>
           ))}
-        </ul>
+        </div>
       </section>
 
     </div>

@@ -2,6 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Dashboard } from './Dashboard';
@@ -40,6 +41,26 @@ describe('Dashboard earnings column', () => {
   it('shows days until earnings for a holding', async () => {
     renderDashboard([{ ...position('NVDA', 100), daysUntilEarnings: 7 }]);
     expect(await screen.findByText('7d')).toBeInTheDocument();
+  });
+});
+
+describe('Dashboard holdings table', () => {
+  it('shows aligned column headers for holdings', async () => {
+    renderDashboard([position('NVDA', 100)]);
+    expect(await screen.findByText('Symbol')).toBeInTheDocument();
+    expect(screen.getByText('Qty / Avg')).toBeInTheDocument();
+    expect(screen.getByText('Market value')).toBeInTheDocument();
+    expect(screen.getByText('P&L')).toBeInTheDocument();
+    expect(screen.getByText('Earnings')).toBeInTheDocument();
+  });
+
+  it('remembers when the portfolio overview is minimized', async () => {
+    renderDashboard([position('NVDA', 100)]);
+    const user = userEvent.setup();
+    const button = await screen.findByRole('button', { name: 'Hide overview' });
+    await user.click(button);
+    expect(screen.getByRole('button', { name: 'Show overview' })).toBeInTheDocument();
+    expect(screen.queryByText('Account value')).not.toBeInTheDocument();
   });
 });
 

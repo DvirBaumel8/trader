@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
   keepPreviousData,
   useMutation,
@@ -22,6 +22,7 @@ import { SessionBadge } from '../components/SessionBadge';
 import { RefreshButton } from '../components/RefreshButton';
 import { Button } from '../components/ui/Button';
 import { BenchmarkChart } from '../components/BenchmarkChart';
+import { MinimizableSection } from '../components/ui/MinimizableSection';
 import { RANGES, type Point, type Range } from '../lib/benchmarkRange';
 
 interface Position {
@@ -137,66 +138,46 @@ function SortPicker({
  *   3. cost basis and $ P&L     — supporting detail, quiet on purpose
  */
 function PositionRow({ p }: { p: Position }) {
-  const content = (
-    <>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[15px] font-semibold leading-tight">
-            {p.symbol}
-          </span>
-          {p.quantity < 0 && (
-            <span className="rounded bg-down/15 px-1 py-px text-[9px] font-medium tracking-wide text-down">
-              SHORT
-            </span>
-          )}
-          {p.stale && (
-            <span className="text-[9px] tracking-wide text-down">STALE</span>
-          )}
-        </div>
-        <div className="mt-0.5 truncate text-[11px] leading-tight text-muted">
-          {formatQuantity(p.quantity)} @ <Money value={p.avgCost} />
-        </div>
-      </div>
-
-      <div className="shrink-0 text-right">
-        <div className="text-[15px] font-medium leading-tight">
-          <Money value={p.marketValue} />
-        </div>
-        <div className="mt-0.5 flex items-baseline justify-end gap-1.5 leading-tight">
-          <Percent value={p.unrealizedPct} className="text-[12px]" />
-          <span className={`text-[11px] opacity-70 ${signClass(p.unrealizedPnl)}`}>
-            <Money value={p.unrealizedPnl} signed />
-          </span>
-        </div>
-        <div className="mt-0.5 text-[10px] tabular-nums text-muted">
-          <span className="uppercase tracking-wide">Earnings</span>{' '}
-          {p.daysUntilEarnings === null
-            ? '—'
-            : p.daysUntilEarnings === 0
-              ? 'today'
-              : `${p.daysUntilEarnings}d`}
-        </div>
-      </div>
-    </>
-  );
-
   return (
-    <li className="border-b border-border last:border-0">
-      {p.tradeId !== null ? (
-        <Link
-          to={`/trades/${encodeURIComponent(p.tradeId)}`}
-          className="flex items-baseline justify-between gap-3 py-2.5 transition-colors hover:bg-surface-1 active:bg-surface-2"
-        >
-          {content}
-        </Link>
-      ) : (
-        <div className="flex items-baseline justify-between gap-3 py-2.5">
-          {content}
+    <Fragment>
+      <Link
+        to={p.tradeId !== null ? `/trades/${encodeURIComponent(p.tradeId)}` : '#'}
+        className={p.tradeId !== null ? 'group contents' : 'contents'}
+        onClick={p.tradeId === null ? (e) => e.preventDefault() : undefined}
+      >
+        <div className={`min-w-0 truncate text-[15px] font-semibold ${ROW_CELL}`}>
+          <div className="flex items-center gap-1.5">
+            {p.symbol}
+            {p.quantity < 0 && (
+              <span className="rounded bg-down/15 px-1 py-px text-[9px] font-medium tracking-wide text-down">
+                SHORT
+              </span>
+            )}
+            {p.stale && (
+              <span className="text-[9px] tracking-wide text-down">STALE</span>
+            )}
+          </div>
         </div>
-      )}
-    </li>
+        <span className={`text-right text-[12px] tabular-nums text-muted ${ROW_CELL}`}>
+          {formatQuantity(p.quantity)} @ <Money value={p.avgCost} />
+        </span>
+        <span className={`text-right text-[13px] tabular-nums ${ROW_CELL}`}>
+          <Money value={p.marketValue} />
+        </span>
+        <span className={`text-right ${ROW_CELL}`}>
+          <span className="block text-[12px] tabular-nums"><Percent value={p.unrealizedPct} /></span>
+          <span className={`block text-[11px] tabular-nums opacity-70 ${signClass(p.unrealizedPnl)}`}><Money value={p.unrealizedPnl} signed /></span>
+        </span>
+        <span className={`text-right text-[11px] tabular-nums text-muted ${ROW_CELL}`}>
+          {p.daysUntilEarnings === null ? '—' : p.daysUntilEarnings === 0 ? 'today' : `${p.daysUntilEarnings}d`}
+        </span>
+      </Link>
+    </Fragment>
   );
 }
+
+const HEADER_CELL = 'text-[10px] tracking-wide text-muted uppercase';
+const ROW_CELL = 'py-3 transition-colors group-hover:bg-surface-1 group-active:bg-surface-2';
 
 /**
  * Seeding is a one-shot flow that is easy to get wrong on a phone, so there has
@@ -311,6 +292,7 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <MinimizableSection storageKey="trader.portfolio.overviewOpen" label="Overview">
       <section>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -386,19 +368,24 @@ export function Dashboard() {
           )}
         </div>
       </section>
+      </MinimizableSection>
 
-      <AiSummary />
+      <MinimizableSection storageKey="trader.portfolio.aiOpen" label="AI summary">
+        <AiSummary />
+      </MinimizableSection>
 
-      <BenchmarkChart
-        points={performance?.points ?? []}
-        deltas={performance?.deltas ?? null}
-        unpricedSymbols={performance?.unpricedSymbols ?? []}
-        range={range}
-        onRangeChange={(r) => {
-          setRange(r);
-          saveDraft(RANGE_KEY, { range: r });
-        }}
-      />
+      <MinimizableSection storageKey="trader.portfolio.benchmarkOpen" label="Benchmark">
+        <BenchmarkChart
+          points={performance?.points ?? []}
+          deltas={performance?.deltas ?? null}
+          unpricedSymbols={performance?.unpricedSymbols ?? []}
+          range={range}
+          onRangeChange={(r) => {
+            setRange(r);
+            saveDraft(RANGE_KEY, { range: r });
+          }}
+        />
+      </MinimizableSection>
 
       <section>
         <div className="mb-2 flex items-center justify-between">
@@ -407,16 +394,24 @@ export function Dashboard() {
           </span>
           <SortPicker sort={sort} onChange={changeSort} />
         </div>
-        <ul>
-          {sortPositions(data.positions, sort.key, sort.dir).map((p) => (
-            <PositionRow key={p.symbol} p={p} />
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-x-2">
+          <span className={HEADER_CELL}>Symbol</span>
+          <span className={`text-right ${HEADER_CELL}`}>Qty / Avg</span>
+          <span className={`text-right ${HEADER_CELL}`}>Market value</span>
+          <span className={`text-right ${HEADER_CELL}`}>P&amp;L</span>
+          <span className={`text-right ${HEADER_CELL}`}>Earnings</span>
+          {sortPositions(data.positions, sort.key, sort.dir).map((p, i) => (
+            <Fragment key={p.symbol}>
+              <PositionRow p={p} />
+              {i < data.positions.length - 1 && <div className="col-span-full border-b border-border" />}
+            </Fragment>
           ))}
-        </ul>
+        </div>
       </section>
 
-      <section className="pt-2">
-        <ResetPortfolio positionCount={data.positions.length} />
-      </section>
+      <MinimizableSection storageKey="trader.portfolio.resetOpen" label="Portfolio controls">
+        <section className="pt-2"><ResetPortfolio positionCount={data.positions.length} /></section>
+      </MinimizableSection>
     </div>
   );
 }

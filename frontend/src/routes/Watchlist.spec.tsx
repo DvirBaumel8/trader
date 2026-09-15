@@ -191,6 +191,14 @@ describe('Watchlist target alerts', () => {
 });
 
 describe('Watchlist rows', () => {
+  it('shows aligned column headers for the watchlist', async () => {
+    renderWatchlist([row()]);
+    expect(await screen.findByText('Symbol')).toBeInTheDocument();
+    expect(screen.getByText('Price')).toBeInTheDocument();
+    expect(screen.getByText('Target')).toBeInTheDocument();
+    expect(screen.getByText('Earnings')).toBeInTheDocument();
+  });
+
   it('shows days until the next earnings date', async () => {
     renderWatchlist([row({ daysUntilEarnings: 12 })]);
     expect(await screen.findByText('12d')).toBeInTheDocument();
