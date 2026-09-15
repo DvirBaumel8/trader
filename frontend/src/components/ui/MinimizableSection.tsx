@@ -10,7 +10,9 @@ export function MinimizableSection({
   label: string;
   children: ReactNode;
 }) {
-  const [open, setOpen] = usePersistentState(storageKey, true);
+  // Unlike drafts and filters, this is an explicit layout preference. Once
+  // the owner minimizes a section, it stays minimized until he opens it.
+  const [open, setOpen] = usePersistentState(storageKey, true, Number.POSITIVE_INFINITY);
 
   return (
     <section className="space-y-2">

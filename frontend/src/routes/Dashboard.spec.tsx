@@ -55,12 +55,19 @@ describe('Dashboard holdings table', () => {
   });
 
   it('remembers when the portfolio overview is minimized', async () => {
-    renderDashboard([position('NVDA', 100)]);
+    const first = renderDashboard([position('NVDA', 100)]);
     const user = userEvent.setup();
     const button = await screen.findByRole('button', { name: 'Hide overview' });
     await user.click(button);
     expect(screen.getByRole('button', { name: 'Show overview' })).toBeInTheDocument();
     expect(screen.queryByText('Account value')).not.toBeInTheDocument();
+
+    first.unmount();
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now + 2 * 60 * 60 * 1000);
+    renderDashboard([position('NVDA', 100)]);
+    expect(await screen.findByRole('button', { name: 'Show overview' })).toBeInTheDocument();
+    vi.restoreAllMocks();
   });
 });
 
