@@ -14,6 +14,8 @@ import { MarketDataModule } from '../market-data/market-data.module.js';
 import { UsersModule } from '../users/users.module.js';
 import { LlmModule } from '../llm/llm.module.js';
 import { PortfolioModule } from '../portfolio/portfolio.module.js';
+import { DailyBriefService } from '../market-data/daily-brief.service.js';
+import { EconomicCalendarClient } from '../market-data/economic-calendar.client.js';
 
 /**
  * No forwardRef here, deliberately. The watchlist depends on instruments,
@@ -38,7 +40,7 @@ import { PortfolioModule } from '../portfolio/portfolio.module.js';
     LlmModule,
     PortfolioModule,
   ],
-  providers: [WatchlistService, WatchlistRankingService],
+  providers: [WatchlistService, WatchlistRankingService, DailyBriefService, EconomicCalendarClient],
   controllers: [WatchlistController],
   exports: [WatchlistService],
 })

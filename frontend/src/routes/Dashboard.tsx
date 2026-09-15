@@ -23,6 +23,7 @@ import { RefreshButton } from '../components/RefreshButton';
 import { Button } from '../components/ui/Button';
 import { BenchmarkChart } from '../components/BenchmarkChart';
 import { MinimizableSection } from '../components/ui/MinimizableSection';
+import { DailyBrief } from '../components/DailyBrief';
 import { RANGES, type Point, type Range } from '../lib/benchmarkRange';
 
 interface Position {
@@ -369,6 +370,8 @@ export function Dashboard() {
         </div>
       </section>
       </MinimizableSection>
+
+      <DailyBrief />
 
       <MinimizableSection storageKey="trader.portfolio.aiOpen" label="AI summary">
         <AiSummary />

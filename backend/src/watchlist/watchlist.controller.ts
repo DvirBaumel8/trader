@@ -10,12 +10,14 @@ import {
 import { WatchlistService } from './watchlist.service.js';
 import { WatchlistRankingService } from './watchlist-ranking.service.js';
 import { UpsertWatchlistDto } from './watchlist.dto.js';
+import { DailyBriefService } from '../market-data/daily-brief.service.js';
 
 @Controller('watchlist')
 export class WatchlistController {
   constructor(
     private readonly watchlist: WatchlistService,
     private readonly ranking: WatchlistRankingService,
+    private readonly brief: DailyBriefService,
   ) {}
 
   // Declared before ':id' routes so "tags" and "ranking" are never matched
@@ -29,6 +31,11 @@ export class WatchlistController {
   @Get('ranking')
   getRanking() {
     return this.ranking.current();
+  }
+
+  @Get('daily-brief')
+  dailyBrief() {
+    return this.brief.get();
   }
 
   /** Recomputes the ranking with ONE model call for the whole watchlist. */
