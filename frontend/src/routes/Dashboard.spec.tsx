@@ -102,21 +102,21 @@ function renderDashboard(positions: ReturnType<typeof position>[]) {
 }
 
 describe('Dashboard position count', () => {
-  it('counts the tickers held', async () => {
+  it('shows the open-position count with the holdings heading', async () => {
     renderDashboard([
       position('NVDA', 100),
       position('PLTR', 50),
       position('LMND', -300),
     ]);
-    const tile = (await screen.findByText('Positions')).parentElement!;
-    expect(tile).toHaveTextContent('3');
+    expect(await screen.findByText('3 positions')).toBeInTheDocument();
+    expect(screen.queryByText('Positions')).not.toBeInTheDocument();
+    expect(screen.queryByText('Deployed')).not.toBeInTheDocument();
   });
 
   /** A short is a position he holds and carries risk, so it counts. */
-  it('counts a short the same as a long', async () => {
+  it('uses the singular position count for one short holding', async () => {
     renderDashboard([position('LMND', -300)]);
-    const tile = (await screen.findByText('Positions')).parentElement!;
-    expect(tile).toHaveTextContent('1');
+    expect(await screen.findByText('1 position')).toBeInTheDocument();
   });
 
   /**
@@ -127,6 +127,6 @@ describe('Dashboard position count', () => {
   it('has no tiles to count in when the portfolio is empty', async () => {
     renderDashboard([]);
     expect(await screen.findByText('Seed your portfolio')).toBeInTheDocument();
-    expect(screen.queryByText('Positions')).not.toBeInTheDocument();
+    expect(screen.queryByText(/position$/i)).not.toBeInTheDocument();
   });
 });
