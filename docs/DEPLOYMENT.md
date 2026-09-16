@@ -87,6 +87,20 @@ Keep the printed hash for the next step.
    actually assigns — it is suffixed, e.g.
    `https://trader-backend-ufhg.onrender.com`.
 
+## 3a. Runtime AI configuration (optional)
+
+AI features remain unavailable until the API has a supported Gemini key. Read
+[AI Runtime Configuration](ai-configuration.md) before changing its provider,
+model, grounding, or thinking level.
+
+- `GEMINI_API_KEY` (preferred) and `LLM_API_KEY` (legacy fallback) are secrets:
+  set one in Render's **Environment** dashboard and never commit a real value
+  to Git, `.env.example`, or `render.yaml`.
+- `LLM_PROVIDER`, `LLM_MODEL`, and `LLM_THINKING_LEVEL` are plain runtime
+  settings, not secrets. The blueprint already deploys
+  `LLM_THINKING_LEVEL=MINIMAL`; changing it is optional and must follow the
+  model/provider verification in the linked reference.
+
 ## 4. Cloudflare Pages (frontend)
 
 1. In this GitHub repo's settings, add:
