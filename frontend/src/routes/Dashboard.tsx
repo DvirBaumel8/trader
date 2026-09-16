@@ -271,18 +271,8 @@ export function Dashboard() {
   if (error) {
     return <p className="text-sm text-down">{(error as Error).message}</p>;
   }
-  if (!data || data.positions.length === 0) {
-    return (
-      <div className="space-y-3">
-        <p className="text-sm text-muted">No portfolio yet.</p>
-        <Link
-          to="/seed"
-          className="inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-surface-0"
-        >
-          Seed your portfolio
-        </Link>
-      </div>
-    );
+  if (!data) {
+    return <p className="text-sm text-muted">No portfolio data available.</p>;
   }
 
   const totalUnrealized = data.positions.reduce(
@@ -401,9 +391,11 @@ export function Dashboard() {
         </div>
       </section>
 
-      <MinimizableSection storageKey="trader.portfolio.resetOpen" label="Portfolio controls">
-        <section className="pt-2"><ResetPortfolio positionCount={data.positions.length} /></section>
-      </MinimizableSection>
+      {data.positions.length > 0 && (
+        <MinimizableSection storageKey="trader.portfolio.resetOpen" label="Portfolio controls">
+          <section className="pt-2"><ResetPortfolio positionCount={data.positions.length} /></section>
+        </MinimizableSection>
+      )}
     </div>
   );
 }

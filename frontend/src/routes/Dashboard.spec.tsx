@@ -119,14 +119,11 @@ describe('Dashboard position count', () => {
     expect(await screen.findByText('1 position')).toBeInTheDocument();
   });
 
-  /**
-   * There is no zero case to show: an empty portfolio short-circuits to the
-   * seed prompt before the tiles render at all. Pinned here so the count is
-   * never "fixed" later by reaching for a 0 that has nowhere to appear.
-   */
-  it('has no tiles to count in when the portfolio is empty', async () => {
+  it('shows the empty holdings count without a seed prompt', async () => {
     renderDashboard([]);
-    expect(await screen.findByText('Seed your portfolio')).toBeInTheDocument();
-    expect(screen.queryByText(/position$/i)).not.toBeInTheDocument();
+    expect(await screen.findByText('0 positions')).toBeInTheDocument();
+    expect(screen.getByText('Account value')).toBeInTheDocument();
+    expect(screen.queryByText('Seed your portfolio')).not.toBeInTheDocument();
+    expect(screen.queryByText('Reset & re-seed portfolio')).not.toBeInTheDocument();
   });
 });
