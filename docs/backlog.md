@@ -25,17 +25,17 @@ this file says what remains.
 - [ ] **Trade chart: shipped, awaiting the owner's eye.** Fills, stops, and
   targets are price-anchored and labelled; `plannedTarget` now reaches
   `DerivedTrade`, and `markerSideForPrice` chooses the emptier side of each
-  candle. On a phone, confirm tight levels do not crowd the axis (PLTR stop
-  167.61 versus exit 167.15) and per-fill side selection reads on a tall candle.
+  candle. On a phone, confirm a tightly clustered stop and exit level does not
+  crowd the axis and per-fill side selection reads on a tall candle.
 
 ## UI
 
 - [ ] **Review the UI as a whole.** Study comparable products and decide which
   conventions or layout changes earn their complexity. In particular, test
   whether chart labels are legible at phone width: current-price labels already
-  overlapped nearby grid labels on MSTR, BITX, and PLTR, and fills/stops/targets
-  add more. If unreadable, retain labels only for stop and target; fills keep
-  their lines and supporting text.
+  overlapped nearby grid labels on some charts, and fills/stops/targets add
+  more. If unreadable, retain labels only for stop and target; fills keep their
+  lines and supporting text.
 
 ## Features requested, not yet designed
 
