@@ -165,6 +165,7 @@ calculation semantics on the backend and test them with fixtures.
 | Trader's in-product AI model/provider/configuration | `docs/ai-configuration.md` |
 | product intent | `docs/product-brief.md` |
 | deployment | `docs/DEPLOYMENT.md` |
+| schema changes or migrations | `docs/DEPLOYMENT.md` |
 | public API behavior | `docs/api.md` |
 | a past design decision or implementation | the matching file under `docs/superpowers/specs/` or `docs/superpowers/plans/` |
 
