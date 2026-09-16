@@ -18,8 +18,8 @@ documents for decisions, implementation detail, and history.
   QQQ, so deposits and withdrawals do not read as gains or losses.
 - Closed trades can be replayed on an annotated daily candle chart with fills,
   stops, and planned targets. The Trades screen also offers period totals and
-  symbol search; Stocks summarizes each traded symbol, including fees and
-  history.
+  symbol search; Stocks summarizes symbols with at least one closed trade,
+  including fees and history.
 - AI features include streamed portfolio summaries, trade reviews, trade ideas,
   and per-symbol pattern reads. They use app-computed facts; model prose is not
   the source of portfolio numbers.
