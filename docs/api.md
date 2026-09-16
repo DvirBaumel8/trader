@@ -1,6 +1,6 @@
 # The HTTP API
 
-The surface an agent (or any client) works against. `CLAUDE.md` says how to
+The surface an agent (or any client) works against. `AGENTS.md` says how to
 work in the codebase; this says what the running app exposes and how to talk
 to it.
 

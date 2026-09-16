@@ -4,7 +4,7 @@ Everything raised and not yet done. Newest intake at the top of each section.
 Finished items are removed once the work is committed — this file is meant to
 be read as "what's left," not a history of what happened (that's `git log`).
 
-**Read this before picking up work.** `CLAUDE.md` says what the project is;
+**Read this before picking up work.** `AGENTS.md` says what the project is;
 this says what is outstanding.
 
 ## Bugs — correctness

@@ -1,7 +1,7 @@
 # Trader — Product Brief
 
 Everything below comes from the project owner. It is the "why" behind the code;
-`CLAUDE.md` is the "how". When a technical decision is ambiguous, this file
+`AGENTS.md` is the "how". When a technical decision is ambiguous, this file
 should break the tie.
 
 ## Who this is for
