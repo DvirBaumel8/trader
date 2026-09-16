@@ -1,32 +1,22 @@
-# React + TypeScript + Vite
+# Trader frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The frontend is the mobile-first display and entry surface for Trader. It
+renders server-provided facts, collects drafts, and keeps no authoritative
+portfolio or money-calculation logic.
 
-Currently, two official plugins are available:
+Read the [project guide](../AGENTS.md) before changing this package. It covers
+phone-width verification, shared UI patterns, and the API-client boundary.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Normal development
 
-## React Compiler
+From the repository root:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm run dev --prefix frontend
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Vite serves port 5173 and proxies `/api` to the local backend. Run frontend
+tests with `npm run test --prefix frontend`.
+
+See [the HTTP API](../docs/api.md) for the server contract and
+[deployment](../docs/DEPLOYMENT.md) for build and hosting operations.

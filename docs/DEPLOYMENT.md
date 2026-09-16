@@ -247,15 +247,30 @@ the verifier only reports an email when Google says it is verified.
 
 ## Local development
 
-Unchanged, except schema changes now go through a migration:
+### Iterating
+
+Run these in separate terminals:
 
 ```bash
-npm run dev          # from the repo root, as before
+npm run start:dev --prefix backend
+npm run dev --prefix frontend
 ```
 
-After adding a migration file to `backend/src/database/migrations/` and
-registering it in `backend/src/database/data-source.ts`:
+The frontend runs on port 5173 and proxies API requests to the backend. After
+adding a migration file to `backend/src/database/migrations/` and registering
+it in `backend/src/database/data-source.ts`, run:
 
 ```bash
 cd backend && npm run migration:run
 ```
+
+### Production-shaped
+
+```bash
+npm run dev
+```
+
+This builds the backend and serves the API plus `frontend/dist` on port 3000.
+Do not run it while the backend watcher is active, because the build replaces
+`backend/dist`. For runtime AI settings, see
+[AI Runtime Configuration](ai-configuration.md).

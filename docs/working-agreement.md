@@ -48,8 +48,9 @@ little about a mobile UI.
 under him, and he will spend time chasing a bug that is really just a reload.
 
 **Ask before doing anything outward-facing.** Exposing the app publicly, deploying,
-or sending data anywhere is his decision, made with the risks stated plainly —
-particularly while the app has no authentication and holds his real positions.
+or sending data anywhere is his decision, made with the risks stated plainly.
+Treat user data and credentials as private, and follow the current authentication
+flow in [docs/api.md](api.md).
 
 ## Tone of collaboration
 
@@ -64,7 +65,16 @@ particularly while the app has no authentication and holds his real positions.
 
 ## Environment
 
-- Runs locally: `npm run dev` from the repo root, nothing else required
+- Current local commands and operating facts live in [AGENTS.md](../AGENTS.md)
+  and [docs/current-state.md](current-state.md). For normal iteration, run these
+  in separate terminals:
+
+  ```bash
+  npm run start:dev --prefix backend
+  npm run dev --prefix frontend
+  ```
+
+  Root `npm run dev` is production-shaped, not hot reload.
 - Postgres 18 via Homebrew, already running; no Docker
 - He reaches the app from his iPhone at the Mac's LAN address on the same Wi-Fi
 - **Remote access is not set up yet.** Tailscale was chosen for this and needs
