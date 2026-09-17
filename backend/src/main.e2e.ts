@@ -9,6 +9,7 @@ import { ensureDatabaseReady } from './database/startup.js';
 import { YahooClient } from './market-data/yahoo.client.js';
 import { yahooStub } from '../test/yahoo-stub.js';
 import { LlmClient } from './llm/llm.client.js';
+import { EconomicCalendarClient } from './market-data/economic-calendar.client.js';
 
 /**
  * A fixed model answer, in the exact `[RANK]` format `parseRanking` reads
@@ -45,7 +46,8 @@ Stub reasoning: AAPL ranked ahead of NVDA in this fixed browser-test answer.`;
  * reason: the watchlist-ranking spec would otherwise call a real model. That
  * is the rule `test/offline-guard.ts` enforces for the unit and e2e suites;
  * this is the same rule for the browser suite, applied the only way a real
- * server process allows.
+ * server process allows. `EconomicCalendarClient` is also replaced here so
+ * opening Brief cannot reach Federal Reserve pages during browser tests.
  *
  * Excluded from tsconfig.build.json, so it never reaches the deployed image.
  *
@@ -77,6 +79,19 @@ async function bootstrap() {
       isConfigured: () => true,
       modelName: () => 'stub-ranking-model',
       complete: async () => RANKING_STUB_ANSWER,
+    })
+    .overrideProvider(EconomicCalendarClient)
+    .useValue({
+      week: async () => ({
+        available: true,
+        events: [{
+          kind: 'RATE_DECISION',
+          name: 'Federal Reserve rate decision',
+          date: '2026-09-16',
+          title: 'Federal Reserve browser fixture',
+          detail: 'Deterministic offline decision.',
+        }],
+      }),
     })
     .compile();
   const app = moduleRef.createNestApplication();

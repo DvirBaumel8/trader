@@ -34,7 +34,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="brief" element={<Brief />} />
             <Route path="stops" element={<Stops />} />
             <Route path="journal" element={<Journal />} />
-            <Route path="ideas" element={<Navigate to="/watchlist/ideas" replace />} />
+            <Route path="ideas" element={<Navigate to="/watchlist/ideas" state={{ fromLegacyIdeas: true }} replace />} />
             <Route path="watchlist" element={<Watchlist />} />
             <Route path="watchlist/ideas" element={<Ideas />} />
             <Route path="trades/:id" element={<TradeDetail />} />

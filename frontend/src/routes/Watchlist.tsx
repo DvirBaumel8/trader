@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button';
 import { inputClasses } from '../components/ui/inputClasses';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
 import { WatchlistRanking } from '../components/WatchlistRanking';
+import { SessionBadge } from '../components/SessionBadge';
 import { usePersistentState } from '../lib/persistentState';
 import { shortDay } from '../lib/chartDates';
 
@@ -18,7 +19,10 @@ interface WatchRow {
   symbol: string;
   name: string | null;
   price: number | null;
+  regularPrice: number | null;
   stale: boolean;
+  session: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
+  extended: boolean;
   targetPrice: number | null;
   targetDirection: 'ABOVE' | 'BELOW' | null;
   distanceToTarget: number | null;
@@ -303,8 +307,9 @@ export function Watchlist() {
                       </div>
                     )}
                   </div>
-                  <div className="text-right text-sm tabular-nums">
-                    {r.price === null ? '—' : formatMoney(r.price)}
+                  <div className="flex flex-col items-end gap-1 text-right text-sm tabular-nums">
+                    <span>{r.price === null ? '—' : formatMoney(r.price)}</span>
+                    <SessionBadge session={r.session} extended={r.extended} />
                   </div>
                   <div className="col-span-2 mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted md:contents">
                     <div className="whitespace-nowrap md:text-right">

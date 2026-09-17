@@ -26,7 +26,10 @@ const baseRow = {
   symbol: 'NVDA',
   name: 'NVIDIA',
   price: 100,
+  regularPrice: 100 as number | null,
   stale: false,
+  session: 'REGULAR' as 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null,
+  extended: false,
   targetPrice: 120 as number | null,
   targetDirection: 'ABOVE' as 'ABOVE' | 'BELOW' | null,
   distanceToTarget: 20 as number | null,
@@ -101,6 +104,13 @@ describe('Watch navigation', () => {
   it('opens Ideas from Watch', () => {
     renderWatchlist([]);
     expect(screen.getByRole('link', { name: 'Ideas' })).toHaveAttribute('href', '/watchlist/ideas');
+  });
+});
+
+describe('Watch price session', () => {
+  it('labels a pre-market watch price in the phone row', async () => {
+    renderWatchlist([row({ session: 'PRE', extended: true })]);
+    expect(await screen.findByTestId('watch-NVDA')).toHaveTextContent('PRE-MARKET');
   });
 });
 

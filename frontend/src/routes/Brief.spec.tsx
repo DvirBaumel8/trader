@@ -74,6 +74,16 @@ describe('Brief', () => {
     expect(within(events).queryByRole('link', { name: /Fed rate decision/ })).not.toBeInTheDocument();
   });
 
+  it('labels stale and extended quotes beside affected technical notes', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
+    renderBrief();
+
+    const events = await screen.findByRole('region', { name: 'Notable events' });
+    const note = within(events).getByRole('link', { name: /FSLR moved 1.4 ATR/ });
+    expect(note).toHaveTextContent('STALE QUOTE');
+    expect(within(events).getByRole('link', { name: /NVDA has momentum/ })).toHaveTextContent('AFTER HOURS');
+  });
+
   it('surfaces the macro decision before per-ticker signals', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
@@ -132,6 +142,41 @@ describe('Brief', () => {
     });
     await waitFor(() => expect(client.getQueryState(['daily-brief'])?.fetchStatus).toBe('idle'));
     expect(within(coverage).getByRole('link', { name: /PLTR/ })).toBeInTheDocument();
+  });
+
+  it('keeps forced coverage when a normal read starts during refresh and settles later', async () => {
+    let resolveForced!: (value: typeof initialBrief) => void;
+    let resolveLateNormal!: (value: typeof initialBrief) => void;
+    const forcedRequest = new Promise<typeof initialBrief>((resolve) => { resolveForced = resolve; });
+    const lateNormal = new Promise<typeof initialBrief>((resolve) => { resolveLateNormal = resolve; });
+    const fresh = {
+      ...initialBrief,
+      coverage: [
+        ...initialBrief.coverage,
+        { source: 'WATCHLIST', symbol: 'PLTR', price: 25, regularPrice: 25, stale: false, session: 'REGULAR', extended: false },
+      ],
+    };
+    let normalReads = 0;
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path.includes('refresh=1')) return forcedRequest;
+      normalReads += 1;
+      return normalReads === 1 ? Promise.resolve(initialBrief) : lateNormal;
+    });
+    const { client } = renderBrief();
+    await screen.findByRole('region', { name: 'Current coverage' });
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh brief' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh brief' })).toBeDisabled());
+    // A focus/poll equivalent: ask the mounted query to fetch again while the
+    // forced request is still pending, then let that read settle last.
+    let background!: Promise<void>;
+    act(() => { background = client.refetchQueries({ queryKey: ['daily-brief'], exact: true }); });
+    await act(async () => { resolveForced(fresh); await forcedRequest; });
+    expect(await screen.findByRole('link', { name: /PLTR/ })).toBeInTheDocument();
+    await act(async () => { resolveLateNormal(initialBrief); await background; });
+    expect(normalReads).toBe(1);
+    expect(client.getQueryData(['daily-brief'])).toEqual(fresh);
+    expect(screen.getByRole('link', { name: /PLTR/ })).toBeInTheDocument();
   });
 
   it('keeps completed coverage visible while a manual refresh is pending and after it fails', async () => {

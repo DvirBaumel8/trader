@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
@@ -69,10 +69,16 @@ function CoverageCard({ item }: { item: Coverage }) {
   );
 }
 
-function NoteCard({ note }: { note: BriefNote }) {
+function NoteCard({ note, coverage }: { note: BriefNote; coverage?: Coverage }) {
   const content = (
     <>
       <h4 className="text-sm font-medium">{note.title}</h4>
+      {coverage && (coverage.stale || coverage.extended) && (
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+          {coverage.stale && <span className="font-medium tracking-wide text-down">STALE QUOTE</span>}
+          {coverage.extended && <SessionBadge session={coverage.session} extended={coverage.extended} />}
+        </div>
+      )}
       <p className="mt-1 text-xs leading-relaxed text-muted">{note.detail}</p>
     </>
   );
@@ -93,11 +99,13 @@ function NoteCard({ note }: { note: BriefNote }) {
 
 export function Brief() {
   const queryClient = useQueryClient();
+  const refreshInFlight = useRef<Promise<BriefResponse> | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const query = useQuery({
     queryKey: QUERY_KEY,
-    queryFn: () => api<BriefResponse>('/watchlist/daily-brief'),
+    queryFn: () => refreshInFlight.current ?? api<BriefResponse>('/watchlist/daily-brief'),
+    staleTime: 300_000,
     refetchInterval: (current) => (current.state.data?.refreshAfterSeconds ?? 300) * 1000,
   });
   const brief = query.data;
@@ -106,12 +114,17 @@ export function Brief() {
     setRefreshing(true);
     setRefreshFailed(false);
     try {
-      await queryClient.cancelQueries({ queryKey: QUERY_KEY, exact: true });
-      const fresh = await api<BriefResponse>('/watchlist/daily-brief?refresh=1');
+      // Any automatic read started during refresh joins this forced request.
+      // This also prevents a late normal response from replacing fresh data.
+      const freshRequest = queryClient.cancelQueries({ queryKey: QUERY_KEY, exact: true })
+        .then(() => api<BriefResponse>('/watchlist/daily-brief?refresh=1'));
+      refreshInFlight.current = freshRequest;
+      const fresh = await freshRequest;
       queryClient.setQueryData(QUERY_KEY, fresh);
     } catch {
       setRefreshFailed(true);
     } finally {
+      refreshInFlight.current = null;
       setRefreshing(false);
     }
   };
@@ -168,7 +181,11 @@ export function Brief() {
                   <h3 className="text-[10px] uppercase tracking-wide text-muted">{group.label}</h3>
                   <div className="space-y-2">
                     {notes.map((note, index) => (
-                      <NoteCard key={`${note.kind}-${note.symbol ?? 'market'}-${index}`} note={note} />
+                      <NoteCard
+                        key={`${note.kind}-${note.symbol ?? 'market'}-${index}`}
+                        note={note}
+                        coverage={brief.coverage.find((item) => item.source === note.source && item.symbol === note.symbol)}
+                      />
                     ))}
                   </div>
                 </div>

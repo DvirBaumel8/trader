@@ -50,6 +50,11 @@ describe('Dashboard earnings column', () => {
 });
 
 describe('Dashboard holdings table', () => {
+  it('labels an after-hours holding price in the phone row', async () => {
+    renderDashboard([position('NVDA', 1, { session: 'POST', extended: true })]);
+    expect(await screen.findByTestId('holding-NVDA')).toHaveTextContent('AFTER HOURS');
+  });
+
   it('renders market value, return, and earnings together in a phone holding row', async () => {
     renderDashboard([
       position('AAPL', 1, {

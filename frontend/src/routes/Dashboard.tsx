@@ -171,9 +171,12 @@ function PositionRow({
           )}
         </div>
       </div>
-      <div className="text-right text-sm tabular-nums md:hidden">
-        <span className="mr-1 text-[10px] text-muted">Price</span>
-        <Money value={p.price} />
+      <div className="flex flex-col items-end gap-1 text-right text-sm tabular-nums md:hidden">
+        <span>
+          <span className="mr-1 text-[10px] text-muted">Price</span>
+          <Money value={p.price} />
+        </span>
+        <SessionBadge session={p.session} extended={p.extended} />
       </div>
       <div className="col-span-2 mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted md:contents">
         <span className="whitespace-nowrap md:text-right md:text-[12px]">

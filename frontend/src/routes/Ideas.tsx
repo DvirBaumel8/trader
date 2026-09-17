@@ -531,8 +531,11 @@ export function Ideas() {
   const [resultReasoningOpen, setResultReasoningOpen] = useState<boolean | undefined>(undefined);
 
   const goBack = () => {
-    if (location.key === 'default') navigate('/watchlist');
-    else navigate(-1);
+    if (location.key === 'default' || (location.state as { fromLegacyIdeas?: boolean } | null)?.fromLegacyIdeas) {
+      navigate('/watchlist', { replace: true });
+      return;
+    }
+    navigate(-1);
   };
 
   async function generate(ticker: string) {

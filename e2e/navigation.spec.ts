@@ -32,6 +32,53 @@ test.describe('navigation', () => {
     await expect(page).toHaveURL(/\/watchlist$/);
   });
 
+  test('Back from a first-load legacy Ideas bookmark returns to Watch', async ({ context }) => {
+    const direct = await context.newPage();
+    await direct.goto('/ideas');
+    await expect(direct).toHaveURL(/\/watchlist\/ideas$/);
+    await direct.getByRole('button', { name: 'Back' }).click();
+    await expect(direct).toHaveURL(/\/watchlist$/);
+    await direct.close();
+  });
+
+  test('Brief uses the offline Federal Reserve fixture', async ({ page }) => {
+    await page.goto('/brief');
+    await expect(page.getByText('Federal Reserve browser fixture')).toBeVisible();
+  });
+
+  test('shows every holding fact without horizontal clipping on iPhone', async ({ page }) => {
+    const response = await page.evaluate(async () => {
+      const token = localStorage.getItem('trader.authToken.v1');
+      return fetch('/api/journal', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          kind: 'TRADE', body: 'phone row fixture', occurredAt: new Date().toISOString(),
+          trade: { symbol: 'NVDA', quantity: 1, price: 100, fee: 0 },
+        }),
+      }).then((result) => result.status);
+    });
+    expect(response).toBe(201);
+    await page.goto('/');
+
+    const holding = page.getByTestId('holding-NVDA');
+    await expect(holding).toBeVisible();
+    await expect(holding).toContainText('Qty');
+    await expect(holding).toContainText('Value');
+    await expect(holding).toContainText('Earnings');
+    const geometry = await holding.evaluate((el) => {
+      const { left, right } = el.getBoundingClientRect();
+      return {
+        viewport: window.innerWidth,
+        fits: left >= 0 && right <= window.innerWidth && el.scrollWidth <= el.clientWidth,
+        noPageOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+      };
+    });
+    expect(geometry.viewport).toBe(390);
+    expect(geometry.fits).toBe(true);
+    expect(geometry.noPageOverflow).toBe(true);
+  });
+
   /**
    * The bug that shipped: Back called navigate(-1), and on a page reached by
    * a reload — or opened straight from the home screen — there is nothing to
