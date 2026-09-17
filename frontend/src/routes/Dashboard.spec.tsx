@@ -45,6 +45,12 @@ describe('Dashboard earnings column', () => {
 });
 
 describe('Dashboard holdings table', () => {
+  it('keeps the daily brief on its own screen', async () => {
+    renderDashboard([position('NVDA', 100)]);
+    expect(await screen.findByText('Holdings')).toBeInTheDocument();
+    expect(screen.queryByText('Daily brief')).not.toBeInTheDocument();
+  });
+
   it('shows aligned column headers for holdings', async () => {
     renderDashboard([position('NVDA', 100)]);
     expect(await screen.findByText('Symbol')).toBeInTheDocument();

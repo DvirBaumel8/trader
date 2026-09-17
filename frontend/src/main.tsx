@@ -6,6 +6,7 @@ import { AppShell } from './components/AppShell';
 import { RestoreLocation } from './components/RestoreLocation';
 import { RestoreScroll } from './components/RestoreScroll';
 import { Dashboard } from './routes/Dashboard';
+import { Brief } from './routes/Brief';
 import { Stops } from './routes/Stops';
 import { TickerProbe } from './routes/TickerProbe';
 import { Seed } from './routes/Seed';
@@ -30,6 +31,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="login" element={<Login />} />
           <Route element={<AppShell />}>
             <Route index element={<Dashboard />} />
+            <Route path="brief" element={<Brief />} />
             <Route path="stops" element={<Stops />} />
             <Route path="journal" element={<Journal />} />
             <Route path="ideas" element={<Ideas />} />

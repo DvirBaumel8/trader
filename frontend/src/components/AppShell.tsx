@@ -29,7 +29,7 @@ function ConnectionBanner() {
 }
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `border-b-2 px-3 py-2.5 text-sm transition-colors ${
+  `shrink-0 border-b-2 px-2 py-2.5 text-xs transition-colors sm:px-3 sm:text-sm ${
     isActive
       ? 'border-accent text-text'
       : 'border-transparent text-muted hover:text-text'
@@ -50,7 +50,7 @@ export function AppShell() {
         deliberately absent and reachable by typing /probe — scaffolding should
         not take up space in the product's navigation.
       */}
-      <nav className="flex border-b border-border px-2">
+      <nav className="flex justify-between border-b border-border px-2">
         <NavLink to="/" className={linkClass} end>
           Portfolio
         </NavLink>
@@ -66,8 +66,8 @@ export function AppShell() {
         <NavLink to="/watchlist" className={linkClass}>
           Watch
         </NavLink>
-        <NavLink to="/ideas" className={linkClass}>
-          Ideas
+        <NavLink to="/brief" className={linkClass}>
+          Brief
         </NavLink>
       </nav>
 
