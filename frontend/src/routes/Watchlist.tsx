@@ -1,5 +1,5 @@
-import { Fragment, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { formatMoney, formatPercent } from '../components/format';
@@ -38,6 +38,10 @@ interface WatchRow {
  * (positions derived from the journal alone) untouched.
  */
 export function Watchlist() {
+  const [searchParams] = useSearchParams();
+  const focusedSymbol = searchParams.get('symbol')?.toUpperCase() ?? null;
+  const focusedRowRef = useRef<HTMLDivElement>(null);
+  const scrolledTo = useRef<string | null>(null);
   const queryClient = useQueryClient();
   const [symbolText, setSymbolText] = useState('');
   const [target, setTarget] = useState('');
@@ -100,9 +104,22 @@ export function Watchlist() {
   const rows = listQuery.data ?? [];
   const alerting = rows.filter((r) => r.alerting);
   const allTags = [...new Set(rows.flatMap((r) => r.tags.map((t) => t.label)))].sort();
-  const shown = tagFilter
+  const filtered = tagFilter
     ? rows.filter((r) => r.tags.some((t) => t.label === tagFilter))
     : rows;
+  const focusedRow = rows.find((r) => r.symbol === focusedSymbol);
+  const shown = focusedRow && !filtered.includes(focusedRow)
+    ? [...filtered, focusedRow]
+    : filtered;
+
+  useEffect(() => {
+    if (!focusedSymbol) {
+      scrolledTo.current = null;
+    } else if (focusedRow && scrolledTo.current !== focusedSymbol) {
+      focusedRowRef.current?.scrollIntoView?.({ block: 'center' });
+      scrolledTo.current = focusedSymbol;
+    }
+  }, [focusedRow, focusedSymbol]);
   const enteredSymbols = [...new Set(
     symbolText
       .split(/[\s,;]+/)
@@ -239,67 +256,77 @@ export function Watchlist() {
           </p>
         )}
 
-        <div className="overflow-x-auto">
-          <div className="grid min-w-[30rem] grid-cols-[minmax(7.5rem,1fr)_auto_auto_auto] items-start gap-x-3">
-            <span className="whitespace-nowrap text-[10px] uppercase tracking-wide text-text/70">Symbol</span>
-            <span className="whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70">Price</span>
-            <span className="whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70">Target</span>
-            <span className="whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70">Earnings</span>
+        <div className="min-w-0 md:grid md:grid-cols-[minmax(7.5rem,1fr)_auto_auto_auto] md:items-start md:gap-x-3">
+            <span className="hidden whitespace-nowrap text-[10px] uppercase tracking-wide text-text/70 md:block">Symbol</span>
+            <span className="hidden whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70 md:block">Price</span>
+            <span className="hidden whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70 md:block">Target</span>
+            <span className="hidden whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70 md:block">Earnings</span>
             {shown.map((r, i) => (
               <Fragment key={r.id}>
-                <div className="group contents">
-                <div className="min-w-0 py-3 transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{r.symbol}</span>
-                    {r.reached && (
-                      <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-accent">
-                        target hit
-                      </span>
+                <div
+                  ref={r.symbol === focusedSymbol ? focusedRowRef : undefined}
+                  data-testid={`watch-${r.symbol}`}
+                  data-focused={r.symbol === focusedSymbol || undefined}
+                  className={`grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 rounded-lg border px-3 py-3 transition-colors md:col-span-full md:grid-cols-subgrid md:border-0 md:px-0 md:py-3 ${
+                    r.symbol === focusedSymbol
+                      ? 'border-accent/50 bg-accent/10 md:rounded-md md:px-2'
+                      : 'border-border/60 hover:bg-surface-1 active:bg-surface-2 md:border-transparent'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold">{r.symbol}</span>
+                      {r.reached && (
+                        <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-accent">
+                          target hit
+                        </span>
+                      )}
+                      {r.stale && (
+                        <span className="text-[9px] uppercase tracking-wide text-muted">
+                          stale
+                        </span>
+                      )}
+                    </div>
+                    {r.name && (
+                      <div className="mt-0.5 truncate text-[11px] text-muted">{r.name}</div>
                     )}
-                    {r.stale && (
-                      <span className="text-[9px] uppercase tracking-wide text-muted">
-                        stale
-                      </span>
+                    {r.tags.length > 0 && (
+                      <div className="mt-0.5 flex flex-wrap gap-1">
+                        {r.tags.map((t) => (
+                          <span
+                            key={t.id}
+                            className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted"
+                          >
+                            {t.label}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  {/* The company, so a row is legible without knowing every ticker. */}
-                  {r.name && (
-                    <div className="mt-0.5 truncate text-[11px] text-muted">
-                      {r.name}
+                  <div className="text-right text-sm tabular-nums">
+                    {r.price === null ? '—' : formatMoney(r.price)}
+                  </div>
+                  <div className="col-span-2 mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted md:contents">
+                    <div className="whitespace-nowrap md:text-right">
+                      <span className="md:hidden">Target </span>
+                      {r.targetPrice !== null ? <><span>{formatMoney(r.targetPrice)}</span>{r.distanceToTarget !== null && <span className="ml-1 md:ml-0 md:block">{formatPercent(r.distanceToTarget)} away</span>}</> : 'no target set'}
                     </div>
-                  )}
-                  {r.tags.length > 0 && (
-                    <div className="mt-0.5 flex flex-wrap gap-1">
-                      {r.tags.map((t) => (
-                        <span
-                          key={t.id}
-                          className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted"
-                        >
-                          {t.label}
-                        </span>
-                      ))}
+                    <div className="whitespace-nowrap md:text-right">
+                      <span className="md:hidden">Earnings </span>
+                      <span>{r.daysUntilEarnings === null ? '—' : r.daysUntilEarnings === 0 ? 'today' : `${r.daysUntilEarnings}d`}</span>
                     </div>
-                  )}
-                </div>
-                <div className="py-3 text-right text-sm tabular-nums transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">{r.price === null ? '—' : formatMoney(r.price)}</div>
-                <div className="py-3 text-right text-[10px] tabular-nums text-muted transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">
-                  {r.targetPrice !== null ? <><span className="block">{formatMoney(r.targetPrice)}</span>{r.distanceToTarget !== null && <span>{formatPercent(r.distanceToTarget)} away</span>}</> : 'no target set'}
-                </div>
-                <div className="py-3 text-right text-[11px] tabular-nums text-muted transition-colors group-hover:bg-surface-1 group-active:bg-surface-2">
-                  {r.daysUntilEarnings === null ? '—' : r.daysUntilEarnings === 0 ? 'today' : `${r.daysUntilEarnings}d`}
-                </div>
+                  </div>
                 </div>
                 {editMode && (
-                  <div className="col-span-full"><RowEditor
+                  <div className="md:col-span-full"><RowEditor
                     row={r}
                     onDelete={() => removeMutation.mutate(r.id)}
                     onSaved={invalidate}
                   /></div>
                 )}
-                {i < shown.length - 1 && <div className="col-span-full border-b border-border" />}
+                {i < shown.length - 1 && <div className="my-1 border-b border-border md:col-span-full" />}
               </Fragment>
             ))}
-          </div>
         </div>
       </section>
 

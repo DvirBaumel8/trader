@@ -1,11 +1,11 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type Ref } from 'react';
 import {
   keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Money } from '../components/Money';
 import { Percent } from '../components/Percent';
@@ -136,47 +136,70 @@ function SortPicker({
  *   2. percent return           — how it is doing
  *   3. cost basis and $ P&L     — supporting detail, quiet on purpose
  */
-function PositionRow({ p }: { p: Position }) {
+function PositionRow({
+  p,
+  focused,
+  focusRef,
+}: {
+  p: Position;
+  focused: boolean;
+  focusRef?: Ref<HTMLAnchorElement>;
+}) {
   return (
-    <Fragment>
-      <Link
-        to={p.tradeId !== null ? `/trades/${encodeURIComponent(p.tradeId)}` : '#'}
-        className={p.tradeId !== null ? 'group contents' : 'contents'}
-        onClick={p.tradeId === null ? (e) => e.preventDefault() : undefined}
-      >
-        <div className={`min-w-0 truncate text-[15px] font-semibold ${ROW_CELL}`}>
-          <div className="flex items-center gap-1.5">
-            {p.symbol}
-            {p.quantity < 0 && (
-              <span className="rounded bg-down/15 px-1 py-px text-[9px] font-medium tracking-wide text-down">
-                SHORT
-              </span>
-            )}
-            {p.stale && (
-              <span className="text-[9px] tracking-wide text-down">STALE</span>
-            )}
-          </div>
+    <Link
+      ref={focusRef}
+      to={p.tradeId !== null ? `/trades/${encodeURIComponent(p.tradeId)}` : '#'}
+      onClick={p.tradeId === null ? (e) => e.preventDefault() : undefined}
+      data-testid={`holding-${p.symbol}`}
+      data-focused={focused || undefined}
+      className={`group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 rounded-lg border px-3 py-3 transition-colors md:col-span-full md:grid-cols-subgrid md:items-center md:border-0 md:px-0 md:py-3 ${
+        focused
+          ? 'border-accent/50 bg-accent/10 md:rounded-md md:px-2'
+          : 'border-border/60 hover:bg-surface-1 active:bg-surface-2 md:border-transparent'
+      }`}
+    >
+      <div className="min-w-0 text-[15px] font-semibold">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span>{p.symbol}</span>
+          {p.quantity < 0 && (
+            <span className="rounded bg-down/15 px-1 py-px text-[9px] font-medium tracking-wide text-down">
+              SHORT
+            </span>
+          )}
+          {p.stale && (
+            <span className="text-[9px] tracking-wide text-down">STALE</span>
+          )}
         </div>
-        <span className={`text-right text-[12px] tabular-nums text-muted ${ROW_CELL}`}>
+      </div>
+      <div className="text-right text-sm tabular-nums md:hidden">
+        <span className="mr-1 text-[10px] text-muted">Price</span>
+        <Money value={p.price} />
+      </div>
+      <div className="col-span-2 mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted md:contents">
+        <span className="whitespace-nowrap md:text-right md:text-[12px]">
+          <span className="md:hidden">Qty </span>
           {formatQuantity(p.quantity)} @ <Money value={p.avgCost} />
         </span>
-        <span className={`text-right text-[13px] tabular-nums ${ROW_CELL}`}>
+        <span className="whitespace-nowrap md:text-right md:text-[13px] md:text-text">
+          <span className="md:hidden">Value </span>
           <Money value={p.marketValue} />
         </span>
-        <span className={`text-right ${ROW_CELL}`}>
-          <span className="block text-[12px] tabular-nums"><Percent value={p.unrealizedPct} /></span>
-          <span className={`block text-[11px] tabular-nums opacity-70 ${signClass(p.unrealizedPnl)}`}><Money value={p.unrealizedPnl} signed /></span>
+        <span className="whitespace-nowrap md:text-right">
+          <Percent value={p.unrealizedPct} />{' '}
+          <span className={signClass(p.unrealizedPnl)}>
+            <Money value={p.unrealizedPnl} signed />
+          </span>
         </span>
-        <span className={`text-right text-[11px] tabular-nums text-muted ${ROW_CELL}`}>
+        <span className="whitespace-nowrap md:text-right">
+          <span className="md:hidden">Earnings </span>
           {p.daysUntilEarnings === null ? '—' : p.daysUntilEarnings === 0 ? 'today' : `${p.daysUntilEarnings}d`}
         </span>
-      </Link>
-    </Fragment>
+      </div>
+    </Link>
   );
 }
 
 const HEADER_CELL = 'text-[10px] tracking-wide text-muted uppercase';
-const ROW_CELL = 'py-3 transition-colors group-hover:bg-surface-1 group-active:bg-surface-2';
 
 /**
  * Seeding is a one-shot flow that is easy to get wrong on a phone, so there has
@@ -236,6 +259,10 @@ function ResetPortfolio({ positionCount }: { positionCount: number }) {
 }
 
 export function Dashboard() {
+  const [searchParams] = useSearchParams();
+  const focusedSymbol = searchParams.get('symbol')?.toUpperCase() ?? null;
+  const focusedRowRef = useRef<HTMLAnchorElement>(null);
+  const scrolledTo = useRef<string | null>(null);
   const [sort, setSort] = useState<SortPref>(() =>
     loadDraft(SORT_KEY, defaultSort),
   );
@@ -258,6 +285,15 @@ export function Dashboard() {
     queryFn: () => api<Portfolio>('/portfolio'),
     refetchInterval: 60_000,
   });
+
+  useEffect(() => {
+    if (!focusedSymbol) {
+      scrolledTo.current = null;
+    } else if (data?.positions.some((p) => p.symbol === focusedSymbol) && scrolledTo.current !== focusedSymbol) {
+      focusedRowRef.current?.scrollIntoView?.({ block: 'center' });
+      scrolledTo.current = focusedSymbol;
+    }
+  }, [data, focusedSymbol]);
 
   const changeSort = (s: SortPref) => {
     setSort(s);
@@ -371,20 +407,22 @@ export function Dashboard() {
           </div>
           <SortPicker sort={sort} onChange={changeSort} />
         </div>
-        <div className="overflow-x-auto">
-          <div className="grid min-w-[34rem] grid-cols-[minmax(7rem,1fr)_auto_auto_auto_auto] items-center gap-x-3">
-            <span className={`${HEADER_CELL} whitespace-nowrap text-text/70`}>Symbol</span>
-            <span className={`whitespace-nowrap text-right ${HEADER_CELL} text-text/70`}>Qty / Avg</span>
-            <span className={`whitespace-nowrap text-right ${HEADER_CELL} text-text/70`}>Market value</span>
-            <span className={`whitespace-nowrap text-right ${HEADER_CELL} text-text/70`}>P&amp;L</span>
-            <span className={`whitespace-nowrap text-right ${HEADER_CELL} text-text/70`}>Earnings</span>
+        <div className="min-w-0 md:grid md:grid-cols-[minmax(7rem,1fr)_auto_auto_auto_auto] md:items-center md:gap-x-3">
+            <span className={`${HEADER_CELL} hidden whitespace-nowrap text-text/70 md:block`}>Symbol</span>
+            <span className={`hidden whitespace-nowrap text-right ${HEADER_CELL} text-text/70 md:block`}>Qty / Avg</span>
+            <span className={`hidden whitespace-nowrap text-right ${HEADER_CELL} text-text/70 md:block`}>Market value</span>
+            <span className={`hidden whitespace-nowrap text-right ${HEADER_CELL} text-text/70 md:block`}>P&amp;L</span>
+            <span className={`hidden whitespace-nowrap text-right ${HEADER_CELL} text-text/70 md:block`}>Earnings</span>
             {sortPositions(data.positions, sort.key, sort.dir).map((p, i) => (
               <Fragment key={p.symbol}>
-                <PositionRow p={p} />
-                {i < data.positions.length - 1 && <div className="col-span-full border-b border-border" />}
+                <PositionRow
+                  p={p}
+                  focused={p.symbol === focusedSymbol}
+                  focusRef={p.symbol === focusedSymbol ? focusedRowRef : undefined}
+                />
+                {i < data.positions.length - 1 && <div className="my-1 border-b border-border md:col-span-full" />}
               </Fragment>
             ))}
-          </div>
         </div>
       </section>
 

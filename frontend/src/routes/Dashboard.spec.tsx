@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const position = (symbol: string, quantity: number) => ({
+const basePosition = (symbol: string, quantity: number) => ({
   symbol,
   name: symbol,
   quantity,
@@ -36,6 +36,11 @@ const position = (symbol: string, quantity: number) => ({
   tradeId: null,
   daysUntilEarnings: null,
 });
+const position = (
+  symbol: string,
+  quantity: number,
+  overrides: Partial<ReturnType<typeof basePosition>> = {},
+) => ({ ...basePosition(symbol, quantity), ...overrides });
 
 describe('Dashboard earnings column', () => {
   it('shows days until earnings for a holding', async () => {
@@ -45,6 +50,33 @@ describe('Dashboard earnings column', () => {
 });
 
 describe('Dashboard holdings table', () => {
+  it('renders market value, return, and earnings together in a phone holding row', async () => {
+    renderDashboard([
+      position('AAPL', 1, {
+        price: 332.47,
+        marketValue: 332.47,
+        unrealizedPnl: 132.47,
+        unrealizedPct: 0.6624,
+        daysUntilEarnings: 43,
+      }),
+    ]);
+
+    const holding = await screen.findByTestId('holding-AAPL');
+    expect(holding).toHaveTextContent('$332.47');
+    expect(holding).toHaveTextContent('+66.24%');
+    expect(holding).toHaveTextContent('+$132.47');
+    expect(holding).toHaveTextContent('43d');
+  });
+
+  it('focuses and scrolls to a holding linked from Brief', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    renderDashboard([position('AAPL', 1)], '/?symbol=AAPL');
+
+    expect(await screen.findByTestId('holding-AAPL')).toHaveAttribute('data-focused', 'true');
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+  });
+
   it('keeps the daily brief on its own screen', async () => {
     renderDashboard([position('NVDA', 100)]);
     expect(await screen.findByText('Holdings')).toBeInTheDocument();
@@ -57,7 +89,7 @@ describe('Dashboard holdings table', () => {
     expect(screen.getByText('Qty / Avg')).toBeInTheDocument();
     expect(screen.getByText('Market value')).toBeInTheDocument();
     expect(screen.getByText('P&L')).toBeInTheDocument();
-    expect(screen.getByText('Earnings')).toBeInTheDocument();
+    expect(screen.getByText('Earnings', { selector: 'span.hidden' })).toBeInTheDocument();
   });
 
   it('remembers when the portfolio overview is minimized', async () => {
@@ -77,7 +109,7 @@ describe('Dashboard holdings table', () => {
   });
 });
 
-function renderDashboard(positions: ReturnType<typeof position>[]) {
+function renderDashboard(positions: ReturnType<typeof position>[], initialPath = '/') {
   (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
     if (path.startsWith('/performance'))
       return Promise.resolve({ points: [] });
@@ -100,7 +132,7 @@ function renderDashboard(positions: ReturnType<typeof position>[]) {
   });
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialPath]}>
         <Dashboard />
       </MemoryRouter>
     </QueryClientProvider>,

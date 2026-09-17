@@ -71,6 +71,7 @@ function renderWatchlist(
   // answer a just-triggered refresh brought back, not the one already on
   // screen. Defaults to `ranking` so most tests only need to specify one.
   opts: { ranking?: unknown; refreshRanking?: unknown } = {},
+  initialPath = '/watchlist',
 ) {
   (api as ReturnType<typeof vi.fn>).mockImplementation(
     (path: string, init?: { method?: string }) => {
@@ -88,7 +89,7 @@ function renderWatchlist(
   );
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialPath]}>
         <Watchlist />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -233,6 +234,31 @@ describe('Watchlist target alerts', () => {
 });
 
 describe('Watchlist rows', () => {
+  it('renders current price, target, distance, and earnings together in a phone watch row', async () => {
+    renderWatchlist([row({
+      symbol: 'FSLR',
+      price: 291.25,
+      targetPrice: 300,
+      distanceToTarget: 0.03,
+      daysUntilEarnings: 12,
+    })]);
+
+    const watch = await screen.findByTestId('watch-FSLR');
+    expect(watch).toHaveTextContent('$291.25');
+    expect(watch).toHaveTextContent('$300.00');
+    expect(watch).toHaveTextContent('+3.00% away');
+    expect(watch).toHaveTextContent('12d');
+  });
+
+  it('focuses and scrolls to a watch symbol linked from Brief', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    renderWatchlist([row({ symbol: 'FSLR' })], {}, '/watchlist?symbol=FSLR');
+
+    expect(await screen.findByTestId('watch-FSLR')).toHaveAttribute('data-focused', 'true');
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+  });
+
   it('shows aligned column headers for the watchlist', async () => {
     renderWatchlist([row()]);
     expect(await screen.findByText('Symbol')).toBeInTheDocument();
