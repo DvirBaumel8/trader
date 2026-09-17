@@ -8,10 +8,21 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { HistoryService } from './history.service.js';
 import { EconomicCalendarClient } from './economic-calendar.client.js';
 import { buildDailyBriefNotes, type BriefNote } from './daily-brief.js';
+import type { MarketSession } from './select-price.js';
 
 export interface DailyBriefResponse {
   generatedAt: string;
   refreshAfterSeconds: number;
+  marketDataAvailable: boolean;
+  coverage: {
+    source: 'PORTFOLIO' | 'WATCHLIST';
+    symbol: string;
+    price: number | null;
+    regularPrice: number | null;
+    stale: boolean;
+    session: MarketSession | null;
+    extended: boolean;
+  }[];
   notes: (BriefNote | {
     kind: 'EARNINGS' | 'ECONOMIC';
     source: 'PORTFOLIO' | 'WATCHLIST' | 'MARKET';
@@ -49,17 +60,31 @@ export class DailyBriefService {
     private readonly calendar: EconomicCalendarClient,
   ) {}
 
-  async get(now = new Date()): Promise<DailyBriefResponse> {
+  async get(options: { refresh?: boolean; now?: Date } = {}): Promise<DailyBriefResponse> {
+    const now = options.now ?? new Date();
+    const refresh = options.refresh === true;
     void this.history.ensureFresh().catch(() => {});
-    const [portfolio, watched] = await Promise.all([
-      this.portfolio.getPortfolio(),
-      this.watchlist.list(),
+    const weekStart = startOfWeek(now);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
+    const [portfolio, watched, calendar] = await Promise.all([
+      this.portfolio.getPortfolio({ refresh }),
+      this.watchlist.list({ refresh }),
+      this.calendar.week(isoDate(weekStart), isoDate(weekEnd)),
     ]);
-    const sourceBySymbol = new Map<string, 'PORTFOLIO' | 'WATCHLIST'>();
-    for (const position of portfolio.positions) sourceBySymbol.set(position.symbol, 'PORTFOLIO');
-    for (const row of watched) if (!sourceBySymbol.has(row.symbol)) sourceBySymbol.set(row.symbol, 'WATCHLIST');
+    const coverageBySymbol = new Map<string, DailyBriefResponse['coverage'][number]>();
+    for (const position of portfolio.positions) coverageBySymbol.set(position.symbol, {
+      source: 'PORTFOLIO', symbol: position.symbol, price: position.price,
+      regularPrice: position.regularPrice, stale: position.stale,
+      session: position.session, extended: position.extended,
+    });
+    for (const row of watched) if (!coverageBySymbol.has(row.symbol)) coverageBySymbol.set(row.symbol, {
+      source: 'WATCHLIST', symbol: row.symbol, price: row.price,
+      regularPrice: row.regularPrice, stale: row.stale,
+      session: row.session, extended: row.extended,
+    });
 
-    const symbols = [...sourceBySymbol.keys()];
+    const symbols = [...coverageBySymbol.keys()];
     const instruments = await this.instruments.find({ where: { symbol: In([...symbols, 'SPY']) } });
     const instrumentBySymbol = new Map(instruments.map((instrument) => [instrument.symbol, instrument]));
     const bars = await this.closes.find({
@@ -73,18 +98,14 @@ export class DailyBriefService {
       barsByInstrument.set(bar.instrumentId, current);
     }
     const spyBars = barsByInstrument.get(instrumentBySymbol.get('SPY')?.id ?? '') ?? [];
-    const priceBySymbol = new Map<string, number>();
-    for (const position of portfolio.positions) if (position.price !== null) priceBySymbol.set(position.symbol, position.price);
-    for (const row of watched) if (row.price !== null) priceBySymbol.set(row.symbol, row.price);
-
     const notes: DailyBriefResponse['notes'] = [];
     for (const symbol of symbols) {
-      const price = priceBySymbol.get(symbol);
+      const price = coverageBySymbol.get(symbol)?.price;
       const instrument = instrumentBySymbol.get(symbol);
-      if (price !== undefined && instrument) {
+      if (price !== undefined && price !== null && instrument) {
         notes.push(...buildDailyBriefNotes({
           symbol,
-          source: sourceBySymbol.get(symbol)!,
+          source: coverageBySymbol.get(symbol)!.source,
           price,
           bars: barsByInstrument.get(instrument.id) ?? [],
           spyBars,
@@ -92,8 +113,6 @@ export class DailyBriefService {
       }
     }
 
-    const weekEnd = new Date(startOfWeek(now));
-    weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
     const weekDays = (days: number | null) => days !== null && days >= 0 && days <= 6;
     for (const position of portfolio.positions) {
       if (weekDays(position.daysUntilEarnings)) notes.push({ kind: 'EARNINGS', source: 'PORTFOLIO', symbol: position.symbol, title: `${position.symbol} has earnings this week`, detail: position.daysUntilEarnings === 0 ? 'Earnings are today.' : `Earnings are in ${position.daysUntilEarnings} days.` });
@@ -101,9 +120,8 @@ export class DailyBriefService {
     for (const row of watched) {
       if (weekDays(row.daysUntilEarnings) && !portfolio.positions.some((position) => position.symbol === row.symbol)) notes.push({ kind: 'EARNINGS', source: 'WATCHLIST', symbol: row.symbol, title: `${row.symbol} has earnings this week`, detail: row.daysUntilEarnings === 0 ? 'Earnings are today.' : `Earnings are in ${row.daysUntilEarnings} days.` });
     }
-    const macroEvents = await this.calendar.week(isoDate(startOfWeek(now)), isoDate(weekEnd));
-    for (const event of macroEvents) notes.push({ kind: 'ECONOMIC', source: 'MARKET', symbol: null, title: event.name, detail: event.actual !== null && event.expected !== null ? `${event.actual} actual vs ${event.expected} expected.` : 'Scheduled this week.', eventAt: event.date, actual: event.actual, expected: event.expected });
+    for (const event of calendar.events) notes.push({ kind: 'ECONOMIC', source: 'MARKET', symbol: null, title: event.title, detail: event.detail, eventAt: event.date });
 
-    return { generatedAt: now.toISOString(), refreshAfterSeconds: 300, notes };
+    return { generatedAt: now.toISOString(), refreshAfterSeconds: 300, marketDataAvailable: calendar.available, coverage: [...coverageBySymbol.values()], notes };
   }
 }

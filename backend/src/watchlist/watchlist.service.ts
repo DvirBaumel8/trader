@@ -17,13 +17,17 @@ import {
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { HistoryService } from '../market-data/history.service.js';
 import { EarningsService } from '../market-data/earnings.service.js';
+import type { MarketSession } from '../market-data/select-price.js';
 
 export interface WatchlistRow {
   id: string;
   symbol: string;
   name: string | null;
   price: number | null;
+  regularPrice: number | null;
   stale: boolean;
+  session: MarketSession | null;
+  extended: boolean;
   targetPrice: number | null;
   targetDirection: 'ABOVE' | 'BELOW' | null;
   /** How far the price still has to move, as a percentage. Null without both numbers. */
@@ -84,7 +88,7 @@ export class WatchlistService {
     private readonly earnings: EarningsService,
   ) {}
 
-  async list(): Promise<WatchlistRow[]> {
+  async list(options: { refresh?: boolean } = {}): Promise<WatchlistRow[]> {
     const user = await this.users.currentUser();
     const rows = await this.items.find({
       where: { userId: user.id },
@@ -100,7 +104,7 @@ export class WatchlistService {
     // One batched quote call for the whole list — the cache makes a repeat
     // visit free for 60s, and a per-row call would be N round trips.
     const [quotes, earningsBySymbol] = await Promise.all([
-      this.marketData.getQuotes(instruments.map((i) => i.symbol)),
+      this.marketData.getQuotes(instruments.map((i) => i.symbol), options.refresh === true),
       this.earnings.daysUntil(instruments),
     ]);
 
@@ -162,7 +166,10 @@ export class WatchlistService {
           ? earningsBySymbol.get(instrument.symbol) ?? null
           : null,
         price,
-        stale: quote?.stale ?? false,
+        regularPrice: quote?.regularPrice ?? null,
+        stale: quote?.stale ?? true,
+        session: quote?.session ?? null,
+        extended: quote?.extended ?? false,
         targetPrice: r.targetPrice,
         targetDirection: r.targetDirection,
         distanceToTarget: distanceToTarget(price, r.targetPrice),

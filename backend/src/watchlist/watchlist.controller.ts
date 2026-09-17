@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import { WatchlistService } from './watchlist.service.js';
 import { WatchlistRankingService } from './watchlist-ranking.service.js';
@@ -34,8 +35,8 @@ export class WatchlistController {
   }
 
   @Get('daily-brief')
-  dailyBrief() {
-    return this.brief.get();
+  dailyBrief(@Query('refresh') refresh?: string) {
+    return this.brief.get({ refresh: refresh === '1' || refresh === 'true' });
   }
 
   /** Recomputes the ranking with ONE model call for the whole watchlist. */
