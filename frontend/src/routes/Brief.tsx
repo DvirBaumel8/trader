@@ -106,6 +106,7 @@ export function Brief() {
     setRefreshing(true);
     setRefreshFailed(false);
     try {
+      await queryClient.cancelQueries({ queryKey: QUERY_KEY, exact: true });
       const fresh = await api<BriefResponse>('/watchlist/daily-brief?refresh=1');
       queryClient.setQueryData(QUERY_KEY, fresh);
     } catch {

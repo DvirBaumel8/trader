@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -29,13 +29,15 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
 function renderBrief() {
-  return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(
+    <QueryClientProvider client={client}>
       <MemoryRouter>
         <Brief />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...view, client };
 }
 
 describe('Brief', () => {
@@ -99,6 +101,37 @@ describe('Brief', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh brief' }));
     await waitFor(() => expect(api).toHaveBeenLastCalledWith('/watchlist/daily-brief?refresh=1'));
     expect(await within(coverage).findByRole('link', { name: /PLTR/ })).toHaveAttribute('href', '/watchlist?symbol=PLTR');
+  });
+
+  it('keeps the forced Brief when an earlier normal request settles afterward', async () => {
+    let resolveNormal!: (value: typeof initialBrief) => void;
+    const pendingNormal = new Promise<typeof initialBrief>((resolve) => {
+      resolveNormal = resolve;
+    });
+    const forced = {
+      ...initialBrief,
+      coverage: [
+        ...initialBrief.coverage,
+        { source: 'WATCHLIST', symbol: 'PLTR', price: 25, regularPrice: 25, stale: false, session: 'REGULAR', extended: false },
+      ],
+    };
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) =>
+      path === '/watchlist/daily-brief' ? pendingNormal : Promise.resolve(forced),
+    );
+    const { client } = renderBrief();
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/watchlist/daily-brief'));
+    expect(client.getQueryState(['daily-brief'])?.fetchStatus).toBe('fetching');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh brief' }));
+    const coverage = await screen.findByRole('region', { name: 'Current coverage' });
+    expect(within(coverage).getByRole('link', { name: /PLTR/ })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveNormal(initialBrief);
+      await pendingNormal;
+    });
+    await waitFor(() => expect(client.getQueryState(['daily-brief'])?.fetchStatus).toBe('idle'));
+    expect(within(coverage).getByRole('link', { name: /PLTR/ })).toBeInTheDocument();
   });
 
   it('keeps completed coverage visible while a manual refresh is pending and after it fails', async () => {
