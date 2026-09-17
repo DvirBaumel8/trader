@@ -48,9 +48,9 @@ interface Portfolio {
 }
 
 /**
- * Unsigned, unlike the app's usual `formatPercent`: room and "through" are
- * both already labelled by their surrounding text (see `passed` above), so a
- * leading +/- would be redundant rather than informative here.
+ * Unsigned, unlike the app's usual `formatPercent`: this always reads as a
+ * distance (to or through the stop, see `passed` above), so a leading +/-
+ * would be redundant rather than informative here.
  */
 function formatMagnitudePercent(fraction: number): string {
   return `${(Math.abs(fraction) * 100).toFixed(2)}%`;
@@ -149,11 +149,8 @@ function StopTierRowView({
         ) : (
           <div className="text-[15px] font-medium leading-tight">
             {formatMagnitudePercent(row.distance)}
-            <div className="mt-0.5 text-[11px] font-normal text-muted">
-              room
-              <div className="mt-0.5 text-[11px] leading-tight text-muted">
-                <Money value={row.amountAtRisk} />
-              </div>
+            <div className="mt-0.5 text-[11px] leading-tight text-muted">
+              <Money value={row.amountAtRisk} />
             </div>
           </div>
         )}
