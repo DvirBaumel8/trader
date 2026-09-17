@@ -28,7 +28,7 @@ describe('Journal (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE stop_levels, stop_executions, transactions, cash_flows, dividends, journal_entries, entry_tags, tags RESTART IDENTITY CASCADE',
+      'TRUNCATE stop_levels, stop_executions, transactions, cash_flows, dividends, journal_entries, entry_tags, tags, watchlist_items RESTART IDENTITY CASCADE',
     );
   });
 
@@ -269,6 +269,39 @@ describe('Journal (e2e)', () => {
     expect(nvda.avgCost).toBe(200);
     // No deposits, so a buy drives cash negative by cost plus fee.
     expect(portfolio.body.cash).toBe(-2004);
+  });
+
+  describe('buying a watched ticker', () => {
+    const watch = (symbol: string) =>
+      http(app, token).post('/watchlist').send({ symbol });
+
+    it('removes it from the watchlist', async () => {
+      await watch('NVDA').expect(201);
+
+      await trade(10, 200, '2026-08-29T14:30:00.000Z').expect(201);
+
+      const watchlist = await http(app, token).get('/watchlist').expect(200);
+      expect(watchlist.body).toEqual([]);
+    });
+
+    it('leaves the watchlist alone when the ticker was not being watched', async () => {
+      await watch('AMD').expect(201);
+
+      await trade(10, 200, '2026-08-29T14:30:00.000Z').expect(201);
+
+      const watchlist = await http(app, token).get('/watchlist').expect(200);
+      expect(watchlist.body.map((r: { symbol: string }) => r.symbol)).toEqual(['AMD']);
+    });
+
+    it('can be watched again after the buy', async () => {
+      await watch('NVDA').expect(201);
+      await trade(10, 200, '2026-08-29T14:30:00.000Z').expect(201);
+
+      await watch('NVDA').expect(201);
+
+      const watchlist = await http(app, token).get('/watchlist').expect(200);
+      expect(watchlist.body.map((r: { symbol: string }) => r.symbol)).toEqual(['NVDA']);
+    });
   });
 
   it('logs a sell that reduces a position', async () => {

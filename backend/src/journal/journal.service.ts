@@ -20,6 +20,7 @@ import {
 import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { autoAttributeTier } from '../portfolio/derive-trades.js';
 import { Instrument } from '../instruments/instrument.entity.js';
+import { WatchlistItem } from '../watchlist/watchlist-item.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { HistoryService } from '../market-data/history.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -689,6 +690,20 @@ export class JournalService {
           executedAt: new Date(input.occurredAt),
         }),
       );
+
+      // Buying a ticker resolves the intent a watchlist entry stood for, so
+      // it comes off the list automatically. Same DB transaction as the
+      // fill itself, so the two can't disagree if either half fails. Not
+      // routed through WatchlistService — importing WatchlistModule here
+      // would create a real cycle (Journal -> Watchlist -> Portfolio ->
+      // Journal); see watchlist-item import above.
+      if (resolved.side === 'BUY') {
+        await manager.delete(WatchlistItem, {
+          userId,
+          instrumentId: resolved.instrumentId,
+        });
+      }
+
       if (previousTransactionId && previousTransactionId !== txn.id) {
         await manager.update(
           StopLevel,
