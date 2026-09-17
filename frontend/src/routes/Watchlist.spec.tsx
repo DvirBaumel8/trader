@@ -562,4 +562,27 @@ describe('Watchlist ranking', () => {
     expect(screen.queryByText('fresh')).not.toBeInTheDocument();
     expect(badge.className).toMatch(/text-down/);
   });
+
+  it('minimizes the whole ranked section, age and refresh included', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([row()], {
+      ranking: rankingResponse({
+        order: [rankedTicker({ verdict: 'Best of the three.' })],
+      }),
+    });
+
+    await screen.findByText('Best of the three.');
+    expect(await screen.findByText(/^ranked .+ ago$/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Hide ranked watchlist' }));
+
+    expect(screen.queryByText('Best of the three.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^ranked .+ ago$/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Refresh' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show ranked watchlist' }));
+
+    expect(await screen.findByText('Best of the three.')).toBeInTheDocument();
+  });
 });
