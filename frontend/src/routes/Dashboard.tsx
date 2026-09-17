@@ -1,11 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type Ref } from 'react';
-import {
-  keepPreviousData,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Money } from '../components/Money';
 import { Percent } from '../components/Percent';
@@ -20,7 +15,6 @@ import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { AiSummary } from '../components/AiSummary';
 import { SessionBadge } from '../components/SessionBadge';
 import { RefreshButton } from '../components/RefreshButton';
-import { Button } from '../components/ui/Button';
 import { BenchmarkChart } from '../components/BenchmarkChart';
 import { MinimizableSection } from '../components/ui/MinimizableSection';
 import { RANGES, type Point, type Range } from '../lib/benchmarkRange';
@@ -204,63 +198,6 @@ function PositionRow({
 
 const HEADER_CELL = 'text-[10px] tracking-wide text-muted uppercase';
 
-/**
- * Seeding is a one-shot flow that is easy to get wrong on a phone, so there has
- * to be a way back. Two-step inline confirmation rather than a browser dialog:
- * it names what is about to be destroyed and stays inside the app's own UI.
- */
-function ResetPortfolio({ positionCount }: { positionCount: number }) {
-  const [confirming, setConfirming] = useState(false);
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
-
-  const mutation = useMutation({
-    mutationFn: () => api('/portfolio/reset', { method: 'DELETE' }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['portfolio'] });
-      navigate('/seed');
-    },
-  });
-
-  if (!confirming) {
-    return (
-      <button
-        type="button"
-        onClick={() => setConfirming(true)}
-        className="text-xs text-muted underline underline-offset-4"
-      >
-        Reset &amp; re-seed portfolio
-      </button>
-    );
-  }
-
-  return (
-    <div className="space-y-3 rounded-xl border border-down/40 bg-down/10 p-3">
-      <p className="text-xs text-text">
-        This deletes {positionCount}{' '}
-        {positionCount === 1 ? 'position' : 'positions'}, your cash balance and
-        every journal entry, then takes you back to seeding. It cannot be
-        undone.
-      </p>
-      <div className="flex gap-2">
-        <Button
-          variant="danger"
-          disabled={mutation.isPending}
-          onClick={() => mutation.mutate()}
-        >
-          {mutation.isPending ? 'Resetting…' : 'Delete and start over'}
-        </Button>
-        <Button variant="secondary" onClick={() => setConfirming(false)}>
-          Cancel
-        </Button>
-      </div>
-      {mutation.isError && (
-        <p className="text-xs text-down">{(mutation.error as Error).message}</p>
-      )}
-    </div>
-  );
-}
-
 export function Dashboard() {
   const [searchParams] = useSearchParams();
   const focusedSymbol = searchParams.get('symbol')?.toUpperCase() ?? null;
@@ -428,12 +365,6 @@ export function Dashboard() {
             ))}
         </div>
       </section>
-
-      {data.positions.length > 0 && (
-        <MinimizableSection storageKey="trader.portfolio.resetOpen" label="Portfolio controls">
-          <section className="pt-2"><ResetPortfolio positionCount={data.positions.length} /></section>
-        </MinimizableSection>
-      )}
     </div>
   );
 }
