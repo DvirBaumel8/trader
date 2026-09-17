@@ -12,10 +12,24 @@ test.describe('navigation', () => {
     // `exact`, because getByRole matches a substring by default and the empty
     // portfolio offers a "Seed your portfolio" link that also contains
     // "Portfolio".
-    for (const tab of ['Journal', 'Stops', 'Watch', 'Ideas', 'Portfolio']) {
+    for (const tab of ['Journal', 'Stops', 'Watch', 'Brief', 'Portfolio']) {
       await page.getByRole('link', { name: tab, exact: true }).click();
       await expect(page.getByRole('link', { name: tab, exact: true })).toBeVisible();
     }
+  });
+
+  test('opens Brief from top navigation and Ideas from Watch, then returns', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('link', { name: 'Brief', exact: true }).click();
+    await expect(page).toHaveURL(/\/brief$/);
+    await expect(page.getByRole('heading', { name: 'Daily brief' })).toBeVisible();
+
+    await page.getByRole('link', { name: 'Watch', exact: true }).click();
+    await expect(page).toHaveURL(/\/watchlist$/);
+    await page.getByRole('link', { name: 'Ideas', exact: true }).click();
+    await expect(page).toHaveURL(/\/watchlist\/ideas$/);
+    await page.getByRole('button', { name: 'Back' }).click();
+    await expect(page).toHaveURL(/\/watchlist$/);
   });
 
   /**

@@ -1,5 +1,26 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { signUpAndSignIn } from './helpers';
+
+async function addStocks(
+  page: Page,
+  symbols: string,
+  { target, expectFailure = false }: { target?: string; expectFailure?: boolean } = {},
+) {
+  await page.getByRole('button', { name: 'Add stocks' }).click();
+  const composer = page.getByRole('dialog', { name: 'Add to watchlist' });
+  await composer.getByPlaceholder('NVDA, AMD, TSLA').fill(symbols);
+  if (target !== undefined) {
+    await composer.getByPlaceholder('target (optional)').fill(target);
+  }
+  await composer.getByRole('button', { name: 'Watch 1 stock', exact: true }).click();
+  if (!expectFailure) {
+    // The sheet intentionally stays open after adding. Wait for the successful
+    // mutation to clear its input, then dismiss it before using the page.
+    await expect(composer.getByPlaceholder('NVDA, AMD, TSLA')).toHaveValue('');
+    await composer.getByRole('button', { name: 'Close' }).click();
+    await expect(composer).toHaveCount(0);
+  }
+}
 
 test.describe('the watchlist', () => {
   test.beforeEach(async ({ page }) => {
@@ -9,12 +30,11 @@ test.describe('the watchlist', () => {
   });
 
   test('watches a ticker, then stops watching it', async ({ page }) => {
-    await page.getByPlaceholder('NVDA').fill('NVDA');
-    await page.getByRole('button', { name: 'Watch' }).click();
+    await addStocks(page, 'NVDA');
 
-    await expect(page.getByText('NVDA', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('watch-NVDA')).toBeVisible();
     // Optional target, as he asked — a ticker can be watched without one.
-    await expect(page.getByText('no target set')).toBeVisible();
+    await expect(page.getByTestId('watch-NVDA')).toContainText('no target set');
 
     await page.getByRole('button', { name: 'Edit watchlist' }).click();
     await page.getByRole('button', { name: /^Delete$/ }).click();
@@ -29,13 +49,11 @@ test.describe('the watchlist', () => {
    * reached the moment it is set.
    */
   test('announces a ticker that reached its target', async ({ page }) => {
-    await page.getByPlaceholder('NVDA').fill('NVDA');
     // The stub prices NVDA at exactly 200, so a target there is reached the
     // moment it is set. This doubles as the suite's proof that it is talking
     // to the stub and not the live market: against a real quote the number
     // would be wrong every day, which is how the missing override was found.
-    await page.getByPlaceholder('target').fill('200');
-    await page.getByRole('button', { name: 'Watch' }).click();
+    await addStocks(page, 'NVDA', { target: '200' });
 
     await expect(page.getByText(/reached your target/i)).toBeVisible();
     await expect(page.getByText('target hit')).toBeVisible();
@@ -47,18 +65,32 @@ test.describe('the watchlist', () => {
   });
 
   test('refuses a ticker that does not exist, by name', async ({ page }) => {
-    await page.getByPlaceholder('NVDA').fill('ZZZZNOTREAL');
-    await page.getByRole('button', { name: 'Watch' }).click();
-    await expect(page.getByText(/No ticker called/)).toBeVisible();
+    await addStocks(page, 'ZZZZNOTREAL', { expectFailure: true });
+    await expect(page.getByRole('dialog', { name: 'Add to watchlist' })).toContainText('Could not add: ZZZZNOTREAL');
   });
 
   /** Delete is never ambient — the rule every list in the app follows. */
   test('offers no delete until edit mode is on', async ({ page }) => {
-    await page.getByPlaceholder('NVDA').fill('NVDA');
-    await page.getByRole('button', { name: 'Watch' }).click();
-    await expect(page.getByText('NVDA', { exact: true })).toBeVisible();
+    await addStocks(page, 'NVDA');
+    await expect(page.getByTestId('watch-NVDA')).toBeVisible();
 
     await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0);
+  });
+
+  test('shows price, target, and earnings facts on the iPhone screen', async ({ page }) => {
+    await addStocks(page, 'NVDA');
+
+    const row = page.getByTestId('watch-NVDA');
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('NVDA');
+    await expect(row).toContainText('$200.00');
+    await expect(row).toContainText('no target set');
+    await expect(row).toContainText(/Earnings (—|today|\d+d)/);
+    const fitsScreen = await row.evaluate((el) => {
+      const { left, right } = el.getBoundingClientRect();
+      return left >= 0 && right <= window.innerWidth && el.scrollWidth <= el.clientWidth;
+    });
+    expect(fitsScreen).toBe(true);
   });
 
   /**
@@ -73,17 +105,11 @@ test.describe('the watchlist', () => {
   test('ranks the watchlist and keeps the reasoning collapsed until opened', async ({
     page,
   }) => {
-    await page.getByPlaceholder('NVDA').fill('AAPL');
-    await page.getByRole('button', { name: 'Watch', exact: true }).click();
-    await expect(page.getByText('AAPL', { exact: true })).toBeVisible();
+    await addStocks(page, 'AAPL');
+    await expect(page.getByTestId('watch-AAPL')).toBeVisible();
 
-    // By now "Rank watchlist" / "Edit watchlist" / "AI opinion on the best
-    // watchlist candidate" have all appeared, and each contains "Watch" —
-    // getByRole matches substrings, so the plain add-a-ticker spec above
-    // gets away without `exact` only because it never adds a second ticker.
-    await page.getByPlaceholder('NVDA').fill('NVDA');
-    await page.getByRole('button', { name: 'Watch', exact: true }).click();
-    await expect(page.getByText('NVDA', { exact: true })).toBeVisible();
+    await addStocks(page, 'NVDA');
+    await expect(page.getByTestId('watch-NVDA')).toBeVisible();
 
     await page.getByRole('button', { name: 'Rank watchlist' }).click();
 
