@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
 import { streamNdjson } from '../api/streamNdjson';
@@ -192,12 +193,25 @@ function RiskPanel({
  * reads the reasoning every time only says so once. Deliberately not per
  * symbol: it is a habit, not a property of one idea.
  */
-function Reasoning({ text }: { text: string }) {
-  const [open, setOpen] = usePersistentState('trader.ideas.reasoningOpen', false);
+function Reasoning({
+  text,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  text: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [storedOpen, setStoredOpen] = usePersistentState('trader.ideas.reasoningOpen', false);
+  const open = controlledOpen ?? storedOpen;
   return (
     <details
       open={open}
-      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      onToggle={(e) => {
+        const next = (e.currentTarget as HTMLDetailsElement).open;
+        if (controlledOpen === undefined) setStoredOpen(next);
+        else onOpenChange?.(next);
+      }}
       className="text-xs"
     >
       <summary className="cursor-pointer select-none font-medium text-accent">
@@ -257,7 +271,15 @@ function FactsPanel({ facts }: { facts: TickerFacts }) {
   );
 }
 
-function ResultCard({ result }: { result: TradeIdeaResult }) {
+function ResultCard({
+  result,
+  reasoningOpen,
+  onReasoningOpenChange,
+}: {
+  result: TradeIdeaResult;
+  reasoningOpen?: boolean;
+  onReasoningOpenChange?: (open: boolean) => void;
+}) {
   if (!result.configured) {
     return (
       <p className="text-xs text-muted">
@@ -328,7 +350,7 @@ function ResultCard({ result }: { result: TradeIdeaResult }) {
         </p>
       )}
 
-      <Reasoning text={result.opinion} />
+      <Reasoning text={result.opinion} open={reasoningOpen} onOpenChange={onReasoningOpenChange} />
 
       <FactsPanel facts={facts} />
       </div>
@@ -486,6 +508,8 @@ function HistoryRow({
  */
 export function Ideas() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
   // All three survive the app being discarded — switching to a broker app
   // mid-read is the normal way this screen gets used. The result matters
   // most: it cost a model call, and losing it means paying for it twice.
@@ -502,8 +526,17 @@ export function Ideas() {
   const [editMode, setEditMode] = useState(false);
 
   const [generateState, setGenerateState] = useState<GenerateState>({ status: 'idle' });
+  // Undefined restores the reader's saved preference; a just-completed
+  // response is controlled so its reasoning stays open after streaming ends.
+  const [resultReasoningOpen, setResultReasoningOpen] = useState<boolean | undefined>(undefined);
+
+  const goBack = () => {
+    if (location.key === 'default') navigate('/watchlist');
+    else navigate(-1);
+  };
 
   async function generate(ticker: string) {
+    setResultReasoningOpen(undefined);
     setGenerateState({ status: 'streaming', text: '' });
     let text = '';
     let receivedDone = false;
@@ -516,6 +549,7 @@ export function Ideas() {
             receivedDone = true;
             const { done: _done, ...result } = line;
             setLastResult({ ...result, opinion: text });
+            setResultReasoningOpen(true);
             setGenerateState({ status: 'idle' });
             void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
           } else {
@@ -580,6 +614,9 @@ export function Ideas() {
 
   return (
     <div className="space-y-5">
+      <button type="button" onClick={goBack} className="text-sm text-muted">
+        ← Back
+      </button>
       <form onSubmit={onSubmit} className="flex gap-2">
         <input
           value={symbol}
@@ -621,7 +658,13 @@ export function Ideas() {
         only once its own done line arrives; a failed one leaves the
         previous answer alone rather than blanking the screen.
       */}
-      {lastResult && generateState.status !== 'streaming' && <ResultCard result={lastResult} />}
+      {lastResult && generateState.status !== 'streaming' && (
+        <ResultCard
+          result={lastResult}
+          reasoningOpen={resultReasoningOpen}
+          onReasoningOpenChange={setResultReasoningOpen}
+        />
+      )}
       {generateState.status === 'error' && (
         <p className="text-xs text-down">{generateState.message}</p>
       )}

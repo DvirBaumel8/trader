@@ -1,4 +1,5 @@
 import { Fragment, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { formatMoney, formatPercent } from '../components/format';
@@ -217,9 +218,14 @@ export function Watchlist() {
 
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-[10px] uppercase tracking-wide text-muted">
-            Watching
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-[10px] uppercase tracking-wide text-muted">
+              Watching
+            </h2>
+            <Link to="/watchlist/ideas" className="text-sm font-medium text-accent">
+              Ideas
+            </Link>
+          </div>
           {rows.length > 0 && (
             <EditModeToggle on={editMode} onChange={setEditMode} noun="watchlist" />
           )}

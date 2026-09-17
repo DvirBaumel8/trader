@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { Watchlist } from './Watchlist';
 import { stubLocalStorage } from '../test/memoryLocalStorage';
 
@@ -87,10 +88,19 @@ function renderWatchlist(
   );
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <Watchlist />
+      <MemoryRouter>
+        <Watchlist />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
+
+describe('Watch navigation', () => {
+  it('opens Ideas from Watch', () => {
+    renderWatchlist([]);
+    expect(screen.getByRole('link', { name: 'Ideas' })).toHaveAttribute('href', '/watchlist/ideas');
+  });
+});
 
 describe('Watchlist add form', () => {
   it('keeps the add composer out of the page until requested', async () => {

@@ -4,8 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { Ideas } from './Ideas';
+import { Watchlist } from './Watchlist';
 import { stubLocalStorage } from '../test/memoryLocalStorage';
+import { writePersisted } from '../lib/persistentState';
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>();
@@ -38,7 +41,9 @@ function renderIdeas() {
   });
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <Ideas />
+      <MemoryRouter>
+        <Ideas />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -114,7 +119,7 @@ describe('Ideas — asking for an opinion', () => {
     const user = userEvent.setup();
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <Ideas />
+        <MemoryRouter><Ideas /></MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -127,7 +132,7 @@ describe('Ideas — asking for an opinion', () => {
     resolveSecondRead();
   });
 
-  it('shows the finished card — levels, risk and the reasoning — once the done line arrives', async () => {
+  it('keeps the finished streamed reasoning visible once the done line arrives', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
       streamedNdjsonResponse([
         '{"delta":"This looks like a solid breakout."}\n',
@@ -137,7 +142,7 @@ describe('Ideas — asking for an opinion', () => {
     const user = userEvent.setup();
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <Ideas />
+        <MemoryRouter><Ideas /></MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -147,8 +152,10 @@ describe('Ideas — asking for an opinion', () => {
     expect(await screen.findByText('NVDA')).toBeInTheDocument();
     expect(screen.getByText('$180.00')).toBeInTheDocument();
     expect(screen.getByText('$240.00')).toBeInTheDocument();
-    await user.click(screen.getByText('Read the reasoning'));
-    expect(screen.getByText('This looks like a solid breakout.')).toBeInTheDocument();
+    const reasoning = screen.getByText('This looks like a solid breakout.');
+    expect(reasoning.closest('details')).toHaveAttribute('open');
+    expect(reasoning).toBeVisible();
+    expect(screen.getByText('Hide the reasoning')).toBeInTheDocument();
   });
 
   it('shows a plain error message when the stream ends without ever sending a done line', async () => {
@@ -158,7 +165,7 @@ describe('Ideas — asking for an opinion', () => {
     const user = userEvent.setup();
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <Ideas />
+        <MemoryRouter><Ideas /></MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -179,7 +186,7 @@ describe('Ideas — asking for an opinion', () => {
     const user = userEvent.setup();
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <Ideas />
+        <MemoryRouter><Ideas /></MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -189,6 +196,66 @@ describe('Ideas — asking for an opinion', () => {
     expect(
       await screen.findByText(/Trade ideas aren't set up yet/),
     ).toBeInTheDocument();
+  });
+});
+
+describe('Ideas navigation', () => {
+  it('returns to Watch after opening Ideas from Watch', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={['/watchlist']}>
+          <Routes>
+            <Route path="/watchlist" element={<Watchlist />} />
+            <Route path="/watchlist/ideas" element={<Ideas />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole('link', { name: 'Ideas' }));
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /back/i }));
+    expect(await screen.findByText('Watching')).toBeInTheDocument();
+  });
+
+  it('uses Watch as Back fallback for a direct Ideas URL', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={['/watchlist/ideas']}>
+          <Routes>
+            <Route path="/watchlist/ideas" element={<Ideas />} />
+            <Route path="/watchlist" element={<Watchlist />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: /back/i }));
+    expect(await screen.findByText('Watching')).toBeInTheDocument();
+  });
+});
+
+describe('Ideas restored result', () => {
+  it('does not force an old persisted opinion open on reload', () => {
+    writePersisted('trader.ideas.lastResult', {
+      configured: true,
+      symbol: 'NVDA',
+      facts: fullFacts,
+      opinion: 'An earlier saved opinion.',
+      levels: null,
+      risk: null,
+      levelsUnreadable: false,
+      error: null,
+      errorKind: null,
+    });
+    renderIdeas();
+    const reasoning = screen.getByText('An earlier saved opinion.');
+    expect(reasoning.closest('details')).not.toHaveAttribute('open');
+    expect(screen.getByText('Read the reasoning')).toBeInTheDocument();
   });
 });
 

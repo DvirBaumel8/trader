@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { RestoreLocation } from './components/RestoreLocation';
 import { RestoreScroll } from './components/RestoreScroll';
@@ -34,8 +34,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="brief" element={<Brief />} />
             <Route path="stops" element={<Stops />} />
             <Route path="journal" element={<Journal />} />
-            <Route path="ideas" element={<Ideas />} />
+            <Route path="ideas" element={<Navigate to="/watchlist/ideas" replace />} />
             <Route path="watchlist" element={<Watchlist />} />
+            <Route path="watchlist/ideas" element={<Ideas />} />
             <Route path="trades/:id" element={<TradeDetail />} />
             <Route path="stocks" element={<Stocks />} />
             <Route path="stocks/:symbol" element={<StockDetail />} />
