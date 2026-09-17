@@ -7,6 +7,7 @@ import { signClass } from '../components/format';
 import { RangeSelector } from '../components/ui/RangeSelector';
 import { Select } from '../components/ui/Select';
 import { inputClasses } from '../components/ui/inputClasses';
+import { usePersistentState } from '../lib/persistentState';
 import type { Range } from '../lib/benchmarkRange';
 import {
   filterSymbols,
@@ -43,6 +44,12 @@ export function Stocks() {
   const [range, setRange] = useState<Range>('ALL');
   const [sort, setSort] = useState<SymbolSort>('NEWEST');
   const [search, setSearch] = useState('');
+  // Which tickers are picked, on top of range/search — an empty list means
+  // no pick was made, which reads as "every symbol", not "none".
+  const [selected, setSelected] = usePersistentState<string[]>(
+    'trader.stocks.selectedSymbols',
+    [],
+  );
 
   const { data, isLoading } = useQuery({
     queryKey: ['symbols', range],
@@ -51,7 +58,20 @@ export function Stocks() {
 
   if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
   const bySymbol = data ?? [];
-  const rows = sortSymbols(filterSymbols(bySymbol, search), sort);
+  const bySelection =
+    selected.length === 0
+      ? bySymbol
+      : bySymbol.filter((r) => selected.includes(r.symbol));
+  const rows = sortSymbols(filterSymbols(bySelection, search), sort);
+
+  const totalPnl = rows.reduce((sum, r) => sum + (r.totalPnl ?? 0), 0);
+  const totalFees = rows.reduce((sum, r) => sum + r.feesPaid, 0);
+
+  function toggleSymbol(symbol: string) {
+    setSelected((prev) =>
+      prev.includes(symbol) ? prev.filter((s) => s !== symbol) : [...prev, symbol],
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -65,6 +85,54 @@ export function Stocks() {
         </p>
       ) : (
         <>
+          <div className="flex flex-wrap gap-3">
+            <div className="min-w-[140px] flex-1 rounded-xl border border-border bg-surface-1 p-3">
+              <div className="text-xs text-muted">Total P&amp;L</div>
+              <div className={`mt-1 text-lg font-medium ${signClass(totalPnl)}`}>
+                <Money value={totalPnl} signed className="total-pnl" />
+              </div>
+            </div>
+            <div className="min-w-[140px] flex-1 rounded-xl border border-border bg-surface-1 p-3">
+              <div className="text-xs text-muted">Total fees</div>
+              <div className="mt-1 text-lg font-medium">
+                <Money value={totalFees} className="total-fees" />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              aria-pressed={selected.length === 0}
+              onClick={() => setSelected([])}
+              className={`rounded-lg border px-2 py-1 text-[11px] ${
+                selected.length === 0
+                  ? 'border-accent/40 bg-accent/10 text-accent'
+                  : 'border-border text-muted'
+              }`}
+            >
+              All tickers
+            </button>
+            {[...bySymbol]
+              .map((r) => r.symbol)
+              .sort()
+              .map((symbol) => (
+                <button
+                  key={symbol}
+                  type="button"
+                  aria-pressed={selected.includes(symbol)}
+                  onClick={() => toggleSymbol(symbol)}
+                  className={`rounded-lg border px-2 py-1 text-[11px] ${
+                    selected.includes(symbol)
+                      ? 'border-accent/40 bg-accent/10 text-accent'
+                      : 'border-border text-muted'
+                  }`}
+                >
+                  {symbol}
+                </button>
+              ))}
+          </div>
+
           <div className="flex gap-2">
             <input
               type="text"
