@@ -3,25 +3,39 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 
 /**
- * Forces the server past its 60s quote cache and drops the result straight
- * into the `portfolio` query, so every screen reading it updates at once.
+ * The app's one spinning-circle refresh control. Defaults to forcing the
+ * server past its 60s quote cache and dropping the result straight into the
+ * `portfolio` query, so every screen reading it updates at once — that is
+ * still all Dashboard and Stops need, and neither passes `onRefresh`.
  *
- * `refresh=1` matters: without it the server re-serves the same cached
- * numbers and the button looks broken.
+ * `refresh=1` matters on the default path: without it the server re-serves
+ * the same cached numbers and the button looks broken.
  *
- * Extracted from the Dashboard when the Stops page wanted the same control.
- * Both read the same query, so a second implementation would have been a
- * second chance for them to disagree about what "refreshed" means.
+ * A caller with its own query (Watchlist) or its own refresh logic (Brief,
+ * which guards against a late automatic refetch racing a forced one) passes
+ * `onRefresh` and this button just owns the spin/disable state around it —
+ * one visual idiom for "refreshing" instead of Brief's own text button that
+ * looked and behaved differently from everywhere else in the app.
  */
-export function RefreshButton({ label = 'Refresh prices now' }: { label?: string }) {
+export function RefreshButton({
+  label = 'Refresh prices now',
+  onRefresh,
+}: {
+  label?: string;
+  onRefresh?: () => Promise<unknown>;
+}) {
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
+
+  const defaultRefresh = async () => {
+    const fresh = await api<unknown>('/portfolio?refresh=1');
+    queryClient.setQueryData(['portfolio'], fresh);
+  };
 
   const refreshNow = async () => {
     setRefreshing(true);
     try {
-      const fresh = await api<unknown>('/portfolio?refresh=1');
-      queryClient.setQueryData(['portfolio'], fresh);
+      await (onRefresh ?? defaultRefresh)();
     } catch {
       // Leave the existing numbers on screen; the stale markers already warn.
     } finally {

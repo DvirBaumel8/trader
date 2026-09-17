@@ -83,3 +83,20 @@ export function distanceToTarget(
   if (price === null || target === null || price === 0) return null;
   return (target - price) / price;
 }
+
+/**
+ * Today's move, as a FRACTION of the previous close — same convention as
+ * `distanceToTarget`. Uses whichever price is currently selected (see
+ * `select-price.ts`), so a pre- or after-hours print moves this the same way
+ * it moves the price shown next to it, rather than pretending the session
+ * hasn't budged until the regular session opens.
+ */
+export function todayChangePercent(
+  price: number | null,
+  previousClose: number | null,
+): number | null {
+  if (price === null || previousClose === null || previousClose === 0) {
+    return null;
+  }
+  return (price - previousClose) / previousClose;
+}

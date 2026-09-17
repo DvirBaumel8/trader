@@ -13,6 +13,8 @@ export interface RawQuote {
   extended: boolean;
   /** The regular-session price, kept so the UI can show the move since close. */
   regularPrice: number | null;
+  /** Yesterday's official close, for the move since then. */
+  previousClose: number | null;
   /**
    * Trailing P/E, the conventional reading of "P/E". Null — never 0 — when
    * Yahoo has none (no trailing earnings figure) or reports a non-positive
@@ -87,6 +89,11 @@ interface QuoteLike {
   marketState?: string;
   currency?: string;
   trailingPE?: number;
+  /** The quote endpoint's field for yesterday's close. */
+  regularMarketPreviousClose?: number;
+  /** The chart endpoint's fields for the same figure — it has no `regularMarketPreviousClose`. */
+  previousClose?: number;
+  chartPreviousClose?: number;
 }
 
 /**
@@ -159,6 +166,8 @@ export class YahooClient {
       longName: meta.longName,
       currency: meta.currency,
       regularMarketPrice: meta.regularMarketPrice,
+      previousClose: meta.previousClose,
+      chartPreviousClose: meta.chartPreviousClose,
     });
   }
 
@@ -360,6 +369,8 @@ function toRawQuote(raw: QuoteLike | undefined): RawQuote | null {
     session: selected.session,
     extended: selected.extended,
     regularPrice: raw.regularMarketPrice ?? null,
+    previousClose:
+      raw.regularMarketPreviousClose ?? raw.previousClose ?? raw.chartPreviousClose ?? null,
     peRatio:
       typeof raw.trailingPE === 'number' &&
       Number.isFinite(raw.trailingPE) &&

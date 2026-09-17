@@ -13,6 +13,7 @@ import {
   distanceToTarget,
   firstReachedOn,
   targetReached,
+  todayChangePercent,
 } from './score.js';
 import { DailyClose } from '../market-data/daily-close.entity.js';
 import { HistoryService } from '../market-data/history.service.js';
@@ -25,6 +26,8 @@ export interface WatchlistRow {
   name: string | null;
   price: number | null;
   regularPrice: number | null;
+  /** Today's move from the previous close, as a fraction. Null without both prices. */
+  todayChangePercent: number | null;
   stale: boolean;
   session: MarketSession | null;
   extended: boolean;
@@ -167,6 +170,7 @@ export class WatchlistService {
           : null,
         price,
         regularPrice: quote?.regularPrice ?? null,
+        todayChangePercent: todayChangePercent(price, quote?.previousClose ?? null),
         stale: quote?.stale ?? true,
         session: quote?.session ?? null,
         extended: quote?.extended ?? false,
@@ -264,6 +268,12 @@ export class WatchlistService {
     const item = await this.items.findOne({ where: { id, userId: user.id } });
     if (!item) throw new NotFoundException('Watchlist item not found');
     await this.items.delete({ id });
+  }
+
+  /** Empties the whole watchlist in one request, rather than one DELETE per row. */
+  async removeAll(): Promise<void> {
+    const user = await this.users.currentUser();
+    await this.items.delete({ userId: user.id });
   }
 
   /** "Yes, I have seen that." Silences the banner until the target changes. */

@@ -27,6 +27,7 @@ const baseRow = {
   name: 'NVIDIA',
   price: 100,
   regularPrice: 100 as number | null,
+  todayChangePercent: null as number | null,
   stale: false,
   session: 'REGULAR' as 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null,
   extended: false,
@@ -74,12 +75,23 @@ function renderWatchlist(
   // the initial GET — e.g. proving the reasoning card opens on the NEW
   // answer a just-triggered refresh brought back, not the one already on
   // screen. Defaults to `ranking` so most tests only need to specify one.
-  opts: { ranking?: unknown; refreshRanking?: unknown } = {},
+  // `refreshList` does the same for the watchlist's own forced-refresh GET.
+  opts: {
+    ranking?: unknown;
+    refreshRanking?: unknown;
+    refreshList?: ReturnType<typeof row>[];
+  } = {},
   initialPath = '/watchlist',
 ) {
   (api as ReturnType<typeof vi.fn>).mockImplementation(
     (path: string, init?: { method?: string }) => {
-      if (path === '/watchlist') return Promise.resolve(rows);
+      if (path === '/watchlist?refresh=1') {
+        return Promise.resolve(opts.refreshList ?? rows);
+      }
+      if (path === '/watchlist') {
+        if (init?.method === 'DELETE') return Promise.resolve({ ok: true });
+        return Promise.resolve(rows);
+      }
       if (path === '/watchlist/ranking') {
         return Promise.resolve(opts.ranking ?? noRankingYet());
       }
@@ -111,6 +123,25 @@ describe('Watch price session', () => {
   it('labels a pre-market watch price in the phone row', async () => {
     renderWatchlist([row({ session: 'PRE', extended: true })]);
     expect(await screen.findByTestId('watch-NVDA')).toHaveTextContent('PRE-MARKET');
+  });
+});
+
+describe("Watch today's move", () => {
+  it("shows today's move as a signed percentage", async () => {
+    renderWatchlist([row({ todayChangePercent: 0.023 })]);
+    expect(await screen.findByText('+2.30% today')).toBeInTheDocument();
+  });
+
+  it('colors a down move differently from an up move', async () => {
+    renderWatchlist([row({ todayChangePercent: -0.015 })]);
+    const pct = await screen.findByText('-1.50% today');
+    expect(pct.className).toMatch(/text-down/);
+  });
+
+  it('says nothing about the move when it is not known', async () => {
+    renderWatchlist([row({ todayChangePercent: null })]);
+    await screen.findByText('NVDA');
+    expect(screen.queryByText(/today$/)).not.toBeInTheDocument();
   });
 });
 
@@ -297,9 +328,10 @@ describe('Watchlist rows', () => {
     expect(await screen.findByText('no target set')).toBeInTheDocument();
   });
 
-  it('names the company, so a row is legible without knowing the ticker', async () => {
+  it('does not show the company name, only the ticker', async () => {
     renderWatchlist([row({ name: 'NVIDIA' })]);
-    expect(await screen.findByText('NVIDIA')).toBeInTheDocument();
+    await screen.findByText('NVDA');
+    expect(screen.queryByText('NVIDIA')).not.toBeInTheDocument();
   });
 
   /**
@@ -352,6 +384,64 @@ describe('Watchlist rows', () => {
       screen.getByRole('button', { name: 'Edit watchlist' }),
     );
     expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
+  });
+
+  it('offers a refresh button that forces fresh prices', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([row({ price: 100 })], {
+      refreshList: [row({ price: 105 })],
+    });
+    await screen.findByText('$100.00');
+
+    await user.click(
+      screen.getByRole('button', { name: 'Refresh watchlist prices now' }),
+    );
+
+    expect(await screen.findByText('$105.00')).toBeInTheDocument();
+  });
+
+  it('offers no clear-all until edit mode is on', async () => {
+    renderWatchlist([row()]);
+    await screen.findByText('NVDA');
+    expect(screen.queryByRole('button', { name: 'Clear all' })).not.toBeInTheDocument();
+
+    await userEvent.setup().click(
+      screen.getByRole('button', { name: 'Edit watchlist' }),
+    );
+    expect(screen.getByRole('button', { name: 'Clear all' })).toBeInTheDocument();
+  });
+
+  it('asks to confirm before clearing the whole watchlist', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([row()]);
+    await screen.findByText('NVDA');
+    await user.click(screen.getByRole('button', { name: 'Edit watchlist' }));
+    await user.click(screen.getByRole('button', { name: 'Clear all' }));
+
+    expect(
+      screen.getByText('Remove every watched ticker?'),
+    ).toBeInTheDocument();
+    expect(
+      (api as ReturnType<typeof vi.fn>).mock.calls.some(
+        (c) => (c[1] as { method?: string })?.method === 'DELETE' && c[0] === '/watchlist',
+      ),
+    ).toBe(false);
+  });
+
+  it('removes every watched ticker once Clear all is confirmed', async () => {
+    const user = userEvent.setup();
+    renderWatchlist([row()]);
+    await screen.findByText('NVDA');
+    await user.click(screen.getByRole('button', { name: 'Edit watchlist' }));
+    await user.click(screen.getByRole('button', { name: 'Clear all' }));
+    await user.click(screen.getByRole('button', { name: 'Clear all' }));
+
+    await waitFor(() => {
+      const call = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/watchlist' && (c[1] as { method?: string })?.method === 'DELETE',
+      );
+      expect(call).toBeDefined();
+    });
   });
 
   it('filters by a tag when one is picked', async () => {

@@ -5,7 +5,7 @@ import { api } from '../api/client';
 import { Money } from '../components/Money';
 import { SessionBadge } from '../components/SessionBadge';
 import { formatTimestamp } from '../components/format';
-import { Button } from '../components/ui/Button';
+import { RefreshButton } from '../components/RefreshButton';
 
 type Source = 'PORTFOLIO' | 'WATCHLIST' | 'MARKET';
 type Coverage = {
@@ -100,7 +100,6 @@ function NoteCard({ note, coverage }: { note: BriefNote; coverage?: Coverage }) 
 export function Brief() {
   const queryClient = useQueryClient();
   const refreshInFlight = useRef<Promise<BriefResponse> | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const query = useQuery({
     queryKey: QUERY_KEY,
@@ -111,7 +110,6 @@ export function Brief() {
   const brief = query.data;
 
   const refresh = async () => {
-    setRefreshing(true);
     setRefreshFailed(false);
     try {
       // Any automatic read started during refresh joins this forced request.
@@ -125,7 +123,6 @@ export function Brief() {
       setRefreshFailed(true);
     } finally {
       refreshInFlight.current = null;
-      setRefreshing(false);
     }
   };
 
@@ -140,14 +137,7 @@ export function Brief() {
             </p>
           )}
         </div>
-        <Button
-          onClick={refresh}
-          disabled={refreshing}
-          aria-label="Refresh brief"
-          variant="accent"
-        >
-          {refreshing ? 'Refreshing…' : 'Refresh brief'}
-        </Button>
+        <RefreshButton label="Refresh brief" onRefresh={refresh} />
       </header>
       {refreshFailed && (
         <p role="alert" className="rounded-lg border border-down/40 bg-down/10 p-3 text-sm text-down">

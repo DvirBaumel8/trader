@@ -4,6 +4,7 @@ import {
   distanceToTarget,
   firstReachedOn,
   targetReached,
+  todayChangePercent,
 } from './score.js';
 
 describe('directionFor', () => {
@@ -111,5 +112,30 @@ describe('firstReachedOn', () => {
   it('counts a touch exactly on the level', () => {
     expect(firstReachedOn(bars, 118, 'ABOVE')).toBe('2026-09-02');
     expect(firstReachedOn(bars, 95, 'BELOW')).toBe('2026-09-01');
+  });
+});
+
+describe('todayChangePercent', () => {
+  /**
+   * A FRACTION, same convention as `distanceToTarget`: `formatPercent`
+   * multiplies by 100 on the way out, so returning a percentage here would
+   * show a 2% move as "200%".
+   */
+  it('measures the move from the previous close, as a fraction of it', () => {
+    expect(todayChangePercent(102, 100)).toBeCloseTo(0.02);
+    expect(todayChangePercent(98, 100)).toBeCloseTo(-0.02);
+  });
+
+  it('is zero when the price sits exactly at the previous close', () => {
+    expect(todayChangePercent(100, 100)).toBe(0);
+  });
+
+  it('is null without a price or a previous close', () => {
+    expect(todayChangePercent(null, 100)).toBeNull();
+    expect(todayChangePercent(100, null)).toBeNull();
+  });
+
+  it('is null rather than dividing by zero when the previous close is zero', () => {
+    expect(todayChangePercent(100, 0)).toBeNull();
   });
 });

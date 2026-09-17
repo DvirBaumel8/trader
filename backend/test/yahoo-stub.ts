@@ -85,6 +85,10 @@ function quoteFor(symbol: string) {
     session: 'REGULAR' as const,
     extended: false,
     regularPrice: price,
+    // A uniform +2% since the previous close for every stubbed symbol, so a
+    // spec that cares about today's move can assert `toBeCloseTo(0.02)`
+    // without hand-rolling a one-off quote.
+    previousClose: price / 1.02,
     peRatio: 25,
   };
 }

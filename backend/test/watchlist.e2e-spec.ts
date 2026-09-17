@@ -208,6 +208,28 @@ describe('Watchlist (e2e)', () => {
       .expect(404);
   });
 
+  it('removes every watched ticker in one request', async () => {
+    await add({ symbol: 'NVDA' }).expect(201);
+    await add({ symbol: 'AAPL' }).expect(201);
+
+    await http(app, token).delete('/watchlist').expect(200);
+
+    const res = await http(app, token).get('/watchlist').expect(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('reports today\'s move from the previous close', async () => {
+    const res = await add({ symbol: 'NVDA' }).expect(201);
+    // The stub prices every symbol +2% above its previous close.
+    expect(res.body.todayChangePercent).toBeCloseTo(0.02, 3);
+  });
+
+  it('accepts a forced refresh on the list itself', async () => {
+    await add({ symbol: 'NVDA' }).expect(201);
+    const res = await http(app, token).get('/watchlist?refresh=1').expect(200);
+    expect(res.body[0].price).toBeGreaterThan(0);
+  });
+
   /**
    * A cap, refused loudly. A ranking that quietly covers part of a list is
    * worse than a list that refuses to grow, and the cap is also what makes

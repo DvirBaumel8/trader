@@ -46,8 +46,8 @@ export class WatchlistController {
   }
 
   @Get()
-  list() {
-    return this.watchlist.list();
+  list(@Query('refresh') refresh?: string) {
+    return this.watchlist.list({ refresh: refresh === '1' || refresh === 'true' });
   }
 
   @Post()
@@ -63,6 +63,12 @@ export class WatchlistController {
   @Post(':id/acknowledge')
   async acknowledge(@Param('id', ParseUUIDPipe) id: string) {
     await this.watchlist.acknowledge(id);
+    return { ok: true };
+  }
+
+  @Delete()
+  async removeAll() {
+    await this.watchlist.removeAll();
     return { ok: true };
   }
 

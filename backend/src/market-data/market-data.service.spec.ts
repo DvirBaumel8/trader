@@ -22,6 +22,7 @@ const NVDA: RawQuote = {
   session: 'REGULAR',
   extended: false,
   regularPrice: 168.2,
+  previousClose: 165.0,
   peRatio: null,
 };
 
@@ -100,6 +101,7 @@ describe('MarketDataService', () => {
             session: 'REGULAR',
             extended: false,
             regularPrice: 214,
+            previousClose: 210,
             peRatio: null,
           },
         ],
@@ -132,7 +134,7 @@ describe('MarketDataService', () => {
     expect(calls).toBe(2);
   });
 
-  it('carries the trading session and extended flag through', async () => {
+  it('carries the trading session, extended flag and previous close through', async () => {
     const afterHours: RawQuote = {
       symbol: 'NVDA',
       name: 'NVIDIA',
@@ -141,6 +143,7 @@ describe('MarketDataService', () => {
       session: 'POST',
       extended: true,
       regularPrice: 217.55,
+      previousClose: 212.1,
       peRatio: null,
     };
     const svc = new MarketDataService(fakeClient([afterHours]));
@@ -150,6 +153,7 @@ describe('MarketDataService', () => {
       session: 'POST',
       extended: true,
       regularPrice: 217.55,
+      previousClose: 212.1,
     });
   });
 

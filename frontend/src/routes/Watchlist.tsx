@@ -2,10 +2,11 @@ import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { formatMoney, formatPercent } from '../components/format';
+import { formatMoney, formatPercent, signClass } from '../components/format';
 import { Button } from '../components/ui/Button';
 import { inputClasses } from '../components/ui/inputClasses';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
+import { RefreshButton } from '../components/RefreshButton';
 import { WatchlistRanking } from '../components/WatchlistRanking';
 import { SessionBadge } from '../components/SessionBadge';
 import { usePersistentState } from '../lib/persistentState';
@@ -20,6 +21,8 @@ interface WatchRow {
   name: string | null;
   price: number | null;
   regularPrice: number | null;
+  /** Today's move from the previous close, as a fraction. Null without both prices. */
+  todayChangePercent: number | null;
   stale: boolean;
   session: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
   extended: boolean;
@@ -66,6 +69,11 @@ export function Watchlist() {
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
+
+  const refreshWatchlist = async () => {
+    const fresh = await api<WatchRow[]>('/watchlist?refresh=1');
+    queryClient.setQueryData(WATCHLIST_KEY, fresh);
+  };
 
   const addMutation = useMutation({
     mutationFn: async (input: {
@@ -247,9 +255,20 @@ export function Watchlist() {
               Ideas
             </Link>
           </div>
-          {rows.length > 0 && (
-            <EditModeToggle on={editMode} onChange={setEditMode} noun="watchlist" />
-          )}
+          <div className="flex items-center gap-2">
+            {editMode && rows.length > 0 && (
+              <ClearAllButton onCleared={invalidate} />
+            )}
+            {rows.length > 0 && (
+              <RefreshButton
+                label="Refresh watchlist prices now"
+                onRefresh={refreshWatchlist}
+              />
+            )}
+            {rows.length > 0 && (
+              <EditModeToggle on={editMode} onChange={setEditMode} noun="watchlist" />
+            )}
+          </div>
         </div>
 
         {listQuery.isLoading && <p className="text-xs text-muted">Loading…</p>}
@@ -291,9 +310,6 @@ export function Watchlist() {
                         </span>
                       )}
                     </div>
-                    {r.name && (
-                      <div className="mt-0.5 truncate text-[11px] text-muted">{r.name}</div>
-                    )}
                     {r.tags.length > 0 && (
                       <div className="mt-0.5 flex flex-wrap gap-1">
                         {r.tags.map((t) => (
@@ -309,6 +325,11 @@ export function Watchlist() {
                   </div>
                   <div className="flex flex-col items-end gap-1 text-right text-sm tabular-nums">
                     <span>{r.price === null ? '—' : formatMoney(r.price)}</span>
+                    {r.todayChangePercent !== null && (
+                      <span className={`text-[11px] ${signClass(r.todayChangePercent)}`}>
+                        {formatPercent(r.todayChangePercent)} today
+                      </span>
+                    )}
                     <SessionBadge session={r.session} extended={r.extended} />
                   </div>
                   <div className="col-span-2 mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted md:contents">
@@ -413,6 +434,58 @@ export function Watchlist() {
       )}
 
     </div>
+  );
+}
+
+/**
+ * Empties the whole watchlist in one request, rather than one DELETE per
+ * row. Only reachable in edit mode, same rule as a single row's delete, and
+ * the same two-step inline confirm `RowEditor` already uses for it — a
+ * browser `confirm()` would be off-brand here and this is a bigger blast
+ * radius than any one row.
+ */
+function ClearAllButton({ onCleared }: { onCleared: () => Promise<unknown> }) {
+  const [confirming, setConfirming] = useState(false);
+
+  const clearAll = useMutation({
+    mutationFn: () => api('/watchlist', { method: 'DELETE' }),
+    onSuccess: async () => {
+      setConfirming(false);
+      await onCleared();
+    },
+  });
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="text-xs font-medium text-down active:opacity-70"
+      >
+        Clear all
+      </button>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-2">
+      <span className="text-xs text-muted">Remove every watched ticker?</span>
+      <button
+        type="button"
+        onClick={() => setConfirming(false)}
+        className="rounded px-2 py-1 text-xs font-medium text-muted"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        disabled={clearAll.isPending}
+        onClick={() => clearAll.mutate()}
+        className="rounded bg-down/10 px-2 py-1 text-xs font-medium text-down disabled:opacity-50"
+      >
+        {clearAll.isPending ? 'Clearing…' : 'Clear all'}
+      </button>
+    </span>
   );
 }
 

@@ -17,6 +17,8 @@ export interface Quote {
   extended: boolean;
   /** The regular-session price, for showing the move since the close. */
   regularPrice: number | null;
+  /** Yesterday's official close, for the move since then. */
+  previousClose: number | null;
   /** Trailing P/E. Null when Yahoo has none or it isn't meaningful — see RawQuote. */
   peRatio: number | null;
   fetchedAt?: Date;
@@ -226,6 +228,7 @@ export class MarketDataService {
       session: raw.session,
       extended: raw.extended,
       regularPrice: raw.regularPrice,
+      previousClose: raw.previousClose,
       peRatio: raw.peRatio,
       fetchedAt: now,
     };

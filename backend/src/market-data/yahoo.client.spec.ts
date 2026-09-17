@@ -269,6 +269,68 @@ describe('quote P/E mapping', () => {
   });
 });
 
+describe('quote previousClose mapping', () => {
+  it('carries yesterday\'s close, for the move since then', async () => {
+    const client = clientQuoting({
+      symbol: 'AAPL',
+      marketState: 'REGULAR',
+      regularMarketPrice: 214,
+      regularMarketPreviousClose: 210,
+    });
+    const q = await client.quote('AAPL');
+    expect(q?.previousClose).toBe(210);
+  });
+
+  it('nulls previousClose rather than 0 when Yahoo has none', async () => {
+    const client = clientQuoting({
+      symbol: 'IONQ',
+      marketState: 'REGULAR',
+      regularMarketPrice: 45,
+    });
+    const q = await client.quote('IONQ');
+    expect(q?.previousClose).toBeNull();
+  });
+
+  it('still carries a previous close through the chart fallback', async () => {
+    // Unlike marketState and P/E, chart meta DOES carry a previous close —
+    // the daily chart needs it too — so this survives the crumb block that
+    // takes pre/post prices and P/E dark in production.
+    const client = new YahooClient({
+      quote: async () => {
+        throw new Error('Failed to get crumb, status 429, statusText: Too Many Requests');
+      },
+      chart: async () => ({
+        meta: {
+          symbol: 'APP',
+          regularMarketPrice: 320.56,
+          previousClose: 315.2,
+        },
+      }),
+    } as never);
+
+    const q = await client.quote('APP');
+    expect(q?.previousClose).toBe(315.2);
+  });
+
+  it('falls back to chartPreviousClose when previousClose is absent', async () => {
+    const client = new YahooClient({
+      quote: async () => {
+        throw new Error('Failed to get crumb, status 429, statusText: Too Many Requests');
+      },
+      chart: async () => ({
+        meta: {
+          symbol: 'APP',
+          regularMarketPrice: 320.56,
+          chartPreviousClose: 315.2,
+        },
+      }),
+    } as never);
+
+    const q = await client.quote('APP');
+    expect(q?.previousClose).toBe(315.2);
+  });
+});
+
 /**
  * The constructor's @Optional() `yf` parameter IS the test seam — read the
  * comment on it in yahoo.client.ts. Pass a fake there; never cast into the
