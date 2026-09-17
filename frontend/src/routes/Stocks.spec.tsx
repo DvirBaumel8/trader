@@ -169,50 +169,19 @@ describe('Stocks', () => {
     expect(symbols).toEqual(['MANY', 'FEW']);
   });
 
-  it('narrows the list once two characters are typed into the search box', async () => {
-    (api as ReturnType<typeof vi.fn>).mockResolvedValue([
-      row({ symbol: 'NVDA' }),
-      row({ symbol: 'AAPL' }),
-    ]);
-    const user = userEvent.setup();
-    renderStocks();
+  describe('ticker picker', () => {
+    it('opens from a button that reads "All tickers" by default', async () => {
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+        row({ symbol: 'NVDA' }),
+        row({ symbol: 'AAPL' }),
+      ]);
+      renderStocks();
+      await screen.findByText('NVDA', { selector: 'span' });
 
-    await screen.findByText('NVDA', { selector: 'span' });
-    await user.type(screen.getByRole('textbox', { name: 'Search symbol' }), 'nv');
+      expect(screen.getByRole('button', { name: 'All tickers' })).toBeInTheDocument();
+    });
 
-    expect(screen.getByText('NVDA', { selector: 'span' })).toBeInTheDocument();
-    expect(screen.queryByText('AAPL', { selector: 'span' })).not.toBeInTheDocument();
-  });
-
-  it('does not filter on a single character', async () => {
-    (api as ReturnType<typeof vi.fn>).mockResolvedValue([
-      row({ symbol: 'NVDA' }),
-      row({ symbol: 'AAPL' }),
-    ]);
-    const user = userEvent.setup();
-    renderStocks();
-
-    await screen.findByText('NVDA', { selector: 'span' });
-    await user.type(screen.getByRole('textbox', { name: 'Search symbol' }), 'n');
-
-    expect(screen.getByText('NVDA', { selector: 'span' })).toBeInTheDocument();
-    expect(screen.getByText('AAPL', { selector: 'span' })).toBeInTheDocument();
-  });
-
-  it('shows a distinct message when the search matches nothing, leaving the range message unused', async () => {
-    (api as ReturnType<typeof vi.fn>).mockResolvedValue([row({ symbol: 'NVDA' })]);
-    const user = userEvent.setup();
-    renderStocks();
-
-    await screen.findByText('NVDA', { selector: 'span' });
-    await user.type(screen.getByRole('textbox', { name: 'Search symbol' }), 'zz');
-
-    expect(await screen.findByText('No symbol matches "zz".')).toBeInTheDocument();
-    expect(screen.queryByText(/No trades closed in this period/)).not.toBeInTheDocument();
-  });
-
-  describe('multi-select ticker filter', () => {
-    it('offers a pill per symbol and narrows the list to the ones picked', async () => {
+    it('narrows the list to a ticker checked in the sheet', async () => {
       (api as ReturnType<typeof vi.fn>).mockResolvedValue([
         row({ symbol: 'NVDA' }),
         row({ symbol: 'AAPL' }),
@@ -222,14 +191,15 @@ describe('Stocks', () => {
       renderStocks();
       await screen.findByText('NVDA', { selector: 'span' });
 
-      await user.click(screen.getByRole('button', { name: 'NVDA' }));
+      await user.click(screen.getByRole('button', { name: 'All tickers' }));
+      await user.click(screen.getByRole('checkbox', { name: 'NVDA' }));
 
       expect(screen.getByText('NVDA', { selector: 'span' })).toBeInTheDocument();
       expect(screen.queryByText('AAPL', { selector: 'span' })).not.toBeInTheDocument();
       expect(screen.queryByText('AMD', { selector: 'span' })).not.toBeInTheDocument();
     });
 
-    it('keeps more than one symbol once a second pill is picked', async () => {
+    it('keeps more than one symbol once a second checkbox is checked', async () => {
       (api as ReturnType<typeof vi.fn>).mockResolvedValue([
         row({ symbol: 'NVDA' }),
         row({ symbol: 'AAPL' }),
@@ -239,15 +209,16 @@ describe('Stocks', () => {
       renderStocks();
       await screen.findByText('NVDA', { selector: 'span' });
 
-      await user.click(screen.getByRole('button', { name: 'NVDA' }));
-      await user.click(screen.getByRole('button', { name: 'AAPL' }));
+      await user.click(screen.getByRole('button', { name: 'All tickers' }));
+      await user.click(screen.getByRole('checkbox', { name: 'NVDA' }));
+      await user.click(screen.getByRole('checkbox', { name: 'AAPL' }));
 
       expect(screen.getByText('NVDA', { selector: 'span' })).toBeInTheDocument();
       expect(screen.getByText('AAPL', { selector: 'span' })).toBeInTheDocument();
       expect(screen.queryByText('AMD', { selector: 'span' })).not.toBeInTheDocument();
     });
 
-    it('tapping a picked pill again deselects it', async () => {
+    it('unchecking a ticker again puts it back', async () => {
       (api as ReturnType<typeof vi.fn>).mockResolvedValue([
         row({ symbol: 'NVDA' }),
         row({ symbol: 'AAPL' }),
@@ -256,14 +227,15 @@ describe('Stocks', () => {
       renderStocks();
       await screen.findByText('NVDA', { selector: 'span' });
 
-      await user.click(screen.getByRole('button', { name: 'NVDA' }));
-      await user.click(screen.getByRole('button', { name: 'NVDA' }));
+      await user.click(screen.getByRole('button', { name: 'All tickers' }));
+      await user.click(screen.getByRole('checkbox', { name: 'NVDA' }));
+      await user.click(screen.getByRole('checkbox', { name: 'NVDA' }));
 
       expect(screen.getByText('NVDA', { selector: 'span' })).toBeInTheDocument();
       expect(screen.getByText('AAPL', { selector: 'span' })).toBeInTheDocument();
     });
 
-    it('clears the picked symbols with All', async () => {
+    it('clears the pick with the All tickers option inside the sheet', async () => {
       (api as ReturnType<typeof vi.fn>).mockResolvedValue([
         row({ symbol: 'NVDA' }),
         row({ symbol: 'AAPL' }),
@@ -272,11 +244,74 @@ describe('Stocks', () => {
       renderStocks();
       await screen.findByText('NVDA', { selector: 'span' });
 
-      await user.click(screen.getByRole('button', { name: 'NVDA' }));
+      await user.click(screen.getByRole('button', { name: 'All tickers' }));
+      await user.click(screen.getByRole('checkbox', { name: 'NVDA' }));
       await user.click(screen.getByRole('button', { name: 'All tickers' }));
 
       expect(screen.getByText('NVDA', { selector: 'span' })).toBeInTheDocument();
       expect(screen.getByText('AAPL', { selector: 'span' })).toBeInTheDocument();
+    });
+
+    it('names the picked ticker on the trigger button once the sheet is closed', async () => {
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+        row({ symbol: 'NVDA' }),
+        row({ symbol: 'AAPL' }),
+      ]);
+      const user = userEvent.setup();
+      renderStocks();
+      await screen.findByText('NVDA', { selector: 'span' });
+
+      await user.click(screen.getByRole('button', { name: 'All tickers' }));
+      await user.click(screen.getByRole('checkbox', { name: 'NVDA' }));
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(screen.getByRole('button', { name: 'NVDA' })).toBeInTheDocument();
+    });
+
+    it('counts the picked tickers on the trigger button once there is more than one', async () => {
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+        row({ symbol: 'NVDA' }),
+        row({ symbol: 'AAPL' }),
+      ]);
+      const user = userEvent.setup();
+      renderStocks();
+      await screen.findByText('NVDA', { selector: 'span' });
+
+      await user.click(screen.getByRole('button', { name: 'All tickers' }));
+      await user.click(screen.getByRole('checkbox', { name: 'NVDA' }));
+      await user.click(screen.getByRole('checkbox', { name: 'AAPL' }));
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(screen.getByRole('button', { name: '2 tickers' })).toBeInTheDocument();
+    });
+
+    it('narrows the sheet itself by a typed search', async () => {
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+        row({ symbol: 'NVDA' }),
+        row({ symbol: 'AAPL' }),
+      ]);
+      const user = userEvent.setup();
+      renderStocks();
+      await screen.findByText('NVDA', { selector: 'span' });
+
+      await user.click(screen.getByRole('button', { name: 'All tickers' }));
+      await user.type(screen.getByRole('textbox', { name: 'Search symbol' }), 'nv');
+
+      expect(screen.getByRole('checkbox', { name: 'NVDA' })).toBeInTheDocument();
+      expect(screen.queryByRole('checkbox', { name: 'AAPL' })).not.toBeInTheDocument();
+    });
+
+    it('closes without changing anything on screen when Done is pressed with no changes', async () => {
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue([row({ symbol: 'NVDA' })]);
+      const user = userEvent.setup();
+      renderStocks();
+      await screen.findByText('NVDA', { selector: 'span' });
+
+      await user.click(screen.getByRole('button', { name: 'All tickers' }));
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(screen.queryByRole('checkbox', { name: 'NVDA' })).not.toBeInTheDocument();
+      expect(screen.getByText('NVDA', { selector: 'span' })).toBeInTheDocument();
     });
   });
 
@@ -295,7 +330,7 @@ describe('Stocks', () => {
       expect(screen.getByText('$16.00', { selector: '.total-fees' })).toBeInTheDocument();
     });
 
-    it('recomputes once the ticker selection narrows the list', async () => {
+    it('recomputes once the ticker pick narrows the list', async () => {
       (api as ReturnType<typeof vi.fn>).mockResolvedValue([
         row({ symbol: 'NVDA', totalPnl: 450, feesPaid: 12 }),
         row({ symbol: 'LMND', totalPnl: -20, feesPaid: 4 }),
@@ -304,7 +339,8 @@ describe('Stocks', () => {
       renderStocks();
       await screen.findByText('NVDA', { selector: 'span' });
 
-      await user.click(screen.getByRole('button', { name: 'NVDA' }));
+      await user.click(screen.getByRole('button', { name: 'All tickers' }));
+      await user.click(screen.getByRole('checkbox', { name: 'NVDA' }));
 
       expect(screen.getByText('+$450.00', { selector: '.total-pnl' })).toBeInTheDocument();
       expect(screen.getByText('$12.00', { selector: '.total-fees' })).toBeInTheDocument();

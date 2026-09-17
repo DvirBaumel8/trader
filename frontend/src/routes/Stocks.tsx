@@ -34,6 +34,107 @@ const HEADER_CELL = 'text-[10px] tracking-wide text-muted uppercase';
 const ROW_CELL =
   'py-3 transition-colors group-hover:bg-surface-1 group-active:bg-surface-2';
 
+function pickerLabel(selected: string[]): string {
+  if (selected.length === 0) return 'All tickers';
+  if (selected.length === 1) return selected[0];
+  return `${selected.length} tickers`;
+}
+
+/**
+ * A ticker's history can run to dozens of symbols, so this is a sheet, not a
+ * row of pills stamped inline — a wall of small tap targets is exactly what
+ * makes "select NVDA" occasionally register on AMD next to it. It also
+ * replaces the standalone search box the list used to have of its own:
+ * one search here, one filter, rather than two that silently combine and
+ * leave a picked ticker sitting selected while an unrelated typed search
+ * empties the list with no visible explanation.
+ *
+ * Left mounted (rather than conditionally rendered by the caller) so its own
+ * search draft is exactly what `EntrySheet` already does for the same
+ * reason: hooks stay in one place, and `open` alone decides visibility.
+ */
+function TickerPickerSheet({
+  open,
+  onClose,
+  symbols,
+  selected,
+  onToggle,
+  onClearAll,
+}: {
+  open: boolean;
+  onClose: () => void;
+  symbols: SymbolRow[];
+  selected: string[];
+  onToggle: (symbol: string) => void;
+  onClearAll: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  if (!open) return null;
+
+  const filtered = filterSymbols(symbols, search);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60">
+      <button type="button" aria-label="Close" onClick={onClose} className="flex-1" />
+      <div className="flex max-h-[80vh] flex-col rounded-t-2xl border-t border-border bg-surface-0">
+        <div className="space-y-3 p-4 pb-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold">Tickers</span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs font-medium text-accent"
+            >
+              Done
+            </button>
+          </div>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search symbol…"
+            aria-label="Search symbol"
+            className={inputClasses('sm', 'w-full')}
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 pb-6">
+          <button
+            type="button"
+            onClick={onClearAll}
+            className={`flex w-full items-center justify-between rounded-lg px-2 py-3 text-sm ${
+              selected.length === 0 ? 'font-medium text-accent' : 'text-text'
+            }`}
+          >
+            All tickers
+            {selected.length === 0 && <span aria-hidden="true">✓</span>}
+          </button>
+          <div className="my-1 border-b border-border" />
+          {filtered.length === 0 ? (
+            <p className="px-2 py-3 text-sm text-muted">
+              No symbol matches &quot;{search.trim()}&quot;.
+            </p>
+          ) : (
+            filtered.map((r) => (
+              <label
+                key={r.symbol}
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-3 text-sm"
+              >
+                {r.symbol}
+                <input
+                  type="checkbox"
+                  checked={selected.includes(r.symbol)}
+                  onChange={() => onToggle(r.symbol)}
+                  className="h-4 w-4 accent-accent"
+                />
+              </label>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Pick a stock, see its whole story. One row per symbol with at least one
  * closed trade in the selected period — a ticker you only ever opened and
@@ -43,9 +144,9 @@ const ROW_CELL =
 export function Stocks() {
   const [range, setRange] = useState<Range>('ALL');
   const [sort, setSort] = useState<SymbolSort>('NEWEST');
-  const [search, setSearch] = useState('');
-  // Which tickers are picked, on top of range/search — an empty list means
-  // no pick was made, which reads as "every symbol", not "none".
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // Which tickers are picked — an empty list means no pick was made, which
+  // reads as "every symbol", not "none".
   const [selected, setSelected] = usePersistentState<string[]>(
     'trader.stocks.selectedSymbols',
     [],
@@ -62,7 +163,7 @@ export function Stocks() {
     selected.length === 0
       ? bySymbol
       : bySymbol.filter((r) => selected.includes(r.symbol));
-  const rows = sortSymbols(filterSymbols(bySelection, search), sort);
+  const rows = sortSymbols(bySelection, sort);
 
   const totalPnl = rows.reduce((sum, r) => sum + (r.totalPnl ?? 0), 0);
   const totalFees = rows.reduce((sum, r) => sum + r.feesPaid, 0);
@@ -100,54 +201,33 @@ export function Stocks() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex gap-2">
             <button
               type="button"
-              aria-pressed={selected.length === 0}
-              onClick={() => setSelected([])}
-              className={`rounded-lg border px-2 py-1 text-[11px] ${
-                selected.length === 0
-                  ? 'border-accent/40 bg-accent/10 text-accent'
-                  : 'border-border text-muted'
-              }`}
+              onClick={() => setPickerOpen(true)}
+              className={`${inputClasses('sm', 'flex-1')} flex items-center justify-between text-left`}
             >
-              All tickers
+              <div className="truncate">{pickerLabel(selected)}</div>
+              <span aria-hidden="true" className="shrink-0 text-[9px] text-muted">
+                ▼
+              </span>
             </button>
-            {[...bySymbol]
-              .map((r) => r.symbol)
-              .sort()
-              .map((symbol) => (
-                <button
-                  key={symbol}
-                  type="button"
-                  aria-pressed={selected.includes(symbol)}
-                  onClick={() => toggleSymbol(symbol)}
-                  className={`rounded-lg border px-2 py-1 text-[11px] ${
-                    selected.includes(symbol)
-                      ? 'border-accent/40 bg-accent/10 text-accent'
-                      : 'border-border text-muted'
-                  }`}
-                >
-                  {symbol}
-                </button>
-              ))}
-          </div>
-
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search symbol…"
-              aria-label="Search symbol"
-              className={inputClasses('sm', 'flex-1')}
-            />
             <Select value={sort} onChange={setSort} options={SORTS} srLabel="Sort" />
           </div>
 
+          <TickerPickerSheet
+            open={pickerOpen}
+            onClose={() => setPickerOpen(false)}
+            symbols={bySymbol}
+            selected={selected}
+            onToggle={toggleSymbol}
+            onClearAll={() => setSelected([])}
+          />
+
           {rows.length === 0 ? (
             <p className="text-sm text-muted">
-              No symbol matches &quot;{search.trim()}&quot;.
+              No trades for the picked ticker{selected.length === 1 ? '' : 's'} in this
+              period.
             </p>
           ) : (
             /*
