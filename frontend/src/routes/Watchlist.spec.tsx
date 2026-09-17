@@ -21,23 +21,24 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const row = (over: Partial<Record<string, unknown>> = {}) => ({
+const baseRow = {
   id: 'w1',
   symbol: 'NVDA',
   name: 'NVIDIA',
   price: 100,
   stale: false,
-  targetPrice: 120,
-  targetDirection: 'ABOVE',
-  distanceToTarget: 20,
+  targetPrice: 120 as number | null,
+  targetDirection: 'ABOVE' as 'ABOVE' | 'BELOW' | null,
+  distanceToTarget: 20 as number | null,
   reached: false,
   alerting: false,
-  reachedOn: null,
+  reachedOn: null as string | null,
   note: '',
-  tags: [],
-  daysUntilEarnings: null,
-  ...over,
-});
+  tags: [] as { id: string; label: string }[],
+  daysUntilEarnings: null as number | null,
+};
+type WatchRowFixture = typeof baseRow;
+const row = (over: Partial<WatchRowFixture> = {}) => ({ ...baseRow, ...over });
 
 const rankedTicker = (over: Partial<Record<string, unknown>> = {}) => ({
   symbol: 'NVDA',
@@ -252,11 +253,16 @@ describe('Watchlist rows', () => {
 
   it('focuses and scrolls to a watch symbol linked from Brief', async () => {
     const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = scrollIntoView;
-    renderWatchlist([row({ symbol: 'FSLR' })], {}, '/watchlist?symbol=FSLR');
+    try {
+      renderWatchlist([row({ symbol: 'FSLR' })], {}, '/watchlist?symbol=FSLR');
 
-    expect(await screen.findByTestId('watch-FSLR')).toHaveAttribute('data-focused', 'true');
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+      expect(await screen.findByTestId('watch-FSLR')).toHaveAttribute('data-focused', 'true');
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 
   it('shows aligned column headers for the watchlist', async () => {

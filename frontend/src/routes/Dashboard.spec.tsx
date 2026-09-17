@@ -70,11 +70,16 @@ describe('Dashboard holdings table', () => {
 
   it('focuses and scrolls to a holding linked from Brief', async () => {
     const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = scrollIntoView;
-    renderDashboard([position('AAPL', 1)], '/?symbol=AAPL');
+    try {
+      renderDashboard([position('AAPL', 1)], '/?symbol=AAPL');
 
-    expect(await screen.findByTestId('holding-AAPL')).toHaveAttribute('data-focused', 'true');
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+      expect(await screen.findByTestId('holding-AAPL')).toHaveAttribute('data-focused', 'true');
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 
   it('keeps the daily brief on its own screen', async () => {
