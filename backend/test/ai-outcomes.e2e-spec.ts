@@ -6,6 +6,7 @@ import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
 import { YahooClient } from '../src/market-data/yahoo.client.js';
 import { LlmClient } from '../src/llm/llm.client.js';
+import { HistoryService } from '../src/market-data/history.service.js';
 
 /** 220 flat bars, then a run that pushes straight through the target. */
 function bars(targetCrossingDate: string) {
@@ -42,27 +43,52 @@ describe('AI outcomes (e2e)', () => {
   let yahooBars: ReturnType<typeof bars>;
 
   beforeAll(async () => {
+    const yahooStub = {
+      quote: async (symbol: string) => ({
+        symbol,
+        name: `${symbol} Inc`,
+        price: 100,
+        currency: 'USD',
+        session: 'REGULAR',
+        extended: false,
+        regularPrice: 100,
+        peRatio: 30,
+      }),
+      quoteMany: async () => [],
+      dailyBars: async () => yahooBars,
+    };
+
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(YahooClient)
-      .useValue({
-        quote: async (symbol: string) => ({
-          symbol,
-          name: `${symbol} Inc`,
-          price: 100,
-          currency: 'USD',
-          session: 'REGULAR',
-          extended: false,
-          regularPrice: 100,
-          peRatio: 30,
-        }),
-        quoteMany: async () => [],
-        dailyBars: async () => yahooBars,
-      })
+      .useValue(yahooStub)
       .overrideProvider(LlmClient)
       .useValue({
         isConfigured: () => true,
         modelName: () => 'stub-model',
         complete: async () => 'Real prose about the trade.\n\nLEVELS\nstop: 90\ntarget: 130',
+      })
+      // HistoryService.ensureFresh() sweeps EVERY instrument in the shared
+      // test database and upserts whatever YahooClient.dailyBars() returns
+      // for each into the shared daily_closes table (see its doc comment).
+      // PortfolioService.getPortfolio() fires it fire-and-forget, and
+      // TickerFactsService.resolveBars() awaits it directly — both sit on
+      // this spec's own POST /ai/trade-idea path (buildIdeaContext calls
+      // both tickerFacts.get() and portfolio.getPortfolio()). Since this
+      // spec's YahooClient stub returns the same target-crossing spike for
+      // any symbol, a real ensureFresh() here would leak that spike into
+      // every other instrument's daily_closes rows (e.g. NVDA, already
+      // created by an earlier-running spec file), corrupting whichever spec
+      // runs next. Stubbing ensureFresh() as a no-op removes the write at
+      // its source instead of racing it. liveDailyBars() is kept real-ish
+      // (delegating straight to the same yahooStub.dailyBars(), matching
+      // HistoryService's own implementation) because AiOutcomeService.
+      // resolveTradeIdea() needs it to grade the trade idea in the GET
+      // /ai/outcomes test. No other HistoryService method (ensurePriced,
+      // backfill) is reachable from this spec's three tests.
+      .overrideProvider(HistoryService)
+      .useValue({
+        ensureFresh: async () => {},
+        liveDailyBars: async () => yahooStub.dailyBars(),
       })
       .compile();
     app = moduleRef.createNestApplication();
@@ -81,18 +107,13 @@ describe('AI outcomes (e2e)', () => {
   });
 
   afterAll(async () => {
-    // This spec is the only one in the suite whose YahooClient stub returns
-    // a real price spike (the target-crossing bar) rather than a flat line,
-    // and PortfolioService.getPortfolio's fire-and-forget ensureFresh() (see
-    // portfolio.service.ts) tops up EVERY instrument in the shared test
-    // database on every call, not just the ones this spec created. NVDA
-    // already exists as an instrument by the time this file runs (other e2e
-    // specs trade it), so that sweep silently upserts this spec's spike bar
-    // into the real, shared `daily_closes` rows for NVDA — which then broke
-    // ticker-facts.e2e-spec.ts's flat-market assumption for the same symbol,
-    // purely because of file execution order. Truncating here, before the
-    // next spec runs, restores the shared table to what every other spec
-    // already assumes about it.
+    // Defensive hygiene, not a fix in itself: with HistoryService stubbed
+    // above, ensureFresh() never writes to daily_closes, so this spec's
+    // target-crossing spike can no longer leak into another instrument's
+    // rows (that was the actual bug — see the HistoryService override
+    // comment in beforeAll). This truncate just restores daily_closes to
+    // empty for whatever spec runs next, matching what beforeEach already
+    // does before each of this file's own tests.
     await dataSource.query('TRUNCATE daily_closes RESTART IDENTITY CASCADE');
     await app.close();
   });
