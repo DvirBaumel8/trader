@@ -15,8 +15,10 @@ import { buildTradeReviewPrompt } from './trade-review-prompt.js';
 import { parseReviewMeta, stripReviewMeta } from './trade-review-parse.js';
 import { readTraderProfile } from './trader-profile.js';
 import { streamAfterMetaBlock } from './meta-block-stream.js';
+import { AiOutcomeService } from './ai-outcome.service.js';
 
 export interface TradeReviewResult {
+  id: string | null;
   configured: boolean;
   tradeId: string;
   symbol: string;
@@ -48,6 +50,7 @@ export class TradeReviewService {
     private readonly reviews: Repository<TradeReview>,
     @InjectRepository(JournalEntry)
     private readonly entries: Repository<JournalEntry>,
+    private readonly outcomes: AiOutcomeService,
   ) {}
 
   async getReview(tradeId: string): Promise<TradeReviewResult | null> {
@@ -69,6 +72,7 @@ export class TradeReviewService {
     }
 
     return {
+      id: existing.id,
       configured: this.llm.isConfigured(),
       tradeId: existing.tradeId,
       symbol: existing.symbol,
@@ -133,6 +137,7 @@ export class TradeReviewService {
 
     if (!this.llm.isConfigured()) {
       return {
+        id: null,
         configured: false,
         tradeId,
         symbol: trade.symbol,
@@ -175,7 +180,14 @@ export class TradeReviewService {
       });
       await this.reviews.save(record);
 
+      // Only worth grading if the review actually named a mistake — see the
+      // identical reasoning in SymbolPatternService.generate.
+      if (facts.mistakes.length > 0) {
+        await this.outcomes.recordPending('trade_review', record.id);
+      }
+
       return {
+        id: record.id,
         configured: true,
         tradeId,
         symbol: trade.symbol,
@@ -194,6 +206,7 @@ export class TradeReviewService {
         `AI Trade Review call failed (${kind}): ${(err as Error).message}`,
       );
       return {
+        id: null,
         configured: true,
         tradeId,
         symbol: trade.symbol,
@@ -222,6 +235,7 @@ export class TradeReviewService {
 
     if (!this.llm.isConfigured()) {
       yield emit({
+        id: null,
         done: true,
         configured: false,
         tradeId,
@@ -268,7 +282,14 @@ export class TradeReviewService {
       });
       await this.reviews.save(record);
 
+      // Only worth grading if the review actually named a mistake — see the
+      // identical reasoning in SymbolPatternService.generate.
+      if (facts.mistakes.length > 0) {
+        await this.outcomes.recordPending('trade_review', record.id);
+      }
+
       yield emit({
+        id: record.id,
         done: true,
         configured: true,
         tradeId,
@@ -286,6 +307,7 @@ export class TradeReviewService {
         `AI Trade Review stream failed for ${tradeId} (${kind}): ${(err as Error).message}`,
       );
       yield emit({
+        id: null,
         done: true,
         configured: true,
         tradeId,

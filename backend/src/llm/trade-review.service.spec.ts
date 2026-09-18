@@ -7,6 +7,7 @@ import type { UsersService } from '../users/users.service.js';
 import type { Repository } from 'typeorm';
 import type { TradeReview } from './trade-review.entity.js';
 import type { JournalEntry } from '../journal/journal-entry.entity.js';
+import type { AiOutcomeService } from './ai-outcome.service.js';
 
 function makeService(opts: {
   isConfigured?: boolean;
@@ -14,6 +15,7 @@ function makeService(opts: {
   llmComplete?: () => Promise<string>;
   llmCompleteStream?: () => AsyncIterable<string>;
   savedReview?: any;
+  outcomes?: { recordPending: ReturnType<typeof vi.fn> };
 }) {
   const trades = {
     getTrade: vi.fn().mockImplementation(async (_id: string) => {
@@ -82,6 +84,10 @@ function makeService(opts: {
     find: vi.fn().mockResolvedValue([]),
   };
 
+  const outcomes = (opts.outcomes ?? {
+    recordPending: vi.fn(),
+  }) as unknown as AiOutcomeService;
+
   async function* defaultStream() {
     yield '[REVIEW_META]\nSCORE: A\nVERDICT: Disciplined Target Exit\n[/REVIEW_META]\n\n';
     yield '### Process vs Outcome\n';
@@ -115,9 +121,11 @@ Exemplary adherence to risk boundaries.`),
       // llm.controller.spec.ts survived unnoticed.
       reviews as unknown as Repository<TradeReview>,
       entries as unknown as Repository<JournalEntry>,
+      outcomes,
     ),
     trades,
     reviews,
+    outcomes,
   };
 }
 
@@ -140,6 +148,7 @@ describe('TradeReviewService', () => {
   it('generates and persists review when LLM answers', async () => {
     const { service, reviews } = makeService({ isConfigured: true });
     const result = await service.reviewTrade('trade-1');
+    expect(result.id).toBe('rev-1');
     expect(result.configured).toBe(true);
     expect(result.score).toBe('A');
     expect(result.verdict).toBe('Disciplined Target Exit');
@@ -155,15 +164,25 @@ describe('TradeReviewService', () => {
         score: 'A',
         verdict: 'Disciplined Target Exit',
         review: 'Great trade execution',
-        factsSnapshot: JSON.stringify({ symbol: 'NVDA' }),
+        factsSnapshot: JSON.stringify({ symbol: 'NVDA', mistakes: [] }),
         createdAt: new Date(),
+        id: 'rev-99',
       },
     });
 
     const result = await service.getReview('trade-1');
     expect(result).not.toBeNull();
+    expect(result?.id).toBe('rev-99');
     expect(result?.score).toBe('A');
     expect(result?.verdict).toBe('Disciplined Target Exit');
+  });
+
+  it('records a pending outcome only when the review names at least one mistake', async () => {
+    const outcomes = { recordPending: vi.fn() };
+    await makeService({ isConfigured: true, outcomes }).service.reviewTrade('trade-1');
+    // buildTradeReviewFacts is fed `tagsByEntryId: vi.fn().mockResolvedValue(new Map())`
+    // in this file's fixture — no tags means no mistakes, nothing to grade.
+    expect(outcomes.recordPending).not.toHaveBeenCalled();
   });
 });
 
@@ -186,7 +205,7 @@ describe('TradeReviewService.reviewTradeStream', () => {
     const lines = await collectLines(service.reviewTradeStream('trade-1'));
 
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ done: true, configured: false, score: null, verdict: null });
+    expect(lines[0]).toMatchObject({ done: true, configured: false, score: null, verdict: null, id: null });
     expect((lines[0] as { facts: { symbol: string } }).facts.symbol).toBe('NVDA');
   });
 
@@ -213,6 +232,7 @@ describe('TradeReviewService.reviewTradeStream', () => {
       verdict: 'Disciplined Target Exit',
       symbol: 'NVDA',
       error: null,
+      id: 'rev-1',
     });
     expect(reviews.save).toHaveBeenCalled();
     const saved = (reviews.save as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -244,6 +264,7 @@ describe('TradeReviewService.reviewTradeStream', () => {
         createdAt: null,
         error: 'The AI model is busy right now. Worth another tap in a moment.',
         errorKind: 'busy',
+        id: null,
       },
     ]);
     expect(reviews.save).not.toHaveBeenCalled();
