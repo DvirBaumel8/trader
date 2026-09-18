@@ -13,7 +13,11 @@ import type { RawBar } from '../market-data/yahoo.client.js';
 function makeService(opts: {
   pendingRows?: Partial<AiOutcome>[];
   findIdea?: (id: string) => Partial<TradeIdea> | null;
+  findRead?: (id: string) => Partial<SymbolPatternRead> | null;
+  findReview?: (id: string) => Partial<TradeReview> | null;
   liveDailyBars?: (symbol: string, from: Date) => Promise<RawBar[]>;
+  deriveAllTrades?: () => Promise<unknown[]>;
+  tagsByEntryId?: () => Promise<Map<string, { setups: string[]; mistakes: string[] }>>;
 } = {}) {
   const outcomes = {
     create: vi.fn().mockImplementation((data) => ({ ...data })),
@@ -27,12 +31,27 @@ function makeService(opts: {
         opts.findIdea ? opts.findIdea(id) : null,
       ),
   };
-  const reads = { findOne: vi.fn().mockResolvedValue(null) };
-  const reviews = { findOne: vi.fn().mockResolvedValue(null) };
+  const reads = {
+    findOne: vi
+      .fn()
+      .mockImplementation(async ({ where: { id } }: { where: { id: string } }) =>
+        opts.findRead ? opts.findRead(id) : null,
+      ),
+  };
+  const reviews = {
+    findOne: vi
+      .fn()
+      .mockImplementation(async ({ where: { id } }: { where: { id: string } }) =>
+        opts.findReview ? opts.findReview(id) : null,
+      ),
+  };
   const users = {
     currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
   } as unknown as UsersService;
-  const trades = {} as unknown as TradesService;
+  const trades = {
+    deriveAllTrades: opts.deriveAllTrades ?? (async () => []),
+    tagsByEntryId: opts.tagsByEntryId ?? (async () => new Map()),
+  } as unknown as TradesService;
   const history = {
     liveDailyBars: opts.liveDailyBars ?? (async () => []),
   } as unknown as HistoryService;
@@ -186,5 +205,105 @@ describe('AiOutcomeService.resolvePending — trade_idea', () => {
     expect(outcomes.save).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'o2', status: 'target_hit' }),
     );
+  });
+});
+
+describe('AiOutcomeService.resolvePending — symbol_pattern and trade_review', () => {
+  const READ: Partial<SymbolPatternRead> = {
+    id: 'read-1',
+    symbol: 'NVDA',
+    createdAt: new Date('2026-08-01T00:00:00Z'),
+    factsSnapshot: JSON.stringify({
+      symbol: 'NVDA',
+      trades: [{ symbol: 'NVDA', mistakes: ['cut winner short'] }],
+    }),
+  };
+
+  const REVIEW: Partial<TradeReview> = {
+    id: 'rev-1',
+    symbol: 'NVDA',
+    createdAt: new Date('2026-08-01T00:00:00Z'),
+    factsSnapshot: JSON.stringify({ symbol: 'NVDA', mistakes: ['cut winner short'] }),
+  };
+
+  function closedTrade(entryId: string, enteredAt: string) {
+    return {
+      symbol: 'NVDA',
+      isOpen: false,
+      enteredAt: new Date(enteredAt),
+      exitedAt: new Date(enteredAt),
+      fills: [{ entryId, executedAt: new Date(enteredAt), side: 'BUY', quantity: 1, price: 1, fee: 0 }],
+    };
+  }
+
+  it('resolves repeated when the next closed trade in that symbol carries the same mistake tag', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o1', feature: 'symbol_pattern', entityId: 'read-1', status: 'pending' }],
+      findRead: () => READ,
+      deriveAllTrades: async () => [closedTrade('e1', '2026-08-10')],
+      tagsByEntryId: async () =>
+        new Map([['e1', { setups: [], mistakes: ['cut winner short'] }]]),
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'o1', status: 'repeated' }),
+    );
+  });
+
+  it('resolves improved when the next closed trade shares none of the named mistakes', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o1', feature: 'trade_review', entityId: 'rev-1', status: 'pending' }],
+      findReview: () => REVIEW,
+      deriveAllTrades: async () => [closedTrade('e1', '2026-08-10')],
+      tagsByEntryId: async () => new Map([['e1', { setups: [], mistakes: [] }]]),
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'o1', status: 'improved' }),
+    );
+  });
+
+  it('stays pending with no qualifying next trade and 90 days have not passed', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o1', feature: 'trade_review', entityId: 'rev-1', status: 'pending' }],
+      findReview: () => ({ ...REVIEW, createdAt: new Date() }),
+      deriveAllTrades: async () => [],
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).not.toHaveBeenCalled();
+  });
+
+  it('expires with no qualifying next trade after 90 days', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o1', feature: 'trade_review', entityId: 'rev-1', status: 'pending' }],
+      findReview: () => ({ ...REVIEW, createdAt: new Date(Date.now() - 91 * 86_400_000) }),
+      deriveAllTrades: async () => [],
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'o1', status: 'expired' }),
+    );
+  });
+
+  it('ignores a closed trade in the same symbol that closed BEFORE the opinion was made', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o1', feature: 'symbol_pattern', entityId: 'read-1', status: 'pending' }],
+      findRead: () => READ,
+      deriveAllTrades: async () => [closedTrade('e0', '2026-07-01')],
+      tagsByEntryId: async () =>
+        new Map([['e0', { setups: [], mistakes: ['cut winner short'] }]]),
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).not.toHaveBeenCalled();
   });
 });

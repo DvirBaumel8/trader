@@ -68,7 +68,9 @@ export class AiOutcomeService {
 
     for (const row of pending) {
       const status =
-        row.feature === 'trade_idea' ? await this.resolveTradeIdea(row) : null;
+        row.feature === 'trade_idea'
+          ? await this.resolveTradeIdea(row)
+          : await this.resolveBehavioral(row);
       if (status) {
         row.status = status;
         row.resolvedAt = new Date();
@@ -104,5 +106,52 @@ export class AiOutcomeService {
 
     const ageDays = (Date.now() - idea.createdAt.getTime()) / 86_400_000;
     return ageDays > AiOutcomeService.TRADE_IDEA_EXPIRY_DAYS ? 'expired' : null;
+  }
+
+  /** Longer than trade-idea's 30 days: a behavior change is slower to
+   * observe than a price move — the trader has to make and close another
+   * trade in the name, not just wait for a quote to move. */
+  private static readonly BEHAVIORAL_EXPIRY_DAYS = 90;
+
+  private async resolveBehavioral(row: AiOutcome): Promise<AiOutcomeStatus | null> {
+    const opinion =
+      row.feature === 'symbol_pattern'
+        ? await this.reads.findOne({ where: { id: row.entityId } })
+        : await this.reviews.findOne({ where: { id: row.entityId } });
+    if (!opinion) return 'expired';
+
+    const namedMistakes =
+      row.feature === 'symbol_pattern'
+        ? new Set(
+            (JSON.parse(opinion.factsSnapshot) as { trades: { mistakes?: string[] }[] }).trades
+              .flatMap((t) => t.mistakes ?? []),
+          )
+        : new Set((JSON.parse(opinion.factsSnapshot) as { mistakes: string[] }).mistakes);
+
+    const allTrades = await this.trades.deriveAllTrades();
+    const nextTrade = allTrades
+      .filter(
+        (t) =>
+          t.symbol.toUpperCase() === opinion.symbol.toUpperCase() &&
+          !t.isOpen &&
+          t.enteredAt > opinion.createdAt,
+      )
+      .sort((a, b) => a.enteredAt.getTime() - b.enteredAt.getTime())[0];
+
+    if (!nextTrade) {
+      const ageDays = (Date.now() - opinion.createdAt.getTime()) / 86_400_000;
+      return ageDays > AiOutcomeService.BEHAVIORAL_EXPIRY_DAYS ? 'expired' : null;
+    }
+
+    const tagsByEntryId = await this.trades.tagsByEntryId();
+    const tradeMistakes = new Set(
+      nextTrade.fills
+        .map((f) => f.entryId)
+        .filter((id): id is string => Boolean(id))
+        .flatMap((id) => tagsByEntryId.get(id)?.mistakes ?? []),
+    );
+
+    const repeated = [...namedMistakes].some((m) => tradeMistakes.has(m));
+    return repeated ? 'repeated' : 'improved';
   }
 }
