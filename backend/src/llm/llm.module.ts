@@ -5,6 +5,8 @@ import { LlmService } from './llm.service.js';
 import { LlmController } from './llm.controller.js';
 import { AiSummary } from './ai-summary.entity.js';
 import { AiSummaryService } from './ai-summary.service.js';
+import { AiOutcome } from './ai-outcome.entity.js';
+import { AiOutcomeService } from './ai-outcome.service.js';
 import { TradeIdea } from './trade-idea.entity.js';
 import { TradeReview } from './trade-review.entity.js';
 import { SymbolPatternRead } from './symbol-pattern.entity.js';
@@ -26,6 +28,7 @@ import { UsersModule } from '../users/users.module.js';
     UsersModule,
     TypeOrmModule.forFeature([
       AiSummary,
+      AiOutcome,
       TradeIdea,
       TradeReview,
       SymbolPatternRead,
@@ -36,6 +39,7 @@ import { UsersModule } from '../users/users.module.js';
     { provide: LlmClient, useClass: GeminiClient },
     LlmService,
     AiSummaryService,
+    AiOutcomeService,
     TradeIdeaService,
     TradeIdeaHistoryService,
     TradeReviewService,
