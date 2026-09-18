@@ -6,6 +6,7 @@ import type { TickerFactsService } from '../market-data/ticker-facts.service.js'
 import type { PortfolioService } from '../portfolio/portfolio.service.js';
 import type { TradesService } from '../portfolio/trades.service.js';
 import type { UsersService } from '../users/users.service.js';
+import type { AiOutcomeService } from './ai-outcome.service.js';
 
 /**
  * The gathering step only. What the model does with the prompt is covered by
@@ -20,6 +21,7 @@ function makeService(opts: {
   llmAnswer?: string;
   llmCompleteStream?: () => AsyncIterable<string>;
   ideas?: { create: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn> };
+  outcomes?: { recordPending: ReturnType<typeof vi.fn> };
 }) {
   const tickerFacts = {
     get: vi.fn().mockImplementation(opts.facts ?? (async () => ({ symbol: 'NVDA' }))),
@@ -48,9 +50,18 @@ function makeService(opts: {
     // Services resolve the request's user now, not the single owner.
     currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
   } as unknown as UsersService;
-  const ideas = (opts.ideas ?? { create: vi.fn(), save: vi.fn() }) as never;
+  const ideas = (opts.ideas ?? {
+    create: vi.fn((data: unknown) => data),
+    save: vi.fn().mockImplementation(async (r: Record<string, unknown>) => ({
+      ...r,
+      id: 'idea-1',
+    })),
+  }) as never;
+  const outcomes = (opts.outcomes ?? {
+    recordPending: vi.fn(),
+  }) as unknown as AiOutcomeService;
 
-  return new TradeIdeaService(llm, tickerFacts, portfolio, trades, ideas, users);
+  return new TradeIdeaService(llm, tickerFacts, portfolio, trades, ideas, users, outcomes);
 }
 
 describe('TradeIdeaService.analyse — gathering', () => {
@@ -119,7 +130,13 @@ describe('TradeIdeaService.analyse — gathering', () => {
       currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
     } as unknown as UsersService;
     const service = new TradeIdeaService(
-      llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
+      llm, tickerFacts, portfolio, trades,
+      {
+        create: vi.fn((data: unknown) => data),
+        save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-1' })),
+      } as never,
+      users,
+      { recordPending: vi.fn() } as unknown as AiOutcomeService,
     );
 
     await service.analyse('NVDA');
@@ -138,7 +155,10 @@ describe('TradeIdeaService.analyse — book placeholders', () => {
    * one persisted for history must carry the real figure, not the model's.
    */
   it('substitutes a placeholder in the model answer with the real weight, in both the response and the saved row', async () => {
-    const ideas = { create: vi.fn((data: unknown) => data), save: vi.fn() };
+    const ideas = {
+      create: vi.fn((data: unknown) => data),
+      save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-1' })),
+    };
     const service = makeService({
       facts: async () => ({
         symbol: 'NVDA',
@@ -182,10 +202,74 @@ describe('TradeIdeaService.analyse — book placeholders', () => {
 
     const result = await service.analyse('NVDA');
 
+    expect(result.id).toBe('idea-1');
     expect(result.opinion).toBe('LMND is already 22.1% of your account.');
     expect(ideas.save).toHaveBeenCalledWith(
       expect.objectContaining({ opinion: 'LMND is already 22.1% of your account.' }),
     );
+  });
+
+  it("returns the saved row's own id", async () => {
+    const ideas = {
+      create: vi.fn((data: unknown) => data),
+      save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-42' })),
+    };
+    const service = makeService({
+      facts: async () => fullFacts(),
+      portfolio: async () => fullPortfolio(),
+      stats: async () => fullStats(),
+      llmAnswer: 'An opinion.\n\nLEVELS\nstop: 10\ntarget: 20',
+      ideas,
+    });
+
+    const result = await service.analyse('NVDA');
+
+    expect(result.id).toBe('idea-42');
+  });
+
+  it('is null when nothing was saved — unconfigured', async () => {
+    const llm = {
+      isConfigured: () => false,
+      complete: vi.fn(),
+      completeStream: vi.fn(),
+      modelName: () => 'test-model',
+    } as unknown as LlmClient;
+    const tickerFacts = { get: vi.fn() } as unknown as TickerFactsService;
+    const portfolio = { getPortfolio: vi.fn() } as unknown as PortfolioService;
+    const trades = { getStats: vi.fn() } as unknown as TradesService;
+    const users = { currentUser: vi.fn() } as unknown as UsersService;
+    const service = new TradeIdeaService(
+      llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
+      { recordPending: vi.fn() } as unknown as AiOutcomeService,
+    );
+
+    const result = await service.analyse('NVDA');
+
+    expect(result.id).toBeNull();
+  });
+
+  it('records a pending outcome only when levels were read', async () => {
+    const outcomes = { recordPending: vi.fn() };
+    const withLevels = makeService({
+      facts: async () => fullFacts(),
+      portfolio: async () => fullPortfolio(),
+      stats: async () => fullStats(),
+      llmAnswer: 'An opinion.\n\nLEVELS\nstop: 10\ntarget: 20',
+      outcomes,
+    });
+    await withLevels.analyse('NVDA');
+    expect(outcomes.recordPending).toHaveBeenCalledWith('trade_idea', 'idea-1');
+
+    const outcomesUnreadable = { recordPending: vi.fn() };
+    const withoutLevels = makeService({
+      facts: async () => fullFacts(),
+      portfolio: async () => fullPortfolio(),
+      stats: async () => fullStats(),
+      llmAnswer: 'Prose with no LEVELS block at all.',
+      outcomes: outcomesUnreadable,
+    });
+    await withoutLevels.analyse('NVDA');
+    expect(outcomesUnreadable.recordPending).not.toHaveBeenCalled();
   });
 });
 
@@ -247,6 +331,7 @@ describe('TradeIdeaService.analyseStream', () => {
     const users = { currentUser: vi.fn() } as unknown as UsersService;
     const service = new TradeIdeaService(
       llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
+      { recordPending: vi.fn() } as unknown as AiOutcomeService,
     );
 
     const lines = await collectLines(service.analyseStream('nvda'));
@@ -262,13 +347,17 @@ describe('TradeIdeaService.analyseStream', () => {
         levelsUnreadable: false,
         error: null,
         errorKind: null,
+        id: null,
       },
     ]);
     expect(portfolio.getPortfolio).not.toHaveBeenCalled();
   });
 
   it('never yields the LEVELS block or a raw {{...}} placeholder, only the substituted body', async () => {
-    const ideas = { create: vi.fn((data: unknown) => data), save: vi.fn() };
+    const ideas = {
+      create: vi.fn((data: unknown) => data),
+      save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-1' })),
+    };
     const service = makeService({
       facts: async () => fullFacts(),
       portfolio: async () => fullPortfolio(),
@@ -293,7 +382,10 @@ describe('TradeIdeaService.analyseStream', () => {
   });
 
   it('yields a final done line with the parsed levels and persists the same substituted opinion', async () => {
-    const ideas = { create: vi.fn((data: unknown) => data), save: vi.fn() };
+    const ideas = {
+      create: vi.fn((data: unknown) => data),
+      save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-1' })),
+    };
     const service = makeService({
       facts: async () => fullFacts(),
       portfolio: async () => fullPortfolio(),
@@ -314,6 +406,7 @@ describe('TradeIdeaService.analyseStream', () => {
       levels: { stop: 10, target: 20 },
       levelsUnreadable: false,
       error: null,
+      id: 'idea-1',
     });
     expect(ideas.save).toHaveBeenCalledWith(
       expect.objectContaining({ opinion: 'LMND is already 22.1% of your account.' }),
@@ -344,7 +437,13 @@ describe('TradeIdeaService.analyseStream', () => {
       currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
     } as unknown as UsersService;
     const service = new TradeIdeaService(
-      llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
+      llm, tickerFacts, portfolio, trades,
+      {
+        create: vi.fn((data: unknown) => data),
+        save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-1' })),
+      } as never,
+      users,
+      { recordPending: vi.fn() } as unknown as AiOutcomeService,
     );
 
     await collectLines(service.analyseStream('NVDA'));

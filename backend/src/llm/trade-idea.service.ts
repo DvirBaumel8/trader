@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { LlmClient, LlmFailure, type LlmFailureKind } from './llm.client.js';
 import { TradeIdea } from './trade-idea.entity.js';
 import { UsersService } from '../users/users.service.js';
+import { AiOutcomeService } from './ai-outcome.service.js';
 import { ERROR_COPY } from './llm.service.js';
 import { buildSystemPrompt } from './prompts.js';
 import { buildTradeIdeaPrompt } from './trade-idea-prompt.js';
@@ -27,6 +28,7 @@ import {
 import { readTraderProfile } from './trader-profile.js';
 
 export interface TradeIdeaResult {
+  id: string | null;
   configured: boolean;
   symbol: string;
   facts: TickerFacts | null;
@@ -71,6 +73,7 @@ export class TradeIdeaService {
     @InjectRepository(TradeIdea)
     private readonly ideas: Repository<TradeIdea>,
     private readonly users: UsersService,
+    private readonly outcomes: AiOutcomeService,
   ) {}
 
   /** Everything `analyse` and `analyseStream` share: the facts, the book,
@@ -129,6 +132,7 @@ export class TradeIdeaService {
     // answer that cannot be produced.
     if (!this.llm.isConfigured()) {
       return {
+        id: null,
         configured: false,
         symbol: upper,
         facts: null,
@@ -162,6 +166,7 @@ export class TradeIdeaService {
         `Trade idea call failed for ${upper} (${kind}): ${(err as Error).message}`,
       );
       return {
+        id: null,
         configured: true,
         symbol: upper,
         facts,
@@ -197,7 +202,7 @@ export class TradeIdeaService {
     // ideas never fills up with rows recording that nothing was said. An
     // unreadable-levels answer IS saved — it is a real opinion, minus numbers.
     const owner = await this.users.currentUser();
-    await this.ideas.save(
+    const saved = await this.ideas.save(
       this.ideas.create({
         userId: owner.id,
         symbol: upper,
@@ -214,7 +219,14 @@ export class TradeIdeaService {
       }),
     );
 
+    // Only a readable idea has anything to grade — see the entity's own
+    // doc comment on why an unreadable one is still saved.
+    if (levels) {
+      await this.outcomes.recordPending('trade_idea', saved.id);
+    }
+
     return {
+      id: saved.id,
       configured: true,
       symbol: upper,
       facts,
@@ -252,6 +264,7 @@ export class TradeIdeaService {
         levelsUnreadable: false,
         error: null,
         errorKind: null,
+        id: null,
       });
       return;
     }
@@ -287,7 +300,7 @@ export class TradeIdeaService {
         : null;
 
       const owner = await this.users.currentUser();
-      await this.ideas.save(
+      const saved = await this.ideas.save(
         this.ideas.create({
           userId: owner.id,
           symbol: upper,
@@ -302,6 +315,10 @@ export class TradeIdeaService {
         }),
       );
 
+      if (levels) {
+        await this.outcomes.recordPending('trade_idea', saved.id);
+      }
+
       yield emit({
         done: true,
         configured: true,
@@ -312,6 +329,7 @@ export class TradeIdeaService {
         levelsUnreadable: levels === null,
         error: null,
         errorKind: null,
+        id: saved.id,
       });
     } catch (err) {
       const kind: LlmFailureKind = err instanceof LlmFailure ? err.kind : 'unknown';
@@ -328,6 +346,7 @@ export class TradeIdeaService {
         levelsUnreadable: false,
         error: ERROR_COPY[kind],
         errorKind: kind,
+        id: null,
       });
     }
   }
