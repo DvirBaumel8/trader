@@ -1,4 +1,11 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+  Unique,
+} from 'typeorm';
 
 export type AiOutcomeFeature = 'trade_idea' | 'symbol_pattern' | 'trade_review';
 
@@ -26,6 +33,8 @@ export type AiOutcomeStatus =
  * needs to be written down after the fact.
  */
 @Entity('ai_outcomes')
+@Unique(['feature', 'entityId'])
+@Index(['userId', 'status'])
 export class AiOutcome {
   @PrimaryGeneratedColumn('uuid')
   id: string;

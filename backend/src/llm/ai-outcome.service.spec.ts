@@ -23,6 +23,7 @@ function makeService(opts: {
     create: vi.fn().mockImplementation((data) => ({ ...data })),
     save: vi.fn().mockImplementation(async (r) => r),
     find: vi.fn().mockResolvedValue(opts.pendingRows ?? []),
+    delete: vi.fn().mockResolvedValue({ affected: 1 }),
   };
   const ideas = {
     findOne: vi
@@ -84,6 +85,38 @@ describe('AiOutcomeService.recordPending', () => {
       status: 'pending',
     });
     expect(outcomes.save).toHaveBeenCalled();
+  });
+});
+
+describe('AiOutcomeService.recordOutcome', () => {
+  it('swallows a recordPending failure rather than letting it propagate', async () => {
+    const { service, outcomes } = makeService();
+    outcomes.save.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(service.recordOutcome('trade_idea', 'idea-1')).resolves.toBeUndefined();
+  });
+
+  it('still records the row on the success path, same as recordPending', async () => {
+    const { service, outcomes } = makeService();
+
+    await service.recordOutcome('symbol_pattern', 'read-1');
+
+    expect(outcomes.create).toHaveBeenCalledWith({
+      userId: 'user-1',
+      feature: 'symbol_pattern',
+      entityId: 'read-1',
+      status: 'pending',
+    });
+  });
+});
+
+describe('AiOutcomeService.deleteFor', () => {
+  it('deletes outcome rows matching the feature and entityId', async () => {
+    const { service, outcomes } = makeService();
+
+    await service.deleteFor('trade_idea', 'idea-1');
+
+    expect(outcomes.delete).toHaveBeenCalledWith({ feature: 'trade_idea', entityId: 'idea-1' });
   });
 });
 
@@ -206,6 +239,137 @@ describe('AiOutcomeService.resolvePending — trade_idea', () => {
       expect.objectContaining({ id: 'o2', status: 'target_hit' }),
     );
   });
+
+  const SHORT_IDEA: Partial<TradeIdea> = {
+    id: 'idea-2',
+    symbol: 'BITX',
+    entryPrice: 20,
+    stop: 22,
+    target: 15,
+    createdAt: new Date('2026-08-01T00:00:00Z'),
+  };
+
+  it("resolves stop_hit when a SHORT idea's stop is crossed before its target", async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o2', feature: 'trade_idea', entityId: 'idea-2', status: 'pending' }],
+      findIdea: () => SHORT_IDEA,
+      liveDailyBars: async () => [bar('2026-08-05', 19, 23)],
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'o2', status: 'stop_hit' }),
+    );
+  });
+
+  it('resolves stop_hit — the conservative read — for a SHORT idea when one bar crosses both levels', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o2', feature: 'trade_idea', entityId: 'idea-2', status: 'pending' }],
+      findIdea: () => SHORT_IDEA,
+      liveDailyBars: async () => [bar('2026-08-05', 14, 25)],
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'o2', status: 'stop_hit' }),
+    );
+  });
+
+  it('resolves expired immediately for a malformed idea whose stop and target sit on the SAME side of entry — not a two-way guess at direction', async () => {
+    // entry 100, stop 110, target 120: neither a valid long (stop below
+    // entry) nor a valid short (stop above, target below) — computeTradeRisk
+    // returns null for exactly this shape. Bars are crafted so the OLD,
+    // buggy two-way inference (`stop < entry ? LONG : SHORT`) would have
+    // called this a SHORT and graded it target_hit — a fake win.
+    const malformed: Partial<TradeIdea> = {
+      id: 'idea-9',
+      symbol: 'ZZZZ',
+      entryPrice: 100,
+      stop: 110,
+      target: 120,
+      createdAt: new Date('2026-08-01T00:00:00Z'),
+    };
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o9', feature: 'trade_idea', entityId: 'idea-9', status: 'pending' }],
+      findIdea: () => malformed,
+      liveDailyBars: async () => [bar('2026-08-05', 90, 130)],
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'o9', status: 'expired' }),
+    );
+  });
+
+  it('resolves expired when the trade idea row itself no longer exists (e.g. the owner deleted it — but see Important #5: deletion now cascades so this path is for any other cause of a missing idea)', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o10', feature: 'trade_idea', entityId: 'idea-missing', status: 'pending' }],
+      findIdea: () => null,
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'o10', status: 'expired' }),
+    );
+  });
+
+  it("ignores the idea's own creation-day bar even when its range would otherwise cross both levels", async () => {
+    // Recent createdAt (not the fixed 2026-08-01 LONG_IDEA date) so the
+    // 30-day expiry never fires and masks what this test actually checks:
+    // that a same-day bar's range is excluded from grading.
+    const recentIdea = { ...LONG_IDEA, createdAt: new Date() }; // stop 90, target 120
+    const today = recentIdea.createdAt.toISOString().slice(0, 10);
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o1', feature: 'trade_idea', entityId: 'idea-1', status: 'pending' }],
+      findIdea: () => recentIdea,
+      liveDailyBars: async () => [
+        bar(today, 50, 200), // day 0: spans both levels — must be skipped
+      ],
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).not.toHaveBeenCalled();
+  });
+
+  it('resolves the remaining rows when one row throws mid-pass instead of letting the whole call fail', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [
+        { id: 'o-bad', feature: 'trade_idea', entityId: 'idea-bad', status: 'pending' },
+        { id: 'o-good', feature: 'trade_idea', entityId: 'idea-1', status: 'pending' },
+      ],
+      findIdea: (id) => {
+        if (id === 'idea-bad') throw new Error('lookup boom');
+        return id === 'idea-1' ? LONG_IDEA : null;
+      },
+      liveDailyBars: async () => [bar('2026-08-10', 98, 121)],
+    });
+
+    await expect(service.resolvePending()).resolves.toBeUndefined();
+
+    expect(outcomes.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'o-good', status: 'target_hit' }),
+    );
+    expect(outcomes.save).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'o-bad' }),
+    );
+  });
+
+  it('leaves a row with an unrecognized feature value unresolved rather than routing it into behavioral grading', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [
+        { id: 'o-mystery', feature: 'mystery_feature' as never, entityId: 'x', status: 'pending' },
+      ],
+    });
+
+    await service.resolvePending();
+
+    expect(outcomes.save).not.toHaveBeenCalled();
+  });
 });
 
 describe('AiOutcomeService.resolvePending — symbol_pattern and trade_review', () => {
@@ -305,5 +469,37 @@ describe('AiOutcomeService.resolvePending — symbol_pattern and trade_review', 
     await service.resolvePending();
 
     expect(outcomes.save).not.toHaveBeenCalled();
+  });
+
+  it('leaves a row with a malformed factsSnapshot unresolved instead of throwing out of resolvePending', async () => {
+    const { service, outcomes } = makeService({
+      pendingRows: [{ id: 'o1', feature: 'symbol_pattern', entityId: 'read-bad', status: 'pending' }],
+      findRead: () => ({ ...READ, id: 'read-bad', factsSnapshot: 'not valid json' }),
+    });
+
+    await expect(service.resolvePending()).resolves.toBeUndefined();
+    expect(outcomes.save).not.toHaveBeenCalled();
+  });
+
+  it('fetches deriveAllTrades and tagsByEntryId once per pass, not once per behavioral row', async () => {
+    const deriveAllTrades = vi.fn().mockResolvedValue([closedTrade('e1', '2026-08-10')]);
+    const tagsByEntryId = vi
+      .fn()
+      .mockResolvedValue(new Map([['e1', { setups: [], mistakes: ['cut winner short'] }]]));
+    const { service } = makeService({
+      pendingRows: [
+        { id: 'o1', feature: 'symbol_pattern', entityId: 'read-1', status: 'pending' },
+        { id: 'o2', feature: 'trade_review', entityId: 'rev-1', status: 'pending' },
+      ],
+      findRead: () => READ,
+      findReview: () => REVIEW,
+      deriveAllTrades,
+      tagsByEntryId,
+    });
+
+    await service.resolvePending();
+
+    expect(deriveAllTrades).toHaveBeenCalledTimes(1);
+    expect(tagsByEntryId).toHaveBeenCalledTimes(1);
   });
 });
