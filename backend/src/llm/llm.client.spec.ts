@@ -297,6 +297,57 @@ describe('GeminiClient', () => {
     expect(config.thinkingConfig).toBeUndefined();
   });
 
+  it('lets a caller override the thinking level per call, ahead of the env default', async () => {
+    // A caller with a latency-sensitive, short structured-output task (a
+    // trade idea) can ask for less thinking than the process-wide default
+    // without every other feature being forced to the same tradeoff.
+    process.env.LLM_THINKING_LEVEL = 'HIGH';
+    generateContent.mockResolvedValueOnce({ text: 'hello' });
+    const client = new GeminiClient();
+
+    await client.complete({ system: 's', user: 'u', thinkingLevel: 'MINIMAL' });
+
+    const config = generateContent.mock.calls[0][0].config;
+    expect(config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+  });
+
+  it('lets a caller override the model per call, ahead of LLM_MODEL', async () => {
+    // A lower-stakes, batch-shaped feature (the watchlist ranking) can be
+    // routed to a cheaper model with more free-tier headroom, conserving
+    // the default model's tighter quota for features that need it more.
+    generateContent.mockResolvedValueOnce({ text: 'hello' });
+    const client = new GeminiClient();
+
+    await client.complete({
+      system: 's',
+      user: 'u',
+      model: 'gemini-2.5-flash-lite',
+    });
+
+    expect(generateContent.mock.calls[0][0].model).toBe('gemini-2.5-flash-lite');
+  });
+
+  it('uses LLM_MODEL when no per-call model is given', async () => {
+    generateContent.mockResolvedValueOnce({ text: 'hello' });
+    const client = new GeminiClient();
+
+    await client.complete({ system: 's', user: 'u' });
+
+    expect(generateContent.mock.calls[0][0].model).toBe('gemini-2.5-flash');
+  });
+
+  describe('modelName', () => {
+    it('returns the configured default with no argument', () => {
+      const client = new GeminiClient();
+      expect(client.modelName()).toBe('gemini-2.5-flash');
+    });
+
+    it('returns the override when one is given, for recording which model actually ran', () => {
+      const client = new GeminiClient();
+      expect(client.modelName('gemini-2.5-flash-lite')).toBe('gemini-2.5-flash-lite');
+    });
+  });
+
   describe('completeStream', () => {
     it('throws a setup_problem LlmFailure without calling the SDK when unconfigured', async () => {
       delete process.env.LLM_API_KEY;
@@ -363,6 +414,24 @@ describe('GeminiClient', () => {
 
       const config = generateContentStream.mock.calls[0][0].config;
       expect(config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+    });
+
+    it('lets a caller override the thinking level and the model, same as complete()', async () => {
+      generateContentStream.mockResolvedValueOnce(fakeStream(['hi']));
+      const client = new GeminiClient();
+
+      await collect(
+        client.completeStream({
+          system: 's',
+          user: 'u',
+          thinkingLevel: 'MINIMAL',
+          model: 'gemini-2.5-flash-lite',
+        }),
+      );
+
+      const call = generateContentStream.mock.calls[0][0];
+      expect(call.config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+      expect(call.model).toBe('gemini-2.5-flash-lite');
     });
   });
 });

@@ -145,7 +145,16 @@ export class TradeIdeaService {
 
     let raw: string;
     try {
-      raw = await this.llm.complete({ system, user, grounded: false });
+      raw = await this.llm.complete({
+        system,
+        user,
+        grounded: false,
+        // Short, structured output (a verdict plus a LEVELS block) — measured
+        // at ~3s against 9-18s for the provider's own automatic budget, with
+        // no visible loss of answer quality. See llm.client.ts's thinkingLevel
+        // comment for where that measurement came from.
+        thinkingLevel: 'MINIMAL',
+      });
     } catch (err) {
       const kind: LlmFailureKind =
         err instanceof LlmFailure ? err.kind : 'unknown';
@@ -250,7 +259,12 @@ export class TradeIdeaService {
     const { facts, book, usualRisk, system, user } = await this.buildIdeaContext(upper);
 
     try {
-      const raw = this.llm.completeStream({ system, user, grounded: false });
+      const raw = this.llm.completeStream({
+        system,
+        user,
+        grounded: false,
+        thinkingLevel: 'MINIMAL',
+      });
       const body = streamTradeIdeaBody(raw, book);
       // Manually driven, not `for await...of` — see the identical comment
       // in `TradeReviewService.reviewTradeStream` for why.

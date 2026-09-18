@@ -26,6 +26,15 @@ import { UsersService } from '../users/users.service.js';
 const STALE_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Routed to the cheaper Flash-Lite model rather than the default (Flash):
+ * a ranking is a background, on-demand batch job, not the latency-sensitive
+ * per-click feature trade-idea and symbol-pattern are, and Flash-Lite's
+ * free-tier quota is meaningfully larger — conserving Flash's tighter one
+ * for the features that need it more.
+ */
+const RANKING_MODEL = 'gemini-2.5-flash-lite';
+
+/**
  * The watchlist has no single ticker to ask "do I already hold THIS one" or
  * "my history in THIS one" about — it asks about every candidate at once —
  * so `buildBookSection` / `buildRecordSection` are called with `null` for
@@ -271,7 +280,12 @@ export class WatchlistRankingService {
 
     let raw: string;
     try {
-      raw = await this.llm.complete({ system, user: userPrompt, grounded: false });
+      raw = await this.llm.complete({
+        system,
+        user: userPrompt,
+        grounded: false,
+        model: RANKING_MODEL,
+      });
     } catch (err) {
       const kind: LlmFailureKind = err instanceof LlmFailure ? err.kind : 'unknown';
       this.logger.warn(`Watchlist ranking call failed (${kind}): ${(err as Error).message}`);
@@ -328,7 +342,7 @@ export class WatchlistRankingService {
       this.rankings.create({
         userId: owner.id,
         rankedAt,
-        model: this.llm.modelName(),
+        model: this.llm.modelName(RANKING_MODEL),
         payload: JSON.stringify(payload),
         // The prompt the model actually read, verbatim — the same reason
         // ai_summaries and trade_ideas keep theirs: an answer whose inputs

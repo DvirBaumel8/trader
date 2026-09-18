@@ -14,8 +14,8 @@ The code in `backend/src/llm/llm.client.ts` and
 | `GEMINI_API_KEY` | unset | Preferred secret credential. When it is non-empty, it takes precedence over `LLM_API_KEY`. |
 | `LLM_API_KEY` | unset | Legacy secret credential, used only when `GEMINI_API_KEY` is unset. |
 | `LLM_PROVIDER` | `gemini` | `gemini` is the only supported value. Any other value leaves the client unconfigured. |
-| `LLM_MODEL` | `gemini-2.5-flash` | Model identifier passed to the Gemini client. |
-| `LLM_THINKING_LEVEL` | unset; `MINIMAL`, `LOW`, `MEDIUM`, or `HIGH` | Sets Gemini's thinking level. An unset or unrecognised value is ignored, preserving the provider default. |
+| `LLM_MODEL` | `gemini-2.5-flash` | Model identifier passed to the Gemini client, when a call does not override it. The watchlist ranking always requests `gemini-2.5-flash-lite` instead — a background, on-demand batch call, not the latency-sensitive per-click features — to conserve the default model's tighter free-tier quota. |
+| `LLM_THINKING_LEVEL` | unset; `MINIMAL`, `LOW`, `MEDIUM`, or `HIGH` | Sets Gemini's thinking level, when a call does not override it. An unset or unrecognised value is ignored, preserving the provider default. Trade idea and symbol pattern always request `MINIMAL` instead — both are short, structured output where a full budget added no visible answer quality, only latency. |
 | `LLM_GROUNDED` | unset / false; exactly `true` enables it | Enables Google Search grounding for portfolio summaries only. Other AI features explicitly request `grounded: false`. |
 
 Keys are secrets and belong in the local environment or the hosting provider's

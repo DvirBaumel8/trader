@@ -97,6 +97,37 @@ describe('TradeIdeaService.analyse — gathering', () => {
     expect(order.indexOf('book:start')).toBeLessThan(order.indexOf('facts:end'));
     expect(order.indexOf('record:start')).toBeLessThan(order.indexOf('facts:end'));
   });
+
+  it('asks for a minimal thinking budget — a trade idea is short, structured output', async () => {
+    const complete = vi.fn().mockResolvedValue('an opinion');
+    const llm = {
+      complete,
+      completeStream: vi.fn(),
+      isConfigured: () => true,
+      modelName: () => 'test-model',
+    } as unknown as LlmClient;
+    const tickerFacts = {
+      get: vi.fn().mockResolvedValue(fullFacts()),
+    } as unknown as TickerFactsService;
+    const portfolio = {
+      getPortfolio: vi.fn().mockResolvedValue(fullPortfolio()),
+    } as unknown as PortfolioService;
+    const trades = {
+      getStats: vi.fn().mockResolvedValue(fullStats()),
+    } as unknown as TradesService;
+    const users = {
+      currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+    } as unknown as UsersService;
+    const service = new TradeIdeaService(
+      llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
+    );
+
+    await service.analyse('NVDA');
+
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({ thinkingLevel: 'MINIMAL' }),
+    );
+  });
 });
 
 describe('TradeIdeaService.analyse — book placeholders', () => {
@@ -284,6 +315,40 @@ describe('TradeIdeaService.analyseStream', () => {
     });
     expect(ideas.save).toHaveBeenCalledWith(
       expect.objectContaining({ opinion: 'LMND is already 22.1% of your account.' }),
+    );
+  });
+
+  it('asks for a minimal thinking budget on the streamed call too', async () => {
+    async function* stub() {
+      yield 'an opinion';
+    }
+    const completeStream = vi.fn(() => stub());
+    const llm = {
+      complete: vi.fn(),
+      completeStream,
+      isConfigured: () => true,
+      modelName: () => 'test-model',
+    } as unknown as LlmClient;
+    const tickerFacts = {
+      get: vi.fn().mockResolvedValue(fullFacts()),
+    } as unknown as TickerFactsService;
+    const portfolio = {
+      getPortfolio: vi.fn().mockResolvedValue(fullPortfolio()),
+    } as unknown as PortfolioService;
+    const trades = {
+      getStats: vi.fn().mockResolvedValue(fullStats()),
+    } as unknown as TradesService;
+    const users = {
+      currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+    } as unknown as UsersService;
+    const service = new TradeIdeaService(
+      llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
+    );
+
+    await collectLines(service.analyseStream('NVDA'));
+
+    expect(completeStream).toHaveBeenCalledWith(
+      expect.objectContaining({ thinkingLevel: 'MINIMAL' }),
     );
   });
 

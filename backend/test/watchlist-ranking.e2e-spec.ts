@@ -51,8 +51,10 @@ describe('Watchlist ranking (e2e)', () => {
   let token: string;
   const llmStub = {
     isConfigured: () => true,
-    modelName: () => 'stub-ranking-model',
-    complete: vi.fn(async ({ user }: { user: string }) => fakeRankingAnswer(user)),
+    modelName: (model?: string) => model ?? 'stub-ranking-model',
+    complete: vi.fn(async ({ user }: { user: string; model?: string }) =>
+      fakeRankingAnswer(user),
+    ),
   };
 
   beforeAll(async () => {
@@ -100,6 +102,14 @@ describe('Watchlist ranking (e2e)', () => {
 
     // Exactly one call for the whole watchlist, not one per ticker.
     expect(llmStub.complete.mock.calls.length).toBe(1);
+  });
+
+  it('ranks with the cheaper Flash-Lite model, conserving the default model\'s tighter free-tier quota', async () => {
+    await add({ symbol: 'NVDA' }).expect(201);
+    const res = await http(app, token).post('/watchlist/ranking/refresh').expect(201);
+
+    expect(llmStub.complete.mock.calls[0][0].model).toBe('gemini-2.5-flash-lite');
+    expect(res.body.model).toBe('gemini-2.5-flash-lite');
   });
 
   it('serves the stored ranking without calling the model again', async () => {

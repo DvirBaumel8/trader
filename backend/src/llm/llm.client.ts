@@ -1,6 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ApiError, GoogleGenAI, ThinkingLevel } from '@google/genai';
 
+/**
+ * A plain string union rather than the SDK's own `ThinkingLevel` enum, so a
+ * caller outside this file can request one without importing an AI SDK —
+ * this file is the only one permitted to. `GeminiClient` maps it onto the
+ * real enum internally.
+ */
+export type ThinkingBudget = 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH';
+
 export interface CompleteParams {
   /** The role/system prompt — see prompts.ts. */
   system: string;
@@ -12,6 +20,21 @@ export interface CompleteParams {
    * cannot ground silently ignore this rather than failing the call.
    */
   grounded?: boolean;
+  /**
+   * Per-call override of the thinking budget, ahead of `LLM_THINKING_LEVEL`
+   * and the provider's own default — for a caller whose task is short and
+   * structured enough (a trade idea, say) that less thinking costs nothing
+   * visible, without forcing that same tradeoff on every other feature via
+   * one process-wide env var.
+   */
+  thinkingLevel?: ThinkingBudget;
+  /**
+   * Per-call override of the model, ahead of `LLM_MODEL` — for routing a
+   * lower-stakes, less latency-sensitive feature to a cheaper model with
+   * more free-tier headroom, conserving the default model's tighter quota
+   * for features that need it more.
+   */
+  model?: string;
 }
 
 /**
@@ -34,8 +57,12 @@ export abstract class LlmClient {
    * ends the stream rather than silently restarting it from scratch.
    */
   abstract completeStream(params: CompleteParams): AsyncIterable<string>;
-  /** Which model a `complete()` call would use — recorded alongside saved summaries. */
-  abstract modelName(): string;
+  /**
+   * Which model a `complete()` call would use — recorded alongside saved
+   * summaries. Pass the same `model` given to that call (if any) so the
+   * recorded name matches what actually ran, not the process-wide default.
+   */
+  abstract modelName(model?: string): string;
 }
 
 /**
@@ -199,11 +226,11 @@ export class GeminiClient extends LlmClient {
     return this.provider === 'gemini' && Boolean(this.apiKey);
   }
 
-  modelName(): string {
-    return this.model;
+  modelName(model?: string): string {
+    return model ?? this.model;
   }
 
-  async complete({ system, user, grounded }: CompleteParams): Promise<string> {
+  async complete({ system, user, grounded, thinkingLevel, model }: CompleteParams): Promise<string> {
     if (!this.isConfigured()) {
       throw new LlmFailure('setup_problem', 'LlmClient is not configured (LLM_API_KEY is unset)');
     }
@@ -213,9 +240,9 @@ export class GeminiClient extends LlmClient {
       attempt += 1;
       try {
         const response = await this.ai().models.generateContent({
-          model: this.model,
+          model: model ?? this.model,
           contents: user,
-          config: this.generateConfig(system, grounded),
+          config: this.generateConfig(system, grounded, thinkingLevel),
         });
 
         const text = response.text;
@@ -233,7 +260,7 @@ export class GeminiClient extends LlmClient {
     });
   }
 
-  async *completeStream({ system, user, grounded }: CompleteParams): AsyncIterable<string> {
+  async *completeStream({ system, user, grounded, thinkingLevel, model }: CompleteParams): AsyncIterable<string> {
     if (!this.isConfigured()) {
       throw new LlmFailure('setup_problem', 'LlmClient is not configured (LLM_API_KEY is unset)');
     }
@@ -247,9 +274,9 @@ export class GeminiClient extends LlmClient {
       attempt += 1;
       try {
         const stream = await this.ai().models.generateContentStream({
-          model: this.model,
+          model: model ?? this.model,
           contents: user,
-          config: this.generateConfig(system, grounded),
+          config: this.generateConfig(system, grounded, thinkingLevel),
         });
         const iterator = stream[Symbol.asyncIterator]();
         const result = await iterator.next();
@@ -270,13 +297,25 @@ export class GeminiClient extends LlmClient {
     }
   }
 
-  private generateConfig(system: string, grounded: boolean | undefined) {
+  private generateConfig(
+    system: string,
+    grounded: boolean | undefined,
+    thinkingLevel: ThinkingBudget | undefined,
+  ) {
+    // Per-call override first, then LLM_THINKING_LEVEL, then the provider's
+    // own automatic budget (no thinkingConfig sent at all).
+    const resolvedThinkingLevel = thinkingLevel ?? this.thinkingLevel;
     return {
       systemInstruction: system,
       // Gemini enables Google Search grounding by attaching the tool; no
       // grounded request is made unless the caller opts in.
       ...(grounded ? { tools: [{ googleSearch: {} }] } : {}),
-      ...(this.thinkingLevel ? { thinkingConfig: { thinkingLevel: this.thinkingLevel } } : {}),
+      // ThinkingBudget's literal values are identical to the SDK's own
+      // ThinkingLevel enum values by construction — this file is the one
+      // place allowed to know that and bridge the two.
+      ...(resolvedThinkingLevel
+        ? { thinkingConfig: { thinkingLevel: resolvedThinkingLevel as ThinkingLevel } }
+        : {}),
     };
   }
 

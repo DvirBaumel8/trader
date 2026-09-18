@@ -180,6 +180,9 @@ export class SymbolPatternService {
         system,
         user: userPrompt,
         grounded: false,
+        // Short, structured output — same tradeoff as trade-idea's, see
+        // llm.client.ts's thinkingLevel comment for the measurement.
+        thinkingLevel: 'MINIMAL',
       });
 
       const { headline } = parsePatternMeta(rawText);
@@ -257,7 +260,12 @@ export class SymbolPatternService {
     const { system, user: userPrompt } = buildSymbolPatternPrompt(facts, profileText);
 
     try {
-      const raw = this.llm.completeStream({ system, user: userPrompt, grounded: false });
+      const raw = this.llm.completeStream({
+        system,
+        user: userPrompt,
+        grounded: false,
+        thinkingLevel: 'MINIMAL',
+      });
       const body = streamAfterMetaBlock(raw);
       // Manually driven, not `for await...of` — see the identical comment
       // in `TradeReviewService.reviewTradeStream` for why.

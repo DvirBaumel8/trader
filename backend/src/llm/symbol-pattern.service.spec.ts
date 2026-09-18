@@ -127,6 +127,7 @@ You tend to let NVDA winners run past your usual exit.`),
     trades,
     reads,
     entries,
+    llm,
   };
 }
 
@@ -181,6 +182,14 @@ describe('SymbolPatternService', () => {
     expect(trades.getSymbolSummary).not.toHaveBeenCalled();
   });
 
+  it('asks for a minimal thinking budget — a short, structured read', async () => {
+    const { service, llm } = makeService({ isConfigured: true });
+    await service.generate('nvda', 'ALL');
+    expect(llm.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ thinkingLevel: 'MINIMAL' }),
+    );
+  });
+
   it('returns null when nothing has been generated yet', async () => {
     const { service } = makeService({ savedRead: null });
     const result = await service.getLatest('NVDA', 'ALL');
@@ -229,6 +238,20 @@ describe('SymbolPatternService.generateStream', () => {
     const saved = (reads.save as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(saved.read).not.toContain('PATTERN_META');
     expect(saved.read).toContain('You tend to let NVDA winners run');
+  });
+
+  it('asks for a minimal thinking budget on the streamed call too', async () => {
+    async function* stub() {
+      yield '[PATTERN_META]\nHEADLINE: h\n[/PATTERN_META]\n\nbody';
+    }
+    const llmCompleteStream = vi.fn(() => stub());
+    const { service, llm } = makeService({ isConfigured: true, llmCompleteStream });
+
+    await collectLines(service.generateStream('nvda', 'ALL'));
+
+    expect(llm.completeStream).toHaveBeenCalledWith(
+      expect.objectContaining({ thinkingLevel: 'MINIMAL' }),
+    );
   });
 
   it('yields a done line with the error copy, and no delta lines, when the stream fails before any text', async () => {
