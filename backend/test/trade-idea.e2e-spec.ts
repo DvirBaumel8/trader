@@ -118,6 +118,21 @@ describe('Trade idea (e2e)', () => {
     expect(res.body.facts.indicators.sma20).toBeCloseTo(100, 6);
   });
 
+  it('carries recent news through the real module graph, empty without a Finnhub key', async () => {
+    // FINNHUB_API_KEY is unset in every test env (see global-setup.ts), so
+    // this proves the full wiring — TickerFactsService -> NewsService ->
+    // FinnhubClient — resolves through real Nest DI and degrades to an
+    // honest empty list, rather than merely that a fake object works.
+    prompts.length = 0;
+    const res = await http(app, token)
+      .post('/ai/trade-idea')
+      .send({ symbol: 'NVDA' })
+      .expect(201);
+
+    expect(res.body.facts.news).toEqual([]);
+    expect(prompts.at(-1)).toContain('RECENT NEWS: none found in the last 7 days.');
+  });
+
   it('shows the prose and NO derived numbers when the levels cannot be read', async () => {
     const res = await http(app, token)
       .post('/ai/trade-idea')

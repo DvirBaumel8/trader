@@ -4,6 +4,7 @@ import { MarketDataService } from './market-data.service.js';
 import { YahooClient } from './yahoo.client.js';
 import { FinnhubClient } from './finnhub.client.js';
 import { FundamentalsService } from './fundamentals.service.js';
+import { NewsService } from './news.service.js';
 import { HistoryService } from './history.service.js';
 import { HistoryController } from './history.controller.js';
 import { TickerFactsService } from './ticker-facts.service.js';
@@ -27,6 +28,7 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
     // is blocked from Render — see finnhub.client.ts. Inert without a key.
     FinnhubClient,
     FundamentalsService,
+    NewsService,
     EarningsService,
     HistoryService,
     TickerFactsService,

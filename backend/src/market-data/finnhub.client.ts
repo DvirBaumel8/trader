@@ -1,6 +1,17 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-const BASE_URL = 'https://finnhub.io/api/v1/stock/metric';
+const FINNHUB_BASE = 'https://finnhub.io/api/v1';
+const BASE_URL = `${FINNHUB_BASE}/stock/metric`;
+const NEWS_URL = `${FINNHUB_BASE}/company-news`;
+
+export interface RawNewsItem {
+  headline: string;
+  summary: string;
+  source: string;
+  /** Unix seconds, as Finnhub reports it. */
+  datetime: number;
+  url: string;
+}
 
 /**
  * The only file permitted to talk to Finnhub, mirroring the rule that keeps
@@ -62,6 +73,50 @@ export class FinnhubClient {
         `trailingEps(${symbol}) failed: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
+    }
+  }
+
+  /**
+   * Recent company-specific headlines, `from`/`to` inclusive. Empty
+   * whenever there is nothing meaningful to show — unconfigured, provider
+   * down, an unexpected payload shape, or genuinely no news — never throws:
+   * news is enrichment on a trade idea, not a fact the idea depends on, and
+   * must not be able to take the idea down the way a quote failure does.
+   */
+  async companyNews(symbol: string, from: Date, to: Date): Promise<RawNewsItem[]> {
+    if (!this.isConfigured()) return [];
+
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const url = `${NEWS_URL}?symbol=${encodeURIComponent(symbol)}&from=${day(from)}&to=${day(to)}&token=${this.apiKey}`;
+    try {
+      const res = await this.http(url);
+      if (!res.ok) {
+        this.logger.warn(`companyNews(${symbol}) HTTP ${res.status}`);
+        return [];
+      }
+      const body: unknown = await res.json();
+      if (!Array.isArray(body)) {
+        this.logger.warn(`companyNews(${symbol}) returned an unexpected payload`);
+        return [];
+      }
+      return body
+        .filter(
+          (item): item is Record<string, unknown> =>
+            typeof item === 'object' && item !== null,
+        )
+        .map((item) => ({
+          headline: typeof item.headline === 'string' ? item.headline : '',
+          summary: typeof item.summary === 'string' ? item.summary : '',
+          source: typeof item.source === 'string' ? item.source : '',
+          datetime: typeof item.datetime === 'number' ? item.datetime : 0,
+          url: typeof item.url === 'string' ? item.url : '',
+        }))
+        .filter((item) => item.headline.trim() !== '');
+    } catch (err) {
+      this.logger.warn(
+        `companyNews(${symbol}) failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return [];
     }
   }
 }

@@ -1,5 +1,6 @@
 import type { TickerFacts } from '../market-data/ticker-facts.service.js';
 import { price, pct, level, renderIndicatorLines } from './indicator-lines.js';
+import { NEWS_LOOKBACK_DAYS } from '../market-data/news.service.js';
 
 /**
  * The user turn for a pre-trade opinion: the facts the app computed, then the
@@ -52,6 +53,21 @@ export function buildTradeIdeaPrompt(
     );
   }
 
+  // Real, current headlines — what closes the gap a same-day announcement
+  // (a partnership, an acquisition, an FDA decision) otherwise leaves in an
+  // opinion built entirely from price and technicals. Said explicitly when
+  // there is none, the same "no analyst coverage" honesty rule the ranking
+  // prompt already follows, rather than a silently missing section.
+  if (facts.news.length > 0) {
+    lines.push(
+      '',
+      `RECENT NEWS (last ${NEWS_LOOKBACK_DAYS} days, most recent first) — real headlines, not your own knowledge:`,
+      ...facts.news.map((n) => `  ${n.publishedOn}  ${n.source}: ${n.headline}`),
+    );
+  } else {
+    lines.push('', `RECENT NEWS: none found in the last ${NEWS_LOOKBACK_DAYS} days.`);
+  }
+
   if (usualRisk !== null) {
     lines.push(
       `- For context, my average risk per trade across my own closed history is ${price(usualRisk)}. Do NOT size the position — the app does that from your stop.`,
@@ -70,9 +86,11 @@ Answer three things, in this order:
    and the business itself.
 3. Is the risk/reward worth taking?
 
-You may use your own knowledge of the company and its sector. Mark clearly
-anything that is not in the facts below, and say when your knowledge may be
-out of date — you do not know today's news.
+You may use your own knowledge of the company and its sector, on top of the
+real recent headlines given below. Mark clearly anything you say that is
+not in the facts below, and say when it may be out of date — your own
+knowledge has a training cutoff and does not know today's news beyond
+whatever the RECENT NEWS headlines below actually say.
 
 State no figure about price, volume or valuation that is not in the facts
 below. Do NOT compute a risk/reward ratio, a position size, or any dollar

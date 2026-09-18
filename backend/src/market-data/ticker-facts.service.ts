@@ -9,6 +9,7 @@ import { YahooClient, type RawQuote, type RawBar } from './yahoo.client.js';
 import { FundamentalsService } from './fundamentals.service.js';
 import { MarketDataService, type Quote } from './market-data.service.js';
 import { HistoryService } from './history.service.js';
+import { NewsService, type NewsHeadline } from './news.service.js';
 import { DailyClose } from './daily-close.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { computeIndicators, type IndicatorSet } from './indicators.js';
@@ -29,6 +30,8 @@ export interface TickerFacts {
   indicators: IndicatorSet;
   /** How it has actually traded today and this week. Null with no bars. */
   priceAction: PriceAction | null;
+  /** Recent company-specific headlines, newest first. Empty, never missing, when there is none. */
+  news: NewsHeadline[];
 }
 
 /**
@@ -53,22 +56,24 @@ export class TickerFactsService {
     private readonly instruments: Repository<Instrument>,
     @InjectRepository(DailyClose)
     private readonly closes: Repository<DailyClose>,
+    private readonly news: NewsService,
   ) {}
 
   async get(symbol: string): Promise<TickerFacts> {
     const upper = symbol.trim().toUpperCase();
 
-    // The quote and the history are two provider round trips that need
-    // nothing from each other — only the symbol — so they are asked for at
-    // once rather than one after the other. Both are still judged in the
-    // order they used to run, so an unknown ticker is still a 404 and not
-    // whichever failure happened to settle first. The cost is one wasted
-    // history fetch for a symbol that turns out not to exist, which is a
-    // typo's worth of traffic against a round trip saved on every real one.
+    // The quote, the history and recent news need nothing from each other —
+    // only the symbol — so they are asked for at once rather than one after
+    // another. Quote and bars are still judged in the order they used to
+    // run, so an unknown ticker is still a 404 and not whichever failure
+    // happened to settle first. The cost is one wasted history/news fetch
+    // for a symbol that turns out not to exist, which is a typo's worth of
+    // traffic against a round trip saved on every real one.
     const from = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
-    const [quoteResult, barsResult] = await Promise.allSettled([
+    const [quoteResult, barsResult, newsResult] = await Promise.allSettled([
       this.resolveQuote(upper),
       this.resolveBars(upper, from),
+      this.news.recentHeadlines(upper),
     ]);
 
     let quote: RawQuote | Quote | null;
@@ -100,6 +105,12 @@ export class TickerFactsService {
       bars = barsResult.value;
     }
 
+    // Unlike the quote and the bars, news is enrichment, not a fact the idea
+    // depends on: a Finnhub hiccup must never take down a trade idea the
+    // price provider answered perfectly well. NewsService itself never
+    // throws, so this only matters if that contract is ever broken upstream.
+    const news = newsResult.status === 'fulfilled' ? newsResult.value : [];
+
     return {
       symbol: quote.symbol,
       name: quote.name,
@@ -119,6 +130,7 @@ export class TickerFactsService {
       indicators: computeIndicators(bars, quote.price),
       // From the bars already fetched above — no extra provider call.
       priceAction: computePriceAction(bars),
+      news,
     };
   }
 

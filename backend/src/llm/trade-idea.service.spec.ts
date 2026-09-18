@@ -158,6 +158,7 @@ describe('TradeIdeaService.analyse — book placeholders', () => {
           atr14: null, atrPercentOfPrice: null,
           relativeVolume: null, barsAvailable: 0,
         },
+        news: [],
       }),
       portfolio: async () => ({
         positions: [{ symbol: 'LMND', quantity: 100, price: 221, marketValue: 22_100 }],
@@ -212,6 +213,7 @@ const fullFacts = () => ({
     atr14: null, atrPercentOfPrice: null,
     relativeVolume: null, barsAvailable: 0,
   },
+  news: [],
 });
 
 const fullPortfolio = () => ({

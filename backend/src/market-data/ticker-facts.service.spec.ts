@@ -8,6 +8,7 @@ import type { HistoryService } from './history.service.js';
 import type { Repository } from 'typeorm';
 import type { Instrument } from '../instruments/instrument.entity.js';
 import type { DailyClose } from './daily-close.entity.js';
+import type { NewsService, NewsHeadline } from './news.service.js';
 
 const QUOTE = {
   symbol: 'NVDA',
@@ -42,6 +43,7 @@ function makeService(opts: {
   peekFreshQuote?: () => Quote | null;
   findInstrument?: () => Instrument | null;
   storedRows?: () => DailyClose[];
+  recentHeadlines?: () => Promise<NewsHeadline[]>;
 } = {}) {
   const yahoo = {
     quote: vi.fn().mockImplementation(opts.quote ?? (async () => QUOTE)),
@@ -68,6 +70,11 @@ function makeService(opts: {
       .fn()
       .mockImplementation(async () => (opts.storedRows ?? (() => []))()),
   } as unknown as Repository<DailyClose>;
+  const news = {
+    recentHeadlines: vi
+      .fn()
+      .mockImplementation(opts.recentHeadlines ?? (async () => [])),
+  } as unknown as NewsService;
   return {
     service: new TickerFactsService(
       yahoo,
@@ -76,12 +83,14 @@ function makeService(opts: {
       history,
       instruments,
       closes,
+      news,
     ),
     yahoo,
     marketData,
     history,
     instruments,
     closes,
+    news,
   };
 }
 
@@ -241,5 +250,77 @@ describe('TickerFactsService.get — reusing what the rest of the app already fe
   it('never creates an instrument or writes a daily_closes row for an untracked symbol', async () => {
     const { service } = makeService({ findInstrument: () => null });
     await expect(service.get('NVDA')).resolves.toMatchObject({ symbol: 'NVDA' });
+  });
+});
+
+describe('TickerFactsService.get — recent news', () => {
+  const HEADLINE: NewsHeadline = {
+    headline: 'NVO partners with Anthropic to accelerate medicine development',
+    summary: 'A multi-year partnership.',
+    source: 'Reuters',
+    publishedOn: '2026-09-16',
+    url: 'https://example.com/1',
+  };
+
+  it('carries recent headlines through onto the facts', async () => {
+    const { service } = makeService({
+      recentHeadlines: async () => [HEADLINE],
+    });
+
+    const facts = await service.get('NVDA');
+
+    expect(facts.news).toEqual([HEADLINE]);
+  });
+
+  it('is an empty list, not a failure, when there is no recent news', async () => {
+    const { service } = makeService({ recentHeadlines: async () => [] });
+    const facts = await service.get('NVDA');
+    expect(facts.news).toEqual([]);
+  });
+
+  /**
+   * News is enrichment on a trade idea, not a fact it depends on — unlike
+   * the quote and the bars, a news outage must never take the whole idea
+   * down. NewsService itself never throws (see its own doc comment), but
+   * this pins the degrade-to-empty behavior at this layer too, in case that
+   * contract is ever broken upstream.
+   */
+  it('degrades to an empty list rather than failing the whole request when news fails', async () => {
+    const { service } = makeService({
+      recentHeadlines: async () => {
+        throw new Error('finnhub down');
+      },
+    });
+
+    const facts = await service.get('NVDA');
+
+    expect(facts.news).toEqual([]);
+    expect(facts.symbol).toBe('NVDA');
+  });
+
+  it('fetches news alongside the quote and the bars, not after them', async () => {
+    const order: string[] = [];
+    const { service } = makeService({
+      quote: async () => {
+        order.push('quote:start');
+        await new Promise((r) => setTimeout(r, 10));
+        order.push('quote:end');
+        return QUOTE;
+      },
+      recentHeadlines: async () => {
+        order.push('news:start');
+        return [];
+      },
+    });
+
+    await service.get('NVDA');
+
+    expect(order.indexOf('news:start')).toBeLessThan(order.indexOf('quote:end'));
+  });
+
+  it('asks the news service for the symbol it was given', async () => {
+    const { service, news } = makeService();
+    await service.get('nvda');
+    expect(news.recentHeadlines).toHaveBeenCalledWith('NVDA');
   });
 });

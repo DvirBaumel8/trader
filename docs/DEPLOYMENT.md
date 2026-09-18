@@ -116,27 +116,36 @@ model, grounding, or thinking level.
    (`https://trader-app-55e.pages.dev`). Do not assume `<project>.pages.dev`:
    that name may belong to someone else entirely.
 
-## 4b. Finnhub, for the P/E only (optional)
+## 4b. Finnhub, for the P/E and recent news (optional)
 
 Yahoo's quote endpoint carries the trailing P/E, but it needs a crumb token
 and that request is refused with **429 from Render's IP** — a shared
 datacenter address with a shared reputation, nothing to do with our call
 rate. Yahoo's chart endpoint needs no crumb and works fine, which is what
 prices the portfolio in production, but it carries no fundamentals at all.
-So without this step the app is fully functional and the P/E reads `—`.
+So without this step the app is fully functional, the P/E reads `—`, and the
+trade-idea prompt's RECENT NEWS section reads "none found".
 
 1. Create a free account at finnhub.io and copy the API key.
 2. Render dashboard → the `trader-backend` service → **Environment** → add
    `FINNHUB_API_KEY`. Set by hand rather than in `render.yaml`, so a blueprint
    sync never prompts for a key that might not exist.
 
-It fetches **trailing EPS**, not the P/E, and divides the live price by it:
-earnings move quarterly while the price moves all day, so one fetch per
-symbol per day yields a multiple that is correct intraday. That is roughly 25
-calls a day against a limit of 60 a minute.
+Two independent uses, same key:
 
-Nothing else depends on it. No key means `peRatio: null`, which every screen
-and both AI prompts already render honestly.
+- **Trailing EPS**, not the P/E — the app divides the live price by it:
+  earnings move quarterly while the price moves all day, so one fetch per
+  symbol per day yields a multiple that is correct intraday. Roughly 25
+  calls a day.
+- **Recent company-specific headlines**, fed into the trade-idea prompt (see
+  `docs/ai-configuration.md`) so a same-day announcement — a partnership, an
+  acquisition, an FDA decision — has a chance of reaching the model, which
+  otherwise sees only price and technicals. Cached ~45 minutes per symbol; a
+  repeat trade-idea click on the same ticker costs nothing extra.
+
+Both stay comfortably inside Finnhub's free 60-calls-a-minute limit. No key
+means `peRatio: null` and an empty news section, which every screen and both
+AI prompts already render honestly.
 
 ## 5. Keep the API warm
 
