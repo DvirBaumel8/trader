@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TradeIdea } from './trade-idea.entity.js';
 import { UsersService } from '../users/users.service.js';
+import { AiOutcomeService } from './ai-outcome.service.js';
 
 /**
  * What a history row needs to let the owner decide whether to open it: which
@@ -70,6 +71,7 @@ export class TradeIdeaHistoryService {
     @InjectRepository(TradeIdea)
     private readonly ideas: Repository<TradeIdea>,
     private readonly users: UsersService,
+    private readonly outcomes: AiOutcomeService,
   ) {}
 
   async list(): Promise<TradeIdeaListRow[]> {
@@ -115,5 +117,11 @@ export class TradeIdeaHistoryService {
     const owner = await this.users.currentUser();
     const result = await this.ideas.delete({ id, userId: owner.id });
     if (!result.affected) throw new NotFoundException('Trade idea not found');
+    // No DB-level FK links ai_outcomes to this row — entityId is polymorphic
+    // across three tables — so the matching outcome row is deleted here
+    // explicitly. Left orphaned, the next resolvePending pass would see
+    // !idea and grade it 'expired', conflating "deleted" with "genuinely
+    // expired". See AiOutcomeService.deleteFor's doc comment.
+    await this.outcomes.deleteFor('trade_idea', id);
   }
 }
