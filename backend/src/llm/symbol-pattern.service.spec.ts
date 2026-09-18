@@ -6,6 +6,7 @@ import type { UsersService } from '../users/users.service.js';
 import type { Repository } from 'typeorm';
 import type { SymbolPatternRead } from './symbol-pattern.entity.js';
 import type { JournalEntry } from '../journal/journal-entry.entity.js';
+import type { AiOutcomeService } from './ai-outcome.service.js';
 
 const summary = {
   symbol: 'NVDA',
@@ -60,6 +61,7 @@ function makeService(opts: {
   llmComplete?: () => Promise<string>;
   llmCompleteStream?: () => AsyncIterable<string>;
   savedRead?: any;
+  outcomes?: { recordPending: ReturnType<typeof vi.fn> };
 }) {
   const trades = {
     getSymbolSummary: vi.fn().mockResolvedValue(summary),
@@ -116,6 +118,10 @@ You tend to let NVDA winners run past your usual exit.`),
     completeStream: opts.llmCompleteStream ?? (() => defaultStream()),
   } as unknown as LlmClient;
 
+  const outcomes = (opts.outcomes ?? {
+    recordPending: vi.fn(),
+  }) as unknown as AiOutcomeService;
+
   return {
     service: new SymbolPatternService(
       llm,
@@ -123,11 +129,13 @@ You tend to let NVDA winners run past your usual exit.`),
       users,
       reads as unknown as Repository<SymbolPatternRead>,
       entries as unknown as Repository<JournalEntry>,
+      outcomes,
     ),
     trades,
     reads,
     entries,
     llm,
+    outcomes,
   };
 }
 
@@ -143,6 +151,7 @@ describe('SymbolPatternService', () => {
   it('generates and persists a read when the LLM answers', async () => {
     const { service, reads } = makeService({ isConfigured: true });
     const result = await service.generate('nvda', 'ALL');
+    expect(result.id).toBe('read-1');
     expect(result.configured).toBe(true);
     expect(result.headline).toBe('You hold winners here longer than your average');
     expect(result.read).toContain('You tend to let NVDA winners run');
@@ -167,6 +176,7 @@ describe('SymbolPatternService', () => {
   it('retrieves an existing saved read without calling the model', async () => {
     const { service, trades } = makeService({
       savedRead: {
+        id: 'read-99',
         symbol: 'NVDA',
         range: 'ALL',
         headline: 'Saved headline',
@@ -178,6 +188,7 @@ describe('SymbolPatternService', () => {
 
     const result = await service.getLatest('NVDA', 'ALL');
     expect(result).not.toBeNull();
+    expect(result?.id).toBe('read-99');
     expect(result?.headline).toBe('Saved headline');
     expect(trades.getSymbolSummary).not.toHaveBeenCalled();
   });
@@ -195,6 +206,14 @@ describe('SymbolPatternService', () => {
     const result = await service.getLatest('NVDA', 'ALL');
     expect(result).toBeNull();
   });
+
+  it('records a pending outcome only when the read names at least one mistake', async () => {
+    const outcomes = { recordPending: vi.fn() };
+    await makeService({ isConfigured: true, outcomes }).service.generate('nvda', 'ALL');
+    // The shared `summary.trades` fixture at the top of this file has an
+    // empty `mistakes: []` — nothing to grade, so nothing should be recorded.
+    expect(outcomes.recordPending).not.toHaveBeenCalled();
+  });
 });
 
 async function collectLines(stream: AsyncGenerator<string>): Promise<unknown[]> {
@@ -209,7 +228,7 @@ describe('SymbolPatternService.generateStream', () => {
     const lines = await collectLines(service.generateStream('nvda', 'ALL'));
 
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ done: true, configured: false, headline: null });
+    expect(lines[0]).toMatchObject({ done: true, configured: false, headline: null, id: null });
   });
 
   it('never yields the [PATTERN_META] block as a delta, only the body after it', async () => {
@@ -233,6 +252,7 @@ describe('SymbolPatternService.generateStream', () => {
       symbol: 'NVDA',
       headline: 'You hold winners here longer than your average',
       error: null,
+      id: 'read-1',
     });
     expect(reads.save).toHaveBeenCalled();
     const saved = (reads.save as ReturnType<typeof vi.fn>).mock.calls[0][0];

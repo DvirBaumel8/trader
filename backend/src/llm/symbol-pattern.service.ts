@@ -17,8 +17,10 @@ import { buildSymbolPatternPrompt } from './symbol-pattern-prompt.js';
 import { parsePatternMeta, stripPatternMeta } from './symbol-pattern-parse.js';
 import { readTraderProfile } from './trader-profile.js';
 import { streamAfterMetaBlock } from './meta-block-stream.js';
+import { AiOutcomeService } from './ai-outcome.service.js';
 
 export interface SymbolPatternResult {
+  id: string | null;
   configured: boolean;
   symbol: string;
   range: Range;
@@ -49,6 +51,7 @@ export class SymbolPatternService {
     private readonly reads: Repository<SymbolPatternRead>,
     @InjectRepository(JournalEntry)
     private readonly entries: Repository<JournalEntry>,
+    private readonly outcomes: AiOutcomeService,
   ) {}
 
   /** `range === 'ALL'` -> no lower bound, matching `TradesService`'s own
@@ -80,6 +83,7 @@ export class SymbolPatternService {
     }
 
     return {
+      id: existing.id,
       configured: this.llm.isConfigured(),
       symbol: existing.symbol,
       range: existing.range as Range,
@@ -160,6 +164,7 @@ export class SymbolPatternService {
 
     if (!this.llm.isConfigured()) {
       return {
+        id: null,
         configured: false,
         symbol: summary.symbol,
         range,
@@ -199,7 +204,16 @@ export class SymbolPatternService {
       });
       await this.reads.save(record);
 
+      // Only worth grading if the read actually named a mistake — an empty
+      // set can never "recur", so recording a pending row for it would
+      // resolve trivially the moment any next trade closed.
+      const namedMistakes = new Set(facts.trades.flatMap((t) => t.mistakes ?? []));
+      if (namedMistakes.size > 0) {
+        await this.outcomes.recordPending('symbol_pattern', record.id);
+      }
+
       return {
+        id: record.id,
         configured: true,
         symbol: summary.symbol,
         range,
@@ -216,6 +230,7 @@ export class SymbolPatternService {
         `AI Symbol Pattern call failed (${kind}): ${(err as Error).message}`,
       );
       return {
+        id: null,
         configured: true,
         symbol: summary.symbol,
         range,
@@ -243,6 +258,7 @@ export class SymbolPatternService {
 
     if (!this.llm.isConfigured()) {
       yield emit({
+        id: null,
         done: true,
         configured: false,
         symbol: summary.symbol,
@@ -289,7 +305,16 @@ export class SymbolPatternService {
       });
       await this.reads.save(record);
 
+      // Only worth grading if the read actually named a mistake — an empty
+      // set can never "recur", so recording a pending row for it would
+      // resolve trivially the moment any next trade closed.
+      const namedMistakes = new Set(facts.trades.flatMap((t) => t.mistakes ?? []));
+      if (namedMistakes.size > 0) {
+        await this.outcomes.recordPending('symbol_pattern', record.id);
+      }
+
       yield emit({
+        id: record.id,
         done: true,
         configured: true,
         symbol: summary.symbol,
@@ -306,6 +331,7 @@ export class SymbolPatternService {
         `AI Symbol Pattern stream failed for ${summary.symbol} (${kind}): ${(err as Error).message}`,
       );
       yield emit({
+        id: null,
         done: true,
         configured: true,
         symbol: summary.symbol,
