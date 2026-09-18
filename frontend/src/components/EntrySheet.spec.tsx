@@ -77,6 +77,29 @@ describe('EntrySheet, composing two new entries in a row', () => {
     expect(screen.getByPlaceholderText('qty')).toHaveValue(null);
   });
 
+  it('keeps the picked date for the next entry, rather than resetting to today', async () => {
+    // Backfilling a past day is normally several entries in a row, all on
+    // that same day — resetting the date to today after each save would
+    // mean re-picking it every single time.
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    const dateInput = screen.getByLabelText('Date');
+    await user.clear(dateInput);
+    await user.type(dateInput, '2026-08-01');
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+
+    await user.click(screen.getByText('Save entry'));
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('NVDA')).toHaveValue(''),
+    );
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-08-01');
+  });
+
   it('is blank on a new entry even when a draft was abandoned, not saved', async () => {
     // The owner's rule, in his words: a new activity screen is empty ALWAYS —
     // not empty once a timer expires. Abandoning a half-typed entry and

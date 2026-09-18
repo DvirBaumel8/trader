@@ -296,7 +296,11 @@ export function EntrySheet({
     onSuccess: async () => {
       if (!editing) {
         clearDraft(DRAFT_KEY);
-        setDraft(emptyDraft(defaultFee));
+        // The date carries over rather than resetting to today: backfilling
+        // a past day is normally several entries in a row, all on that same
+        // day, and re-picking the date before every one of them is exactly
+        // the friction chaining the composer exists to remove.
+        setDraft((prev) => ({ ...emptyDraft(defaultFee), occurredAt: prev.occurredAt }));
         setQuantityTouched(false);
         setReasonsTouched(false);
       }
