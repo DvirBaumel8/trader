@@ -3,6 +3,11 @@ import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { TickerFactsService } from './ticker-facts.service.js';
 import type { YahooClient } from './yahoo.client.js';
 import type { FundamentalsService } from './fundamentals.service.js';
+import type { MarketDataService, Quote } from './market-data.service.js';
+import type { HistoryService } from './history.service.js';
+import type { Repository } from 'typeorm';
+import type { Instrument } from '../instruments/instrument.entity.js';
+import type { DailyClose } from './daily-close.entity.js';
 
 const QUOTE = {
   symbol: 'NVDA',
@@ -12,6 +17,7 @@ const QUOTE = {
   session: 'REGULAR' as const,
   extended: false,
   regularPrice: 200,
+  previousClose: 198,
   peRatio: 25,
 };
 
@@ -25,10 +31,18 @@ const BARS = Array.from({ length: 60 }, (_, i) => ({
   volume: 1_000_000,
 }));
 
+const STORED_INSTRUMENT = { id: 'i1', symbol: 'NVDA' } as Instrument;
+
+/** A `DailyClose` row shaped from the same fixture, as it would sit in the DB. */
+const STORED_ROWS = BARS.map((b) => ({ instrumentId: 'i1', ...b })) as DailyClose[];
+
 function makeService(opts: {
   quote?: () => unknown;
   dailyBars?: () => unknown;
-}) {
+  peekFreshQuote?: () => Quote | null;
+  findInstrument?: () => Instrument | null;
+  storedRows?: () => DailyClose[];
+} = {}) {
   const yahoo = {
     quote: vi.fn().mockImplementation(opts.quote ?? (async () => QUOTE)),
     dailyBars: vi.fn().mockImplementation(opts.dailyBars ?? (async () => BARS)),
@@ -36,7 +50,39 @@ function makeService(opts: {
   const fundamentals = {
     peRatio: vi.fn().mockResolvedValue(null),
   } as unknown as FundamentalsService;
-  return { service: new TickerFactsService(yahoo, fundamentals), yahoo };
+  // Empty by default: most tests exercise the direct-fetch path, the same
+  // one that ran before this file had a cache to reuse at all.
+  const marketData = {
+    peekFreshQuote: vi.fn().mockImplementation(opts.peekFreshQuote ?? (() => null)),
+  } as unknown as MarketDataService;
+  const history = {
+    ensureFresh: vi.fn().mockResolvedValue(undefined),
+  } as unknown as HistoryService;
+  const instruments = {
+    findOne: vi
+      .fn()
+      .mockImplementation(async () => (opts.findInstrument ?? (() => null))()),
+  } as unknown as Repository<Instrument>;
+  const closes = {
+    find: vi
+      .fn()
+      .mockImplementation(async () => (opts.storedRows ?? (() => []))()),
+  } as unknown as Repository<DailyClose>;
+  return {
+    service: new TickerFactsService(
+      yahoo,
+      fundamentals,
+      marketData,
+      history,
+      instruments,
+      closes,
+    ),
+    yahoo,
+    marketData,
+    history,
+    instruments,
+    closes,
+  };
 }
 
 describe('TickerFactsService.get', () => {
@@ -104,5 +150,96 @@ describe('TickerFactsService.get', () => {
     await expect(service.get('ZZZZNOTREAL')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe('TickerFactsService.get — reusing what the rest of the app already fetched', () => {
+  it('uses a fresh cached quote instead of asking the provider again', async () => {
+    const cached = { ...QUOTE, stale: false, session: 'REGULAR' as const } as Quote;
+    const { service, yahoo } = makeService({ peekFreshQuote: () => cached });
+
+    const facts = await service.get('NVDA');
+
+    expect(facts.price).toBe(200);
+    expect(yahoo.quote).not.toHaveBeenCalled();
+  });
+
+  it('asks the provider directly when nothing fresh is cached', async () => {
+    const { service, yahoo } = makeService({ peekFreshQuote: () => null });
+    await service.get('NVDA');
+    expect(yahoo.quote).toHaveBeenCalledWith('NVDA');
+  });
+
+  it('still 503s on a provider failure even though the cache was checked first', async () => {
+    // The cache miss must fall through to the SAME failure handling as
+    // before — a caller cannot afford peekFreshQuote's null to be confused
+    // with "the ticker does not exist".
+    const { service } = makeService({
+      peekFreshQuote: () => null,
+      quote: async () => {
+        throw new Error('provider down');
+      },
+    });
+    await expect(service.get('NVDA')).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  it('reuses stored daily bars for an instrument already tracked, without asking the provider', async () => {
+    const { service, yahoo } = makeService({
+      findInstrument: () => STORED_INSTRUMENT,
+      storedRows: () => STORED_ROWS,
+    });
+
+    await service.get('NVDA');
+
+    expect(yahoo.dailyBars).not.toHaveBeenCalled();
+  });
+
+  it('tops up stored history before reusing it, so a reused bar is never mistaken for today', async () => {
+    const { service, history } = makeService({
+      findInstrument: () => STORED_INSTRUMENT,
+      storedRows: () => STORED_ROWS,
+    });
+
+    await service.get('NVDA');
+
+    expect(history.ensureFresh).toHaveBeenCalled();
+  });
+
+  it('falls back to the provider for a symbol with no tracked instrument', async () => {
+    const { service, yahoo, instruments } = makeService({
+      findInstrument: () => null,
+    });
+
+    await service.get('NVDA');
+
+    expect(instruments.findOne).toHaveBeenCalled();
+    expect(yahoo.dailyBars).toHaveBeenCalledWith('NVDA', expect.any(Date));
+  });
+
+  it('falls back to the provider when the instrument is tracked but has no stored bars yet', async () => {
+    const { service, yahoo } = makeService({
+      findInstrument: () => STORED_INSTRUMENT,
+      storedRows: () => [],
+    });
+
+    await service.get('NVDA');
+
+    expect(yahoo.dailyBars).toHaveBeenCalled();
+  });
+
+  /**
+   * The invariant this whole class exists to protect: a name merely looked
+   * at must never start meaning "the owner holds or watches this". The fake
+   * repositories below expose ONLY read methods (`findOne`/`find`) — no
+   * `save`, `create` or `upsert` at all — so a request for an untracked
+   * symbol succeeding here is only possible if the fallback path never
+   * tries to write one into existence; a stray write call would throw
+   * ("... is not a function") and fail the test.
+   */
+  it('never creates an instrument or writes a daily_closes row for an untracked symbol', async () => {
+    const { service } = makeService({ findInstrument: () => null });
+    await expect(service.get('NVDA')).resolves.toMatchObject({ symbol: 'NVDA' });
   });
 });

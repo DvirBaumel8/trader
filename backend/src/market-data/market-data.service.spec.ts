@@ -87,6 +87,39 @@ describe('MarketDataService', () => {
     expect(await svc.getQuote('NVDA')).toBeNull();
   });
 
+  describe('peekFreshQuote', () => {
+    // A caller that wants to skip a redundant round trip when a fresh quote
+    // already exists elsewhere, but must ask the provider itself (and keep
+    // its own failure handling) on a miss — never a network call from here.
+    it('returns a cached quote still within TTL, without calling the provider', async () => {
+      let calls = 0;
+      const svc = new MarketDataService(fakeClient([NVDA], () => calls++));
+      await svc.getQuote('NVDA');
+
+      const peeked = svc.peekFreshQuote('NVDA');
+
+      expect(peeked?.price).toBe(168.2);
+      expect(calls).toBe(1);
+    });
+
+    it('is case-insensitive, like every other lookup here', async () => {
+      const svc = new MarketDataService(fakeClient([NVDA]));
+      await svc.getQuote('NVDA');
+      expect(svc.peekFreshQuote('nvda')?.price).toBe(168.2);
+    });
+
+    it('returns null for a symbol never quoted', () => {
+      const svc = new MarketDataService(fakeClient([NVDA]));
+      expect(svc.peekFreshQuote('NVDA')).toBeNull();
+    });
+
+    it('returns null once the cached quote has aged past the TTL', async () => {
+      const svc = new MarketDataService(fakeClient([NVDA]), 0); // ttl 0
+      await svc.getQuote('NVDA');
+      expect(svc.peekFreshQuote('NVDA')).toBeNull();
+    });
+  });
+
   it('fetches many symbols in one provider call', async () => {
     let calls = 0;
     const svc = new MarketDataService(

@@ -270,7 +270,11 @@ export function Stops() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['portfolio'],
     queryFn: () => api<Portfolio>('/portfolio'),
-    refetchInterval: 60_000,
+    // Slower than Dashboard's poll on purpose: a stop level does not move
+    // the way an account value does, and with this page open in its own
+    // tab/device alongside Dashboard, a matching 60s interval doubled real
+    // Yahoo calls against the quote cache's own 60s TTL.
+    refetchInterval: 120_000,
   });
 
   const changeDir = (d: StopSortDir) => {

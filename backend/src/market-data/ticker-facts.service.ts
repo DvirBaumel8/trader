@@ -3,8 +3,14 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { YahooClient } from './yahoo.client.js';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { YahooClient, type RawQuote, type RawBar } from './yahoo.client.js';
 import { FundamentalsService } from './fundamentals.service.js';
+import { MarketDataService, type Quote } from './market-data.service.js';
+import { HistoryService } from './history.service.js';
+import { DailyClose } from './daily-close.entity.js';
+import { Instrument } from '../instruments/instrument.entity.js';
 import { computeIndicators, type IndicatorSet } from './indicators.js';
 import { computePriceAction, type PriceAction } from './price-action.js';
 
@@ -32,13 +38,21 @@ export interface TickerFacts {
  *
  * Deliberately writes NOTHING: `instruments` and `daily_closes` mean "things
  * the owner holds", and filling them with every name he merely looked at
- * would quietly change what those tables mean.
+ * would quietly change what those tables mean. Both fast paths below are
+ * pure reads for exactly that reason — they reuse a row that already exists
+ * for some other reason (held, watched, or freshly polled), never create one.
  */
 @Injectable()
 export class TickerFactsService {
   constructor(
     private readonly yahoo: YahooClient,
     private readonly fundamentals: FundamentalsService,
+    private readonly marketData: MarketDataService,
+    private readonly history: HistoryService,
+    @InjectRepository(Instrument)
+    private readonly instruments: Repository<Instrument>,
+    @InjectRepository(DailyClose)
+    private readonly closes: Repository<DailyClose>,
   ) {}
 
   async get(symbol: string): Promise<TickerFacts> {
@@ -53,11 +67,11 @@ export class TickerFactsService {
     // typo's worth of traffic against a round trip saved on every real one.
     const from = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const [quoteResult, barsResult] = await Promise.allSettled([
-      this.yahoo.quote(upper),
-      this.yahoo.dailyBars(upper, from),
+      this.resolveQuote(upper),
+      this.resolveBars(upper, from),
     ]);
 
-    let quote: Awaited<ReturnType<YahooClient['quote']>>;
+    let quote: RawQuote | Quote | null;
     if (quoteResult.status === 'rejected') {
       // The provider being down is not the same as the ticker not existing,
       // and must not read as "no such symbol". No partial answer is offered:
@@ -90,13 +104,10 @@ export class TickerFactsService {
       symbol: quote.symbol,
       name: quote.name,
       price: quote.price,
-      // Always false, and deliberately so. The staleness rule elsewhere in
-      // this app means "the provider failed, so serve the CACHED quote and
-      // flag it" - but there is no cache for a ticker the owner does not
-      // hold, so there is nothing stale to serve. A provider failure here
-      // produces no facts at all (see the catch below), which is the honest
-      // outcome. The field is kept so the shape does not change if this ever
-      // reads through the quote cache.
+      // Always false, and deliberately so. `resolveQuote` only ever returns
+      // a quote that is either freshly fetched or peeked while still within
+      // the shared cache's TTL — never a degraded stale fallback — so there
+      // is never anything stale to flag here.
       stale: false,
       session: quote.session ?? null,
       extended: quote.extended,
@@ -109,5 +120,60 @@ export class TickerFactsService {
       // From the bars already fetched above — no extra provider call.
       priceAction: computePriceAction(bars),
     };
+  }
+
+  /**
+   * A fresh quote already sitting in the shared cache (the portfolio poll,
+   * the watchlist, a refresh button) is reused instead of asking Yahoo
+   * again. `peekFreshQuote` never calls the provider and never returns a
+   * degraded stale fallback, so a miss here still goes straight to
+   * `this.yahoo.quote` — preserving the exact throw-on-failure behavior
+   * `get` depends on to tell "the provider is down" apart from "the ticker
+   * does not exist".
+   */
+  private resolveQuote(symbol: string): Promise<RawQuote | Quote | null> {
+    const cached = this.marketData.peekFreshQuote(symbol);
+    if (cached) return Promise.resolve(cached);
+    return this.yahoo.quote(symbol);
+  }
+
+  /**
+   * Reuses this instrument's own `daily_closes` rows when it is already
+   * tracked (held or watched) — the common case, since a trade idea or
+   * symbol pattern is usually asked about a name already on screen
+   * elsewhere — rather than re-fetching 500 days of history from Yahoo.
+   *
+   * Topped up first via `HistoryService.ensureFresh()` (debounced globally,
+   * so a repeat call here is nearly free) so a reused row is never mistaken
+   * for today: `computePriceAction` trusts the bars' own last entry AS
+   * today, so a row that is actually a few days stale would misreport what
+   * "today" did.
+   *
+   * Falls back to a direct fetch — never persisted — for a symbol with no
+   * tracked instrument, or one that is tracked but not primed with bars yet.
+   */
+  private async resolveBars(symbol: string, from: Date): Promise<RawBar[]> {
+    const instrument = await this.instruments.findOne({ where: { symbol } });
+    if (instrument) {
+      await this.history.ensureFresh();
+      const fromDay = from.toISOString().slice(0, 10);
+      const rows = (
+        await this.closes.find({ where: { instrumentId: instrument.id } })
+      ).filter((r) => r.date >= fromDay);
+      if (rows.length > 0) {
+        return rows
+          .map((r) => ({
+            date: r.date,
+            close: r.close,
+            adjClose: r.adjClose,
+            open: r.open,
+            high: r.high,
+            low: r.low,
+            volume: r.volume,
+          }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+      }
+    }
+    return this.yahoo.dailyBars(symbol, from);
   }
 }

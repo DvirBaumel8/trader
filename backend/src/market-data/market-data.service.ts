@@ -149,6 +149,21 @@ export class MarketDataService {
     }
   }
 
+  /**
+   * A cached quote, ONLY if it is still within TTL — never calls the
+   * provider and never serves a stale fallback. For a caller that wants to
+   * skip a redundant round trip when a fresh quote already exists (say, from
+   * the portfolio poll), but must call the provider directly — and keep its
+   * own distinction between "the ticker is unknown" and "the provider is
+   * down" — on a miss. `getQuote` conflates those two into a single `null`,
+   * which is exactly the distinction such a caller cannot afford to lose.
+   */
+  peekFreshQuote(symbol: string): Quote | null {
+    const cached = this.cache.get(symbol.toUpperCase());
+    if (!cached || Date.now() - cached.fetchedAt >= this.ttlMs) return null;
+    return cached.quote;
+  }
+
   async getQuotes(
     symbols: string[],
     force = false,
