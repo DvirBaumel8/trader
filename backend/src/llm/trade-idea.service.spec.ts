@@ -21,7 +21,7 @@ function makeService(opts: {
   llmAnswer?: string;
   llmCompleteStream?: () => AsyncIterable<string>;
   ideas?: { create: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn> };
-  outcomes?: { recordPending: ReturnType<typeof vi.fn> };
+  outcomes?: { recordOutcome: ReturnType<typeof vi.fn> };
 }) {
   const tickerFacts = {
     get: vi.fn().mockImplementation(opts.facts ?? (async () => ({ symbol: 'NVDA' }))),
@@ -58,7 +58,7 @@ function makeService(opts: {
     })),
   }) as never;
   const outcomes = (opts.outcomes ?? {
-    recordPending: vi.fn(),
+    recordOutcome: vi.fn(),
   }) as unknown as AiOutcomeService;
 
   return new TradeIdeaService(llm, tickerFacts, portfolio, trades, ideas, users, outcomes);
@@ -136,7 +136,7 @@ describe('TradeIdeaService.analyse — gathering', () => {
         save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-1' })),
       } as never,
       users,
-      { recordPending: vi.fn() } as unknown as AiOutcomeService,
+      { recordOutcome: vi.fn() } as unknown as AiOutcomeService,
     );
 
     await service.analyse('NVDA');
@@ -240,7 +240,7 @@ describe('TradeIdeaService.analyse — book placeholders', () => {
     const users = { currentUser: vi.fn() } as unknown as UsersService;
     const service = new TradeIdeaService(
       llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
-      { recordPending: vi.fn() } as unknown as AiOutcomeService,
+      { recordOutcome: vi.fn() } as unknown as AiOutcomeService,
     );
 
     const result = await service.analyse('NVDA');
@@ -249,7 +249,7 @@ describe('TradeIdeaService.analyse — book placeholders', () => {
   });
 
   it('records a pending outcome only when levels were read', async () => {
-    const outcomes = { recordPending: vi.fn() };
+    const outcomes = { recordOutcome: vi.fn() };
     const withLevels = makeService({
       facts: async () => fullFacts(),
       portfolio: async () => fullPortfolio(),
@@ -258,9 +258,9 @@ describe('TradeIdeaService.analyse — book placeholders', () => {
       outcomes,
     });
     await withLevels.analyse('NVDA');
-    expect(outcomes.recordPending).toHaveBeenCalledWith('trade_idea', 'idea-1');
+    expect(outcomes.recordOutcome).toHaveBeenCalledWith('trade_idea', 'idea-1');
 
-    const outcomesUnreadable = { recordPending: vi.fn() };
+    const outcomesUnreadable = { recordOutcome: vi.fn() };
     const withoutLevels = makeService({
       facts: async () => fullFacts(),
       portfolio: async () => fullPortfolio(),
@@ -269,7 +269,7 @@ describe('TradeIdeaService.analyse — book placeholders', () => {
       outcomes: outcomesUnreadable,
     });
     await withoutLevels.analyse('NVDA');
-    expect(outcomesUnreadable.recordPending).not.toHaveBeenCalled();
+    expect(outcomesUnreadable.recordOutcome).not.toHaveBeenCalled();
   });
 });
 
@@ -331,7 +331,7 @@ describe('TradeIdeaService.analyseStream', () => {
     const users = { currentUser: vi.fn() } as unknown as UsersService;
     const service = new TradeIdeaService(
       llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
-      { recordPending: vi.fn() } as unknown as AiOutcomeService,
+      { recordOutcome: vi.fn() } as unknown as AiOutcomeService,
     );
 
     const lines = await collectLines(service.analyseStream('nvda'));
@@ -443,7 +443,7 @@ describe('TradeIdeaService.analyseStream', () => {
         save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-1' })),
       } as never,
       users,
-      { recordPending: vi.fn() } as unknown as AiOutcomeService,
+      { recordOutcome: vi.fn() } as unknown as AiOutcomeService,
     );
 
     await collectLines(service.analyseStream('NVDA'));

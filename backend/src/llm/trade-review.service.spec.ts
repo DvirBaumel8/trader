@@ -15,7 +15,8 @@ function makeService(opts: {
   llmComplete?: () => Promise<string>;
   llmCompleteStream?: () => AsyncIterable<string>;
   savedReview?: any;
-  outcomes?: { recordPending: ReturnType<typeof vi.fn> };
+  outcomes?: { recordOutcome: ReturnType<typeof vi.fn> };
+  tagsByEntryId?: Map<string, { setups: string[]; mistakes: string[] }>;
 }) {
   const trades = {
     getTrade: vi.fn().mockImplementation(async (_id: string) => {
@@ -61,7 +62,7 @@ function makeService(opts: {
         }
       );
     }),
-    tagsByEntryId: vi.fn().mockResolvedValue(new Map()),
+    tagsByEntryId: vi.fn().mockResolvedValue(opts.tagsByEntryId ?? new Map()),
   } as unknown as TradesService;
 
   const users = {
@@ -85,7 +86,7 @@ function makeService(opts: {
   };
 
   const outcomes = (opts.outcomes ?? {
-    recordPending: vi.fn(),
+    recordOutcome: vi.fn(),
   }) as unknown as AiOutcomeService;
 
   async function* defaultStream() {
@@ -178,11 +179,23 @@ describe('TradeReviewService', () => {
   });
 
   it('records a pending outcome only when the review names at least one mistake', async () => {
-    const outcomes = { recordPending: vi.fn() };
+    const outcomes = { recordOutcome: vi.fn() };
     await makeService({ isConfigured: true, outcomes }).service.reviewTrade('trade-1');
     // buildTradeReviewFacts is fed `tagsByEntryId: vi.fn().mockResolvedValue(new Map())`
     // in this file's fixture — no tags means no mistakes, nothing to grade.
-    expect(outcomes.recordPending).not.toHaveBeenCalled();
+    expect(outcomes.recordOutcome).not.toHaveBeenCalled();
+  });
+
+  it("records a pending outcome when the review names at least one mistake — the gate's true branch", async () => {
+    const outcomes = { recordOutcome: vi.fn() };
+    const tagsByEntryId = new Map([
+      ['e1', { setups: [], mistakes: ['cut winner short'] }],
+    ]);
+    await makeService({ isConfigured: true, outcomes, tagsByEntryId }).service.reviewTrade(
+      'trade-1',
+    );
+
+    expect(outcomes.recordOutcome).toHaveBeenCalledWith('trade_review', 'rev-1');
   });
 });
 

@@ -183,7 +183,7 @@ export class TradeReviewService {
       // Only worth grading if the review actually named a mistake — see the
       // identical reasoning in SymbolPatternService.generate.
       if (facts.mistakes.length > 0) {
-        await this.outcomes.recordPending('trade_review', record.id);
+        await this.outcomes.recordOutcome('trade_review', record.id);
       }
 
       return {
@@ -285,7 +285,7 @@ export class TradeReviewService {
       // Only worth grading if the review actually named a mistake — see the
       // identical reasoning in SymbolPatternService.generate.
       if (facts.mistakes.length > 0) {
-        await this.outcomes.recordPending('trade_review', record.id);
+        await this.outcomes.recordOutcome('trade_review', record.id);
       }
 
       yield emit({

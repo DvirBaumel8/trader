@@ -209,7 +209,7 @@ export class SymbolPatternService {
       // resolve trivially the moment any next trade closed.
       const namedMistakes = new Set(facts.trades.flatMap((t) => t.mistakes ?? []));
       if (namedMistakes.size > 0) {
-        await this.outcomes.recordPending('symbol_pattern', record.id);
+        await this.outcomes.recordOutcome('symbol_pattern', record.id);
       }
 
       return {
@@ -310,7 +310,7 @@ export class SymbolPatternService {
       // resolve trivially the moment any next trade closed.
       const namedMistakes = new Set(facts.trades.flatMap((t) => t.mistakes ?? []));
       if (namedMistakes.size > 0) {
-        await this.outcomes.recordPending('symbol_pattern', record.id);
+        await this.outcomes.recordOutcome('symbol_pattern', record.id);
       }
 
       yield emit({

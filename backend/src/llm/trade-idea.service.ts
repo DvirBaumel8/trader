@@ -222,7 +222,7 @@ export class TradeIdeaService {
     // Only a readable idea has anything to grade — see the entity's own
     // doc comment on why an unreadable one is still saved.
     if (levels) {
-      await this.outcomes.recordPending('trade_idea', saved.id);
+      await this.outcomes.recordOutcome('trade_idea', saved.id);
     }
 
     return {
@@ -316,7 +316,7 @@ export class TradeIdeaService {
       );
 
       if (levels) {
-        await this.outcomes.recordPending('trade_idea', saved.id);
+        await this.outcomes.recordOutcome('trade_idea', saved.id);
       }
 
       yield emit({

@@ -34,7 +34,7 @@ const summary = {
       enteredAt: new Date('2026-03-01'),
       exitedAt: new Date('2026-03-03'),
       setups: ['breakout'],
-      mistakes: [],
+      mistakes: [] as string[],
     },
   ],
 };
@@ -61,10 +61,11 @@ function makeService(opts: {
   llmComplete?: () => Promise<string>;
   llmCompleteStream?: () => AsyncIterable<string>;
   savedRead?: any;
-  outcomes?: { recordPending: ReturnType<typeof vi.fn> };
+  outcomes?: { recordOutcome: ReturnType<typeof vi.fn> };
+  summary?: typeof summary;
 }) {
   const trades = {
-    getSymbolSummary: vi.fn().mockResolvedValue(summary),
+    getSymbolSummary: vi.fn().mockResolvedValue(opts.summary ?? summary),
     getStats: vi.fn().mockResolvedValue(overallStats),
     deriveAllTrades: vi.fn().mockResolvedValue([
       {
@@ -119,7 +120,7 @@ You tend to let NVDA winners run past your usual exit.`),
   } as unknown as LlmClient;
 
   const outcomes = (opts.outcomes ?? {
-    recordPending: vi.fn(),
+    recordOutcome: vi.fn(),
   }) as unknown as AiOutcomeService;
 
   return {
@@ -208,11 +209,28 @@ describe('SymbolPatternService', () => {
   });
 
   it('records a pending outcome only when the read names at least one mistake', async () => {
-    const outcomes = { recordPending: vi.fn() };
+    const outcomes = { recordOutcome: vi.fn() };
     await makeService({ isConfigured: true, outcomes }).service.generate('nvda', 'ALL');
     // The shared `summary.trades` fixture at the top of this file has an
     // empty `mistakes: []` — nothing to grade, so nothing should be recorded.
-    expect(outcomes.recordPending).not.toHaveBeenCalled();
+    expect(outcomes.recordOutcome).not.toHaveBeenCalled();
+  });
+
+  it("records a pending outcome when the read names at least one mistake — the gate's true branch", async () => {
+    const outcomes = { recordOutcome: vi.fn() };
+    const summaryWithMistake = {
+      ...summary,
+      trades: [{ ...summary.trades[0], mistakes: ['cut winner short'] }],
+    };
+    const { service } = makeService({
+      isConfigured: true,
+      outcomes,
+      summary: summaryWithMistake,
+    });
+
+    await service.generate('nvda', 'ALL');
+
+    expect(outcomes.recordOutcome).toHaveBeenCalledWith('symbol_pattern', 'read-1');
   });
 });
 
