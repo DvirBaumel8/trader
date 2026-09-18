@@ -17,6 +17,7 @@ import { TradeIdeaService } from './trade-idea.service.js';
 import { TradeIdeaHistoryService } from './trade-idea-history.service.js';
 import { TradeReviewService } from './trade-review.service.js';
 import { SymbolPatternService } from './symbol-pattern.service.js';
+import { AiOutcomeService } from './ai-outcome.service.js';
 import { RANGES, type Range } from '../common/date-range.js';
 
 class TradeIdeaDto {
@@ -38,6 +39,7 @@ export class LlmController {
     private readonly tradeIdeaHistory: TradeIdeaHistoryService,
     private readonly tradeReviews: TradeReviewService,
     private readonly symbolPatterns: SymbolPatternService,
+    private readonly outcomes: AiOutcomeService,
   ) {}
 
   @Post('trade-reviews/:tradeId')
@@ -91,6 +93,11 @@ export class LlmController {
   async removeTradeIdea(@Param('id', ParseUUIDPipe) id: string) {
     await this.tradeIdeaHistory.remove(id);
     return { ok: true };
+  }
+
+  @Get('outcomes')
+  listOutcomes() {
+    return this.outcomes.list();
   }
 
   @Get('symbol-patterns/:symbol')

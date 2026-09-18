@@ -6,6 +6,7 @@ import type { LlmService } from './llm.service.js';
 import type { AiSummaryService } from './ai-summary.service.js';
 import type { TradeReviewService } from './trade-review.service.js';
 import type { SymbolPatternService } from './symbol-pattern.service.js';
+import type { AiOutcomeService } from './ai-outcome.service.js';
 
 function fakeSummaries(): AiSummaryService {
   return {
@@ -47,6 +48,11 @@ function fakeSymbolPatterns(): SymbolPatternService {
   } as unknown as SymbolPatternService;
 }
 
+/** Unused by most of these tests; present only so the constructor is satisfied. */
+function fakeOutcomes(): AiOutcomeService {
+  return { recordPending: vi.fn(), list: vi.fn(), resolvePending: vi.fn() } as unknown as AiOutcomeService;
+}
+
 describe('LlmController', () => {
   it('POST /ai/trade-idea/stream writes every yielded line and sets the ndjson content type', async () => {
     async function* lines() {
@@ -62,6 +68,7 @@ describe('LlmController', () => {
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
       fakeSymbolPatterns(),
+      fakeOutcomes(),
     );
     const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn() };
 
@@ -97,6 +104,7 @@ describe('LlmController', () => {
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
       fakeSymbolPatterns(),
+      fakeOutcomes(),
     );
 
     const result = await controller.portfolioSummary();
@@ -121,6 +129,7 @@ describe('LlmController', () => {
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
       fakeSymbolPatterns(),
+      fakeOutcomes(),
     );
     const res = {
       setHeader: vi.fn(),
@@ -156,6 +165,7 @@ describe('LlmController', () => {
       fakeTradeIdeaHistory(),
       tradeReviews,
       fakeSymbolPatterns(),
+      fakeOutcomes(),
     );
     const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn() };
 
@@ -187,6 +197,7 @@ describe('LlmController', () => {
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
       symbolPatterns,
+      fakeOutcomes(),
     );
     const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn() };
 
@@ -217,6 +228,7 @@ describe('LlmController', () => {
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
       symbolPatterns,
+      fakeOutcomes(),
     );
     const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn() };
 
@@ -236,6 +248,7 @@ describe('LlmController', () => {
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
       fakeSymbolPatterns(),
+      fakeOutcomes(),
     );
 
     const result = await controller.list();
@@ -255,6 +268,7 @@ describe('LlmController', () => {
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
       fakeSymbolPatterns(),
+      fakeOutcomes(),
     );
 
     const result = await controller.findOne('1');
@@ -273,11 +287,31 @@ describe('LlmController', () => {
       fakeTradeIdeaHistory(),
       fakeTradeReviews(),
       fakeSymbolPatterns(),
+      fakeOutcomes(),
     );
 
     const result = await controller.remove('1');
 
     expect(result).toEqual({ ok: true });
     expect(summaries.remove).toHaveBeenCalledWith('1');
+  });
+
+  it('GET /ai/outcomes returns whatever the service lists', async () => {
+    const rows = [{ id: 'o1', feature: 'trade_idea', status: 'pending' }];
+    const outcomes = { list: vi.fn().mockResolvedValue(rows) } as unknown as AiOutcomeService;
+    const controller = new LlmController(
+      {} as LlmService,
+      fakeSummaries(),
+      fakeTradeIdeas(),
+      fakeTradeIdeaHistory(),
+      fakeTradeReviews(),
+      fakeSymbolPatterns(),
+      outcomes,
+    );
+
+    const result = await controller.listOutcomes();
+
+    expect(result).toBe(rows);
+    expect(outcomes.list).toHaveBeenCalledTimes(1);
   });
 });
