@@ -92,6 +92,14 @@ describe('buildRankingUserPrompt', () => {
     expect(RANKING_SYSTEM_PROMPT).toMatch(/do not .*score|no numeric/i);
   });
 
+  it('warns that its own knowledge of the tickers may be out of date', () => {
+    // The street, the tape and his record are all facts the app supplied —
+    // but the model may still reach for its own general knowledge of a
+    // company when reconciling them, and that knowledge has a training
+    // cutoff. Same discipline trade-idea's prompt already has.
+    expect(RANKING_SYSTEM_PROMPT).toMatch(/today's news|out of date/i);
+  });
+
   it('lists every candidate given to it', () => {
     const p = buildRankingUserPrompt([covered, uncovered], 'B', 'R', 'P');
     expect(p).toContain('NVDA');

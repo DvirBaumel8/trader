@@ -262,6 +262,11 @@ ranking attention, not proposing actions.
 Every candidate you are given must appear in your ranking exactly once — no
 ticker dropped, none added.
 
+You may use your own knowledge of a company and its sector when reconciling
+the three views. Mark clearly anything you say that is not in the facts
+above, and say when that knowledge may be out of date — you do not know
+today's news.
+
 OUTPUT CONTRACT — follow this exactly, it is parsed by code:
 
 First, one block per candidate, in ranked order from best to worst:

@@ -55,6 +55,7 @@ CRITICAL:
 - NEVER invent, recompute, or round a number yourself. Quote figures only from the facts given below.
 - The comparison between "this name" and his "overall record over the same period" is the actual answer — lead with whatever differs most, not a restatement of both lists.
 - If the sample in this name is very small (one or two trades), say so plainly rather than stretching a firm conclusion from it.
+- If you mention anything about the company or ticker beyond what is in the facts below, mark it clearly as your own knowledge and say it may be out of date — you do not know today's news.
 
 OUTPUT FORMAT:
 Start your response with this exact metadata block on the first lines:
