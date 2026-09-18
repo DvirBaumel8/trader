@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { DailyClose } from './daily-close.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
-import { YahooClient } from './yahoo.client.js';
+import { YahooClient, type RawBar } from './yahoo.client.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { catchUpFrom, isHistoryBehind } from './trading-day.js';
 
@@ -245,6 +245,24 @@ export class HistoryService {
       ]);
     } catch (err) {
       this.log.warn(`could not refresh daily history: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Bars for a symbol over a window, fetched live and never persisted —
+   * every other method here exists to keep `daily_closes` current for a
+   * symbol the owner holds or watches, and writing a row there for a
+   * merely-researched ticker would quietly change what that table means
+   * (see `TickerFactsService`'s own doc comment for the same rule). A
+   * caller that wants bars for a ticker that was only ever looked at —
+   * `AiOutcomeService` grading a trade idea — uses this instead.
+   */
+  async liveDailyBars(symbol: string, from: Date): Promise<RawBar[]> {
+    try {
+      return await this.yahoo.dailyBars(symbol, from);
+    } catch (err) {
+      this.log.warn(`live daily bars failed for ${symbol}: ${String(err)}`);
+      return [];
     }
   }
 

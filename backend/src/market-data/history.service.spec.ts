@@ -151,6 +151,43 @@ function makeFreshService(opts: {
   return { service, requestedFrom, requestedBySymbol };
 }
 
+describe('HistoryService.liveDailyBars', () => {
+  it('returns whatever the provider hands back, without touching daily_closes', async () => {
+    const { service, closes, yahoo } = makeService({
+      existingBarCount: 0,
+      bars: [
+        {
+          date: '2026-09-01',
+          close: 163.88,
+          adjClose: 163.88,
+          open: 160,
+          high: 165,
+          low: 159,
+          volume: 1_000_000,
+        },
+      ],
+    });
+
+    const bars = await service.liveDailyBars('CRWV', new Date('2026-08-01'));
+
+    expect(bars).toHaveLength(1);
+    expect(bars[0].close).toBe(163.88);
+    expect(yahoo.dailyBars).toHaveBeenCalledWith('CRWV', new Date('2026-08-01'));
+    expect(closes.upsert).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty array, not a throw, when the provider fails', async () => {
+    const { service } = makeService({
+      existingBarCount: 0,
+      yahooError: new Error('provider down'),
+    });
+
+    const bars = await service.liveDailyBars('CRWV', new Date('2026-08-01'));
+
+    expect(bars).toEqual([]);
+  });
+});
+
 describe('HistoryService.ensureFresh', () => {
   const days = (from: Date, to: Date) =>
     Math.round((to.getTime() - from.getTime()) / 86_400_000);
