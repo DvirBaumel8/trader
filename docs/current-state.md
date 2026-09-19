@@ -29,8 +29,15 @@ documents for decisions, implementation detail, and history.
   balance for that fill. When given, price is derived from it (full
   precision) rather than trusting a typed guess, and a mismatch badge flags
   remaining drift — a stopgap for reconciling against the broker, not a
-  permanent fixture. See [the backlog](backlog.md) for feature-level context
-  and open work.
+  permanent fixture.
+- A broker-charged cost outside any trade (margin interest, to start) can be
+  logged as its own `INTEREST` entry: it lowers cash the way a withdrawal
+  does but is excluded from contributed capital, the mirror image of how a
+  dividend is handled. Cash was aligned to the broker exactly as of
+  2026-09-19 with a one-time entry of this kind; going forward, drift is
+  meant to surface through these two mechanisms as it happens rather than
+  through another full manual reconciliation. See [the backlog](backlog.md)
+  for feature-level context and open work.
 
 ## Operating facts
 
@@ -52,10 +59,6 @@ documents for decisions, implementation detail, and history.
 
 ## Active checkpoints
 
-- Confirm whether margin interest, or another broker-charged fee the app
-  never models, explains the remaining ~$1,170 aggregate cash gap against the
-  broker — check the broker's activity log for a debit near that size outside
-  of trades and deposits. See the top bug in [the backlog](backlog.md).
 - The owner needs to inspect the trade chart on a phone: confirm close axis
   labels do not crowd and that per-fill marker placement reads well.
 - Review the UI as a whole and decide which remaining conventions or layout

@@ -8,34 +8,6 @@ this file says what remains.
 
 ## Bugs — correctness
 
-- [ ] **The app's numbers disagree with his broker — balance, returns and
-  history, all of it.** Raised 2026-09-12, joint investigation ongoing.
-
-  2026-09-19: found and fixed one confirmed cause. A real SMCI trade was off
-  by $3 — logged at a rounded 2-decimal price (36.92) while the broker's
-  actual fill averaged a sub-cent higher (36.925) from partial fills at
-  slightly different prices. A trade entry can now carry the broker's own
-  reported net cash and resulting balance for that fill; when given, the
-  backend derives the fill's exact price from it instead of trusting a typed
-  guess, and a mismatch badge on the entry flags any remaining drift
-  (`3c273eb`, "feat: reconcile trade fills against the platform's reported
-  cash"). These two fields are a deliberate stopgap for learning the
-  platform's behavior, not meant to be permanent.
-
-  Not closed: the owner's aggregate cash was still off by roughly $1,170
-  (ours -164018 vs broker -165188) before that fix, and no cash-flow kind
-  exists for a broker-charged fee or margin interest outside of a trade —
-  the leading suspect for what remains, since the account runs on margin.
-  Next step: check the broker's activity log for a debit near that size
-  labelled interest or a fee; if found, decide whether it needs a new entry
-  kind or fits inside `CASH`.
-
-  Before changing further code, still check whether any remaining gap is
-  cash definitions (settled cash, unrecorded dividends), price session
-  (4:30pm extended versus 4:00pm official close), pre-seed realised history,
-  or unhandled corporate actions. The read-only IBKR work below could make
-  this continuous rather than manual.
-
 - [ ] **Trade chart: shipped, awaiting the owner's eye.** Fills, stops, and
   targets are price-anchored and labelled; `plannedTarget` now reaches
   `DerivedTrade`, and `markerSideForPrice` chooses the emptier side of each
@@ -98,6 +70,28 @@ not independently implemented features.
 
 ## Resolved notes
 
+- **2026-09-19 — numbers disagreed with the broker:** Raised 2026-09-12.
+  Checked position quantities (exact match, all 17 holdings), then prices
+  (within normal after-hours vendor noise, ~$0.1%), then cash. Found one
+  trade-level cause — a rounded 2-decimal price (36.92) versus the broker's
+  true multi-fill average (36.925) — fixed by letting a trade entry carry
+  the broker's own reported net cash/balance, from which price is now
+  derived exactly (`3c273eb`). The remaining ~$1,170 aggregate cash gap had
+  no matching line item in the broker's activity log; logged as a one-time
+  `INTEREST` entry (`958e8cf`, new entry kind, the mirror of a dividend —
+  lowers cash, excluded from contributed capital) to bring cash to exactly
+  −165,188, matching the broker as of today. If the real dated margin-interest
+  charges are ever found in the broker's statement, replace this lump entry
+  with them for better history at the same total.
+
+  **Ongoing, not just this once:** going forward, drift is meant to surface
+  as it happens rather than through another full manual reconciliation —
+  every new trade's reconciliation badge flags a price/balance mismatch
+  against the broker's own reported numbers (see `3c273eb`), and any future
+  broker-charged cost outside a trade (interest, a wire fee, an ADR fee) has
+  a home in the `INTEREST` entry kind rather than being absorbed into `CASH`
+  or ignored. Re-open this investigation only if the numbers drift again
+  despite that.
 - **2026-09-12 — e2e flake:** Closed inconclusively after it appeared only in the full sequential suite (404 after a write, stray 301, or `socket hang up`); re-open only when it recurs, then add a temporary `test/http.ts` response listener recording `pid, method, path, status` before diagnosis.
 - **2026-09-13 — chart caveats:** Moved persistent marker-placement caveats into a toggle and kept transient behind-bars warnings visible; re-open only if the explanation again obstructs normal chart reading.
 - **2026-09-13 — Journal dates:** Pinned device-locale day headings to `en-US` without merging instant and UTC-date formatting; re-open only if a phone shows a wrong locale or date shift.
