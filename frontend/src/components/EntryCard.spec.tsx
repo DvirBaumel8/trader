@@ -11,7 +11,9 @@ import { api } from '../api/client';
 beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
-const entry = (reasons: string[]): Entry => ({
+type Reconciliation = NonNullable<Entry['trade']>['reconciliation'];
+
+const entry = (reasons: string[], reconciliation: Reconciliation = null): Entry => ({
   id: 'e1',
   kind: 'TRADE',
   body: 'took the loss',
@@ -27,6 +29,9 @@ const entry = (reasons: string[]): Entry => ({
     riskAmount: null,
     exitKind: null,
     stopExecutions: [],
+    reportedNetCash: reconciliation ? 1000 : null,
+    reportedBalance: reconciliation ? 5000 : null,
+    reconciliation,
   },
   cash: null,
   dividend: null,
@@ -34,7 +39,7 @@ const entry = (reasons: string[]): Entry => ({
   reasons,
 });
 
-function renderCard(reasons: string[]) {
+function renderCard(reasons: string[], reconciliation: Reconciliation = null) {
   (api as ReturnType<typeof vi.fn>).mockResolvedValue({
     defaultFee: 4,
     reasons: {
@@ -44,7 +49,11 @@ function renderCard(reasons: string[]) {
   });
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <EntryCard entry={entry(reasons)} editMode={false} onOpen={() => {}} />
+      <EntryCard
+        entry={entry(reasons, reconciliation)}
+        editMode={false}
+        onOpen={() => {}}
+      />
     </QueryClientProvider>,
   );
 }
@@ -64,5 +73,46 @@ describe('EntryCard reasons', () => {
     renderCard(['EXIT_RETIRED_OPTION']);
     await screen.findByText('took the loss');
     expect(screen.queryByText(/EXIT_RETIRED/)).not.toBeInTheDocument();
+  });
+});
+
+describe('EntryCard reconciliation badge', () => {
+  it('shows nothing when the platform numbers were never given', async () => {
+    renderCard([], null);
+    await screen.findByText('took the loss');
+    expect(screen.queryByText(/off by/)).not.toBeInTheDocument();
+  });
+
+  it('shows nothing when the platform numbers match what we derive', async () => {
+    renderCard([], {
+      expectedNetCash: 1000,
+      expectedBalance: 5000,
+      netCashMismatch: false,
+      balanceMismatch: false,
+    });
+    await screen.findByText('took the loss');
+    expect(screen.queryByText(/off by/)).not.toBeInTheDocument();
+  });
+
+  it('flags a net-cash mismatch with the dollar amount off', async () => {
+    renderCard([], {
+      expectedNetCash: 997,
+      expectedBalance: 5000,
+      netCashMismatch: true,
+      balanceMismatch: false,
+    });
+    // reportedNetCash from the fixture is 1000; expected is 997 — off by 3.
+    expect(await screen.findByText(/off by \$3\.00/)).toBeInTheDocument();
+  });
+
+  it('flags a balance mismatch even when the net cash matches', async () => {
+    renderCard([], {
+      expectedNetCash: 1000,
+      expectedBalance: 4750,
+      netCashMismatch: false,
+      balanceMismatch: true,
+    });
+    // reportedBalance from the fixture is 5000; expected is 4750 — off by 250.
+    expect(await screen.findByText(/off by \$250\.00/)).toBeInTheDocument();
   });
 });

@@ -19,6 +19,12 @@ import {
 } from '../transactions/stop-revisions.js';
 import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { autoAttributeTier } from '../portfolio/derive-trades.js';
+import {
+  tradeNetCash,
+  cashBalancesAfter,
+  priceFromNetCash,
+  type CashEvent,
+} from '../portfolio/derive.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { WatchlistItem } from '../watchlist/watchlist-item.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
@@ -111,6 +117,20 @@ export interface EntryView {
      * requires resending it, which requires being able to read it back.
      */
     stopExecutions: { stopLevelId: string; quantity: number }[];
+    /** The platform's reported numbers for this fill, if given. See `reconciliation`. */
+    reportedNetCash: number | null;
+    reportedBalance: number | null;
+    /**
+     * Diagnostic comparison against what we derive, present only when both
+     * `reportedNetCash` and `reportedBalance` were given. Never fed back
+     * into `deriveCash` or position math — see `derive.ts`.
+     */
+    reconciliation: {
+      expectedNetCash: number;
+      expectedBalance: number;
+      netCashMismatch: boolean;
+      balanceMismatch: boolean;
+    } | null;
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   dividend: { symbol: string; amount: number } | null;
@@ -134,6 +154,9 @@ export interface CreateEntryInput {
     exitKind?: 'STOP' | 'DISCRETIONARY' | null;
     /** The owner's confirmation of which stop tier(s) a reducing fill executed. */
     stopExecutions?: { stopLevelId: string; quantity: number }[];
+    /** See `EntryView.trade.reportedNetCash`. Must be given together with `reportedBalance`, or not at all. */
+    reportedNetCash?: number | null;
+    reportedBalance?: number | null;
   };
   cash?: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number };
   dividend?: { symbol: string; amount: number };
@@ -208,6 +231,34 @@ export class JournalService {
     const divByEntry = new Map(divs.map((d) => [d.entryId, d]));
     const tagById = new Map(allTags.map((t) => [t.id, t]));
 
+    // Same tie-break the portfolio derivation uses for same-day fills: a
+    // journal entry records a DATE, not a time, so the order the owner
+    // actually logged same-day entries in is the only evidence of sequence
+    // once time-of-day is gone. Needed here to compute the running cash
+    // balance a reconciliation check compares against.
+    const recordedAtByEntry = new Map(entries.map((e) => [e.id, e.createdAt]));
+    const cashEvents: CashEvent[] = [
+      ...txns.map((t) => ({
+        id: t.id,
+        delta: tradeNetCash(t),
+        executedAt: t.executedAt,
+        recordedAt: recordedAtByEntry.get(t.entryId),
+      })),
+      ...flows.map((f) => ({
+        id: f.id,
+        delta: f.direction === 'DEPOSIT' ? f.amount : -f.amount,
+        occurredAt: f.occurredAt,
+        recordedAt: recordedAtByEntry.get(f.entryId),
+      })),
+      ...divs.map((d) => ({
+        id: d.id,
+        delta: d.amount,
+        occurredAt: d.occurredAt,
+        recordedAt: recordedAtByEntry.get(d.entryId),
+      })),
+    ];
+    const balanceAfter = cashBalancesAfter(cashEvents);
+
     // stopLevels holds every revision ever recorded, not just the live one
     // (see stop-level.entity.ts) — this view always wants the current one,
     // both for editing and for the risk figure shown per entry.
@@ -279,6 +330,23 @@ export class JournalService {
             stopLevelId: ex.stopLevelId,
             quantity: ex.quantity,
           })),
+          reportedNetCash: t.reportedNetCash,
+          reportedBalance: t.reportedBalance,
+          reconciliation:
+            t.reportedNetCash != null && t.reportedBalance != null
+              ? (() => {
+                  const expectedNetCash = tradeNetCash(t);
+                  const expectedBalance = balanceAfter.get(t.id) ?? 0;
+                  return {
+                    expectedNetCash,
+                    expectedBalance,
+                    netCashMismatch:
+                      Math.abs(expectedNetCash - t.reportedNetCash) > 0.005,
+                    balanceMismatch:
+                      Math.abs(expectedBalance - t.reportedBalance) > 0.005,
+                  };
+                })()
+              : null,
         };
       }
 
@@ -627,6 +695,54 @@ export class JournalService {
   }
 
   /**
+   * A typed price is often a rounded guess at an average fill (2 decimals);
+   * the platform's own reported net cash is exact. When it is given, it
+   * becomes the source of truth for this fill's price — computed to full
+   * precision rather than trusting whatever was typed — so the stored price
+   * and the platform's own cash impact can never quietly disagree. Without
+   * it, the typed price is used unchanged, exactly as before this existed.
+   */
+  private resolvePrice(
+    trade: NonNullable<CreateEntryInput['trade']>,
+    side: 'BUY' | 'SELL',
+    quantity: number,
+    fee: number,
+  ): number {
+    if (trade.reportedNetCash == null) return Math.abs(trade.price);
+    const price = priceFromNetCash(
+      side,
+      quantity,
+      fee,
+      Math.abs(trade.reportedNetCash),
+    );
+    if (price <= 0) {
+      throw new BadRequestException(
+        'reportedNetCash cannot be smaller than the fee',
+      );
+    }
+    return price;
+  }
+
+  /**
+   * A reconciliation figure with only one side of the pair is not a
+   * reconciliation at all — reject it rather than silently store a
+   * `reportedBalance` with no `reportedNetCash` to compare it against, or
+   * vice versa. Both absent (the common case: the API itself does not
+   * require these, only the UI form does) is fine.
+   */
+  private validateReportedCash(
+    trade: NonNullable<CreateEntryInput['trade']>,
+  ): void {
+    const hasNetCash = trade.reportedNetCash != null;
+    const hasBalance = trade.reportedBalance != null;
+    if (hasNetCash !== hasBalance) {
+      throw new BadRequestException(
+        'reportedNetCash and reportedBalance must be given together',
+      );
+    }
+  }
+
+  /**
    * Never lets a price-history fetch failure block the journal write — a
    * Yahoo outage, or any other hiccup here, is logged and the entry still
    * gets written, exactly as the existing manual backfill tolerates one bad
@@ -677,6 +793,15 @@ export class JournalService {
         );
       }
 
+      this.validateReportedCash(input.trade);
+      const fee = Math.abs(input.trade.fee ?? 0);
+      const price = this.resolvePrice(
+        input.trade,
+        resolved.side,
+        resolved.quantity,
+        fee,
+      );
+
       const txn = await manager.save(
         manager.create(Transaction, {
           userId,
@@ -684,10 +809,12 @@ export class JournalService {
           instrumentId: resolved.instrumentId,
           side: resolved.side,
           quantity: resolved.quantity,
-          price: Math.abs(input.trade.price),
-          fee: Math.abs(input.trade.fee ?? 0),
+          price,
+          fee,
           plannedTarget: input.trade.plannedTarget ?? null,
           executedAt: new Date(input.occurredAt),
+          reportedNetCash: input.trade.reportedNetCash ?? null,
+          reportedBalance: input.trade.reportedBalance ?? null,
         }),
       );
 

@@ -1,6 +1,6 @@
 import { useSettings } from '../api/settings';
 import { Money } from './Money';
-import { formatQuantity } from './format';
+import { formatQuantity, formatMoney } from './format';
 
 export interface StopLevel {
   kind: 'FIXED' | 'TRAILING';
@@ -32,6 +32,14 @@ export interface Entry {
      */
     exitKind: 'STOP' | 'DISCRETIONARY' | null;
     stopExecutions: { stopLevelId: string; quantity: number }[];
+    reportedNetCash: number | null;
+    reportedBalance: number | null;
+    reconciliation: {
+      expectedNetCash: number;
+      expectedBalance: number;
+      netCashMismatch: boolean;
+      balanceMismatch: boolean;
+    } | null;
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   dividend: { symbol: string; amount: number } | null;
@@ -92,6 +100,32 @@ function ChevronIcon() {
 }
 
 /**
+ * Flags drift between what the platform actually reported for this fill and
+ * what we derive from quantity/price/fee — a data-entry slip (a rounded
+ * price, a missed fee) rather than a formula bug. Silent whenever the
+ * numbers agree, or were never given at all.
+ */
+function ReconciliationNote({ trade }: { trade: NonNullable<Entry['trade']> }) {
+  const { reconciliation, reportedNetCash, reportedBalance } = trade;
+  if (!reconciliation) return null;
+  const notes: string[] = [];
+  if (reconciliation.netCashMismatch && reportedNetCash !== null) {
+    notes.push(
+      `net cash off by ${formatMoney(Math.abs(reportedNetCash - reconciliation.expectedNetCash))}`,
+    );
+  }
+  if (reconciliation.balanceMismatch && reportedBalance !== null) {
+    notes.push(
+      `balance off by ${formatMoney(Math.abs(reportedBalance - reconciliation.expectedBalance))}`,
+    );
+  }
+  if (notes.length === 0) return null;
+  return (
+    <div className="text-[11px] font-medium text-down">⚠ {notes.join(' · ')}</div>
+  );
+}
+
+/**
  * Two aligned columns: what you did on the left, what it cost on the right.
  * The money column is what makes a list of trades scannable — without it every
  * row needs mental arithmetic to answer "how big was that?".
@@ -130,6 +164,7 @@ function EntryBody({ entry }: { entry: Entry }) {
                 </>
               )}
             </div>
+            <ReconciliationNote trade={entry.trade} />
           </>
         )}
 

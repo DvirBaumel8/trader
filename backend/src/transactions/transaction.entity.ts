@@ -77,6 +77,29 @@ export class Transaction {
   @Column({ type: 'timestamptz' })
   executedAt: Date;
 
+  /**
+   * The platform's actual cash impact of this fill, net of its fee — entered
+   * by hand from the broker's confirmation to catch drift between what we
+   * derive and what really happened (rounding, multi-fill averaging, fees we
+   * don't model). Diagnostic only: never read back into `deriveCash`.
+   */
+  @Column('numeric', {
+    precision: 20,
+    scale: 2,
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  reportedNetCash: number | null;
+
+  /** The platform's cash balance immediately after this fill. Diagnostic only, see `reportedNetCash`. */
+  @Column('numeric', {
+    precision: 20,
+    scale: 2,
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  reportedBalance: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

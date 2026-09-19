@@ -170,15 +170,74 @@ export function deriveCash(
     cash += f.direction === 'DEPOSIT' ? f.amount : -f.amount;
   }
   for (const t of txns) {
-    const notional = t.quantity * t.price;
-    cash += t.side === 'BUY' ? -notional : notional;
-    cash -= t.fee;
+    cash += tradeNetCash(t);
   }
   // Dividends add to cash but never to contributed capital.
   for (const d of dividends) {
     cash += d.amount;
   }
   return round(cash);
+}
+
+/** A single fill's cash impact: negative notional plus fee on a buy, positive notional minus fee on a sell. */
+export function tradeNetCash(t: {
+  side: Side;
+  quantity: number;
+  price: number;
+  fee: number;
+}): number {
+  const notional = t.quantity * t.price;
+  return round((t.side === 'BUY' ? -notional : notional) - t.fee);
+}
+
+/**
+ * The exact per-share price implied by the platform's own reported net cash,
+ * inverting `tradeNetCash` — a 2-decimal typed price is often a rounded
+ * guess at an average fill, while the platform's cash figure is exact. The
+ * result can be zero or negative when the fee exceeds the reported amount;
+ * the caller decides whether that is an error, since this stays a pure
+ * calculation with no business rule of its own.
+ */
+export function priceFromNetCash(
+  side: Side,
+  quantity: number,
+  fee: number,
+  netCashMagnitude: number,
+): number {
+  const notional =
+    side === 'BUY' ? netCashMagnitude - fee : netCashMagnitude + fee;
+  return round(notional / quantity);
+}
+
+export interface CashEvent {
+  id: string;
+  /** Signed cash impact of this event: a trade's net cash, a deposit's +amount, a withdrawal's -amount, a dividend's +amount. */
+  delta: number;
+  executedAt?: Date;
+  occurredAt?: Date;
+  recordedAt?: Date | null;
+}
+
+/**
+ * The running cash balance immediately after each event, keyed by event id.
+ * Ordered the same way `compareFills` orders same-day fills — a journal
+ * entry records a date, not a time, so `recordedAt` (when the owner logged
+ * it) is what breaks a same-day tie between, say, a deposit and a trade.
+ */
+export function cashBalancesAfter(events: CashEvent[]): Map<string, number> {
+  const ordered = [...events].sort((a, b) =>
+    compareFills(
+      { executedAt: a.executedAt ?? a.occurredAt!, recordedAt: a.recordedAt },
+      { executedAt: b.executedAt ?? b.occurredAt!, recordedAt: b.recordedAt },
+    ),
+  );
+  const balances = new Map<string, number>();
+  let running = 0;
+  for (const e of ordered) {
+    running = round(running + e.delta);
+    balances.set(e.id, running);
+  }
+  return balances;
 }
 
 /** Net capital the owner actually put in. Dividends deliberately excluded. */

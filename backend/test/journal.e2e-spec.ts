@@ -416,6 +416,115 @@ describe('Journal (e2e)', () => {
     expect(res.body.trade.riskAmount).toBeNull();
   });
 
+  describe('trade reconciliation against the platform', () => {
+    it('reports no reconciliation when the platform numbers were not given', async () => {
+      const res = await trade(10, 200, '2026-08-29T14:30:00.000Z').expect(201);
+      expect(res.body.trade.reportedNetCash).toBeNull();
+      expect(res.body.trade.reportedBalance).toBeNull();
+      expect(res.body.trade.reconciliation).toBeNull();
+    });
+
+    it('flags no mismatch when the platform numbers match what we derive', async () => {
+      // 600 sold @ 36.92, fee 6: net cash = 600*36.92 - 6 = 22146.
+      // Starting from a 0 balance, that is also the balance after.
+      const res = await trade(-600, 36.92, '2026-08-30T19:44:50.000Z', {
+        fee: 6,
+        reportedNetCash: 22146,
+        reportedBalance: 22146,
+      }).expect(201);
+
+      expect(res.body.trade.reportedNetCash).toBe(22146);
+      expect(res.body.trade.reconciliation).toMatchObject({
+        expectedNetCash: 22146,
+        expectedBalance: 22146,
+        netCashMismatch: false,
+        balanceMismatch: false,
+      });
+    });
+
+    it('backs out a precise price from the reported net cash, rather than trusting a rounded typed price', async () => {
+      // Typed as the round order price (36.92), but the platform's real
+      // average fill was 36.925 (net cash 22149 on 600 shares, fee 6) — a
+      // half-cent higher, from partial fills at slightly different prices.
+      // The stored price becomes the exact one implied by that net cash,
+      // not the guess that was typed.
+      const res = await trade(-600, 36.92, '2026-08-30T19:44:50.000Z', {
+        fee: 6,
+        reportedNetCash: 22149,
+        reportedBalance: 22149,
+      }).expect(201);
+
+      expect(res.body.trade.price).toBe(36.925);
+      expect(res.body.trade.reconciliation).toMatchObject({
+        expectedNetCash: 22149,
+        netCashMismatch: false,
+      });
+    });
+
+    it('leaves the typed price untouched when no reported net cash is given', async () => {
+      const res = await trade(-600, 36.92, '2026-08-30T19:44:50.000Z', {
+        fee: 6,
+      }).expect(201);
+      expect(res.body.trade.price).toBe(36.92);
+    });
+
+    it('rejects a reported net cash the fee alone exceeds', async () => {
+      await trade(10, 200, '2026-08-29T14:30:00.000Z', {
+        fee: 2000,
+        reportedNetCash: -1004,
+        reportedBalance: 5000,
+      }).expect(400);
+    });
+
+    it('flags a balance mismatch even when this fill\'s own net cash matches', async () => {
+      const res = await trade(-600, 36.92, '2026-08-30T19:44:50.000Z', {
+        fee: 6,
+        reportedNetCash: 22146,
+        reportedBalance: 30000,
+      }).expect(201);
+
+      expect(res.body.trade.reconciliation).toMatchObject({
+        expectedNetCash: 22146,
+        netCashMismatch: false,
+        expectedBalance: 22146,
+        balanceMismatch: true,
+      });
+    });
+
+    it('derives the expected balance from every prior cash-affecting entry, not just this fill', async () => {
+      await post({
+        kind: 'CASH',
+        body: 'deposit',
+        occurredAt: '2026-08-27T00:00:00.000Z',
+        cash: { direction: 'DEPOSIT', amount: 10000 },
+      }).expect(201);
+
+      // 10 bought @ 100, fee 4: net cash = -1004. Balance after = 10000 - 1004 = 8996.
+      const res = await trade(10, 100, '2026-08-28T12:00:00.000Z', {
+        fee: 4,
+        reportedNetCash: -1004,
+        reportedBalance: 8996,
+      }).expect(201);
+
+      expect(res.body.trade.reconciliation).toMatchObject({
+        expectedBalance: 8996,
+        balanceMismatch: false,
+      });
+    });
+
+    it('rejects a reported net cash without a reported balance', async () => {
+      await trade(10, 200, '2026-08-29T14:30:00.000Z', {
+        reportedNetCash: -2000,
+      }).expect(400);
+    });
+
+    it('rejects a reported balance without a reported net cash', async () => {
+      await trade(10, 200, '2026-08-29T14:30:00.000Z', {
+        reportedBalance: -2000,
+      }).expect(400);
+    });
+  });
+
   it('edits a trade and recomputes the position', async () => {
     const created = await trade(100, 200, '2026-08-29T14:30:00.000Z', {
       fee: 4,

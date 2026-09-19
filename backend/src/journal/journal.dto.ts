@@ -110,6 +110,25 @@ export class TradeDto {
   @ValidateNested({ each: true })
   @Type(() => StopExecutionDto)
   stopExecutions?: StopExecutionDto[];
+
+  /**
+   * The platform's actual net cash impact of this fill, for reconciliation
+   * against what we derive. Optional — the UI form asks for it on every new
+   * trade, but the API itself does not require it (seeding and older
+   * entries have none). Signed like a real cash delta: negative on a buy.
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(-MAX_NUMERIC)
+  @Max(MAX_NUMERIC)
+  reportedNetCash?: number | null;
+
+  /** The platform's cash balance immediately after this fill. See `reportedNetCash`. */
+  @IsOptional()
+  @IsNumber()
+  @Min(-MAX_NUMERIC)
+  @Max(MAX_NUMERIC)
+  reportedBalance?: number | null;
 }
 
 export class CashDto {

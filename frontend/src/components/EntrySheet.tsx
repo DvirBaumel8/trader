@@ -11,6 +11,9 @@ import {
   emptyDraft,
   localDate,
   signedQuantity,
+  signedReportedNetCash,
+  parsedReportedBalance,
+  computedPriceFromReportedCash,
   type EntryDraft,
   type EntryKind,
 } from '../lib/entryDraft';
@@ -65,6 +68,14 @@ function draftFromEntry(entry: Entry, defaultFee: number): EntryDraft {
     setups: entry.tags.filter((t) => t.type === 'SETUP').map((t) => t.label),
     mistakes: entry.tags.filter((t) => t.type === 'MISTAKE').map((t) => t.label),
     reasons: entry.reasons ?? [],
+    reportedNetCash:
+      entry.trade?.reportedNetCash != null
+        ? String(Math.abs(entry.trade.reportedNetCash))
+        : '',
+    reportedBalance:
+      entry.trade?.reportedBalance != null
+        ? String(entry.trade.reportedBalance)
+        : '',
   };
 }
 
@@ -116,6 +127,14 @@ export function EntrySheet({
   const [quantityTouched, setQuantityTouched] = useState(false);
 
   /**
+   * Same rule as `quantityTouched`, for the price: once platform net cash is
+   * given, its exact implied price previews here instead of a typed
+   * 2-decimal guess — but a price the owner typed himself always wins and is
+   * never silently overwritten by a later edit to net cash.
+   */
+  const [priceTouched, setPriceTouched] = useState(false);
+
+  /**
    * Same rule as `quantityTouched`, for the exit reason chips: a closing
    * fill with no reason picked yet defaults to "Stop executed" — most sells
    * are — but a deliberate tap to change or clear it must stick, not keep
@@ -161,6 +180,14 @@ export function EntrySheet({
   const quantityValue = draft.quantity !== '' ? draft.quantity : (suggested ?? '');
 
   /**
+   * Same rule as the quantity suggestion, for price: derived rather than
+   * written into the draft, so a value the owner typed is never silently
+   * replaced, and updates live as net cash, fee, or quantity change.
+   */
+  const computedPrice = editing || priceTouched ? undefined : computedPriceFromReportedCash(draft);
+  const priceValue = draft.price !== '' ? draft.price : (computedPrice !== undefined ? String(computedPrice) : '');
+
+  /**
    * Which chips to show follows the same rule as the suggestion. Codes from
    * the other list are kept in the draft but neither shown nor saved, so
    * flipping Buy/Sell by mistake loses nothing when it is flipped back.
@@ -197,6 +224,7 @@ export function EntrySheet({
     if (editing) {
       setDraft(draftFromEntry(editing, defaultFee));
       setQuantityTouched(false);
+      setPriceTouched(false);
       setReasonsTouched(false);
       return;
     }
@@ -212,6 +240,7 @@ export function EntrySheet({
     // with it, so nothing can resurface later.
     setDraft(emptyDraft(defaultFee));
     setQuantityTouched(false);
+    setPriceTouched(false);
     setReasonsTouched(false);
     clearDraft(DRAFT_KEY);
   }, [open, editing, defaultFee, resuming]);
@@ -233,6 +262,24 @@ export function EntrySheet({
       ),
     );
 
+  /**
+   * A brand-new trade always asks for the platform's own numbers, to catch
+   * drift between what we derive and what really happened. Editing a trade
+   * that was never reconciled does not retroactively force it — but editing
+   * one that WAS already reconciled must keep it, so an edit can never
+   * silently drop a confirmed reconciliation.
+   */
+  const reportedCashRequired =
+    draft.kind === 'TRADE' &&
+    (!editing || editing.trade?.reportedNetCash != null);
+  const hasReportedNetCash = draft.reportedNetCash.trim() !== '';
+  const hasReportedBalance = draft.reportedBalance.trim() !== '';
+  const reportedCashIncomplete =
+    draft.kind === 'TRADE' &&
+    (reportedCashRequired
+      ? !hasReportedNetCash || !hasReportedBalance
+      : hasReportedNetCash !== hasReportedBalance);
+
   const mutation = useMutation({
     mutationFn: () =>
       api(editing ? `/journal/${editing.id}` : '/journal', {
@@ -249,7 +296,7 @@ export function EntrySheet({
                     ...draft,
                     quantity: quantityValue,
                   }),
-                  price: Math.abs(parseFloat(draft.price || '0')),
+                  price: Math.abs(parseFloat(priceValue || '0')),
                   fee: Math.abs(parseFloat(draft.fee || '0')),
                   plannedTarget: draft.target
                     ? Math.abs(parseFloat(draft.target))
@@ -272,6 +319,8 @@ export function EntrySheet({
                           : undefined,
                       quantity: Math.abs(parseFloat(r.quantity)),
                     })),
+                  reportedNetCash: signedReportedNetCash(draft),
+                  reportedBalance: parsedReportedBalance(draft),
                 }
               : undefined,
           cash:
@@ -302,6 +351,7 @@ export function EntrySheet({
         // the friction chaining the composer exists to remove.
         setDraft((prev) => ({ ...emptyDraft(defaultFee), occurredAt: prev.occurredAt }));
         setQuantityTouched(false);
+        setPriceTouched(false);
         setReasonsTouched(false);
       }
       await invalidate();
@@ -415,8 +465,11 @@ export function EntrySheet({
                 type="number"
                 inputMode="decimal"
                 placeholder="price"
-                value={draft.price}
-                onChange={(e) => set({ price: e.target.value })}
+                value={priceValue}
+                onChange={(e) => {
+                  setPriceTouched(true);
+                  set({ price: e.target.value });
+                }}
                 className={inputClass}
               />
               <input
@@ -428,6 +481,32 @@ export function EntrySheet({
                 className={inputClass}
               />
             </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                inputMode="decimal"
+                placeholder="net cash"
+                aria-label="Platform net cash"
+                value={draft.reportedNetCash}
+                onChange={(e) => set({ reportedNetCash: e.target.value })}
+                className={inputClass}
+              />
+              <input
+                type="number"
+                inputMode="decimal"
+                placeholder="balance after"
+                aria-label="Platform balance after"
+                value={draft.reportedBalance}
+                onChange={(e) => set({ reportedBalance: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+            <p className="text-xs text-muted">
+              From your broker's confirmation: this fill's net cash impact
+              (positive amounts — Buy/Sell sets the sign) and your resulting
+              cash balance. Used only to flag drift from what we derive.
+            </p>
 
             {context.closing && (
               <button
@@ -446,7 +525,7 @@ export function EntrySheet({
             <StopLevelEditor
               rows={draft.stops}
               onChange={(stops) => set({ stops })}
-              entryPrice={draft.price}
+              entryPrice={priceValue}
               quantity={quantityValue}
               side={draft.side}
             />
@@ -572,7 +651,7 @@ export function EntrySheet({
             variant="primary"
             size="lg"
             className="flex-1"
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || reportedCashIncomplete}
             onClick={() => mutation.mutate()}
           >
             {mutation.isPending
@@ -582,6 +661,14 @@ export function EntrySheet({
                 : 'Save entry'}
           </Button>
         </div>
+
+        {reportedCashIncomplete && (
+          <p className="text-xs text-down">
+            {reportedCashRequired
+              ? 'Enter both the net cash and the resulting balance from your platform.'
+              : 'Enter both the net cash and the resulting balance, or leave both blank.'}
+          </p>
+        )}
 
         {editing && (
           <DeleteEntry

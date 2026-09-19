@@ -44,6 +44,12 @@ function Harness() {
   );
 }
 
+/** Fills the two platform-reconciliation fields a new trade now requires before Save enables. */
+async function fillReportedCash(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText('Platform net cash'), '1000');
+  await user.type(screen.getByLabelText('Platform balance after'), '5000');
+}
+
 function renderHarness() {
   const client = new QueryClient();
   return render(
@@ -65,6 +71,7 @@ describe('EntrySheet, composing two new entries in a row', () => {
     await user.type(symbol, 'NVDA');
     const qty = screen.getByPlaceholderText('qty');
     await user.type(qty, '10');
+    await fillReportedCash(user);
 
     // Save entry 1.
     await user.click(screen.getByText('Save entry'));
@@ -91,6 +98,7 @@ describe('EntrySheet, composing two new entries in a row', () => {
     await user.type(dateInput, '2026-08-01');
     await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
     await user.type(screen.getByPlaceholderText('qty'), '10');
+    await fillReportedCash(user);
 
     await user.click(screen.getByText('Save entry'));
 
@@ -142,6 +150,188 @@ describe('EntrySheet, composing two new entries in a row', () => {
 
     expect(await screen.findByPlaceholderText('NVDA')).toHaveValue('MSTR');
     expect(screen.getByPlaceholderText('qty')).toHaveValue(25);
+  });
+});
+
+describe('EntrySheet, platform reconciliation fields', () => {
+  it('disables Save on a new trade until both platform fields are filled', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+    expect(screen.getByText('Save entry')).toBeDisabled();
+
+    await user.type(screen.getByLabelText('Platform net cash'), '1000');
+    expect(screen.getByText('Save entry')).toBeDisabled();
+
+    await user.type(screen.getByLabelText('Platform balance after'), '5000');
+    expect(screen.getByText('Save entry')).not.toBeDisabled();
+  });
+
+  it('sends the net cash negated for a buy and as-is for a sell, from a plain positive amount', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+    await user.type(screen.getByLabelText('Platform net cash'), '1004');
+    await user.type(screen.getByLabelText('Platform balance after'), '-165188');
+    await user.click(screen.getByText('Save entry'));
+
+    await waitFor(() => {
+      const save = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/journal',
+      );
+      expect(save).toBeDefined();
+      expect(bodyOf(save as unknown[]).trade).toMatchObject({
+        reportedNetCash: -1004,
+        reportedBalance: -165188,
+      });
+    });
+  });
+
+  it('fills the price from quantity, fee, and platform net cash — recovering precision a typed 2-decimal price would lose', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+    await user.type(screen.getByPlaceholderText('qty'), '600');
+    await user.clear(screen.getByPlaceholderText('fee'));
+    await user.type(screen.getByPlaceholderText('fee'), '6');
+    await user.type(screen.getByLabelText('Platform net cash'), '22149');
+
+    // 600 sold, fee 6, net cash 22149 → price = (22149 + 6) / 600 = 36.925.
+    expect(screen.getByPlaceholderText('price')).toHaveValue(36.925);
+
+    await user.type(screen.getByLabelText('Platform balance after'), '22149');
+    await user.click(screen.getByText('Save entry'));
+
+    await waitFor(() => {
+      const save = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/journal',
+      );
+      expect(bodyOf(save as unknown[]).trade.price).toBe(36.925);
+    });
+  });
+
+  it('stops re-suggesting a price once cleared, rather than fighting an owner trying to type their own', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+    await user.type(screen.getByPlaceholderText('qty'), '600');
+    await user.clear(screen.getByPlaceholderText('fee'));
+    await user.type(screen.getByPlaceholderText('fee'), '6');
+    await user.type(screen.getByLabelText('Platform net cash'), '22149');
+
+    // Computed and shown automatically — nothing typed into price yet.
+    expect(screen.getByPlaceholderText('price')).toHaveValue(36.925);
+
+    // Clearing it to type a different value must not bring the suggestion
+    // straight back, exactly like the quantity suggestion never does.
+    await user.clear(screen.getByPlaceholderText('price'));
+    expect(screen.getByPlaceholderText('price')).toHaveValue(null);
+
+    await user.type(screen.getByPlaceholderText('price'), '37');
+    expect(screen.getByPlaceholderText('price')).toHaveValue(37);
+  });
+
+  it('does not force platform fields on an old trade that was never reconciled', async () => {
+    const savedEntry: Entry = {
+      id: 'entry-1',
+      kind: 'TRADE',
+      body: '',
+      occurredAt: '2026-09-01T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA',
+        side: 'BUY',
+        quantity: 10,
+        price: 200,
+        fee: 4,
+        plannedTarget: null,
+        stopLevels: [],
+        riskAmount: null,
+        exitKind: null,
+        stopExecutions: [],
+        reportedNetCash: null,
+        reportedBalance: null,
+        reconciliation: null,
+      },
+      cash: null,
+      dividend: null,
+      tags: [],
+      reasons: [],
+    };
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'entry-1' });
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <EntrySheet open onClose={() => {}} defaultFee={4} editing={savedEntry} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByDisplayValue('NVDA');
+    expect(screen.getByLabelText('Platform net cash')).toHaveValue(null);
+    expect(screen.getByText('Save changes')).not.toBeDisabled();
+  });
+
+  it('keeps requiring the platform fields when editing a trade that was already reconciled', async () => {
+    const savedEntry: Entry = {
+      id: 'entry-1',
+      kind: 'TRADE',
+      body: '',
+      occurredAt: '2026-09-01T14:30:00.000Z',
+      trade: {
+        symbol: 'NVDA',
+        side: 'BUY',
+        quantity: 10,
+        price: 200,
+        fee: 4,
+        plannedTarget: null,
+        stopLevels: [],
+        riskAmount: null,
+        exitKind: null,
+        stopExecutions: [],
+        reportedNetCash: -2004,
+        reportedBalance: 5000,
+        reconciliation: {
+          expectedNetCash: -2004,
+          expectedBalance: 5000,
+          netCashMismatch: false,
+          balanceMismatch: false,
+        },
+      },
+      cash: null,
+      dividend: null,
+      tags: [],
+      reasons: [],
+    };
+    const user = userEvent.setup();
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'entry-1' });
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <EntrySheet open onClose={() => {}} defaultFee={4} editing={savedEntry} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByDisplayValue('NVDA');
+    expect(screen.getByLabelText('Platform net cash')).toHaveValue(2004);
+    expect(screen.getByText('Save changes')).not.toBeDisabled();
+
+    await user.clear(screen.getByLabelText('Platform net cash'));
+    expect(screen.getByText('Save changes')).toBeDisabled();
   });
 });
 
@@ -267,6 +457,7 @@ describe('EntrySheet reason chips', () => {
     // "Risk off" adds to it rather than replacing it.
     await user.click(await screen.findByRole('button', { name: 'Risk off' }));
     await user.type(screen.getByPlaceholderText('price'), '100');
+    await fillReportedCash(user);
     await user.click(screen.getByText('Save entry'));
 
     await waitFor(() => {
@@ -422,6 +613,7 @@ describe('EntrySheet, auto-watching a name once fully sold', () => {
       expect(screen.getByPlaceholderText('qty')).toHaveValue(500),
     );
     await user.type(screen.getByPlaceholderText('price'), '220');
+    await fillReportedCash(user);
     await user.click(screen.getByText('Save entry'));
 
     await waitFor(() => {
@@ -448,6 +640,7 @@ describe('EntrySheet, auto-watching a name once fully sold', () => {
     await user.clear(screen.getByPlaceholderText('qty'));
     await user.type(screen.getByPlaceholderText('qty'), '300');
     await user.type(screen.getByPlaceholderText('price'), '220');
+    await fillReportedCash(user);
     await user.click(screen.getByText('Save entry'));
 
     await waitFor(() => {
@@ -469,6 +662,7 @@ describe('EntrySheet, auto-watching a name once fully sold', () => {
     await user.type(screen.getByPlaceholderText('NVDA'), 'TSLA');
     await user.type(screen.getByPlaceholderText('qty'), '10');
     await user.type(screen.getByPlaceholderText('price'), '220');
+    await fillReportedCash(user);
     await user.click(screen.getByText('Save entry'));
 
     await waitFor(() => {
@@ -513,6 +707,7 @@ describe('EntrySheet, auto-watching a name once fully sold', () => {
       expect(screen.getByPlaceholderText('qty')).toHaveValue(500),
     );
     await user.type(screen.getByPlaceholderText('price'), '220');
+    await fillReportedCash(user);
     await user.click(screen.getByText('Save entry'));
 
     // A failed best-effort watchlist add must never read as the trade itself

@@ -2,9 +2,13 @@ import {
   derivePositions,
   deriveCash,
   deriveContributedCapital,
+  tradeNetCash,
+  cashBalancesAfter,
+  priceFromNetCash,
   type DerivedTxn,
   type DerivedFlow,
   type DerivedDividend,
+  type CashEvent,
 } from './derive.js';
 
 function buy(
@@ -233,5 +237,71 @@ describe('deriveContributedCapital', () => {
     expect(deriveCash([], flows, [
       { symbol: 'NVDA', amount: 500, occurredAt: new Date(2026, 0, 2) },
     ])).toBe(10500);
+  });
+});
+
+describe('tradeNetCash', () => {
+  it('is negative notional plus fee for a buy', () => {
+    expect(tradeNetCash(buy('NVDA', 10, 100, 4))).toBe(-1004);
+  });
+
+  it('is positive notional minus fee for a sell', () => {
+    expect(tradeNetCash(sell('NVDA', 600, 36.92, 6))).toBe(22152 - 6);
+  });
+});
+
+describe('priceFromNetCash', () => {
+  it('backs out the price on a buy: notional is the magnitude minus the fee', () => {
+    // 10 shares, platform reported net cash of -1004 (magnitude 1004), fee 4.
+    expect(priceFromNetCash('BUY', 10, 4, 1004)).toBe(100);
+  });
+
+  it('backs out the price on a sell: notional is the magnitude plus the fee', () => {
+    // 600 shares, platform reported net cash of 22146, fee 6.
+    expect(priceFromNetCash('SELL', 600, 6, 22146)).toBe(36.92);
+  });
+
+  it('recovers sub-cent precision a manually typed price would round away', () => {
+    // The real-world case: recorded at 36.92, but the platform's actual
+    // average fill was 36.925 — a half-cent higher, from partial fills at
+    // slightly different prices.
+    expect(priceFromNetCash('SELL', 600, 6, 22149)).toBe(36.925);
+  });
+
+  it('can produce a non-positive price when the fee exceeds the reported amount — the caller decides whether that is an error', () => {
+    expect(priceFromNetCash('BUY', 10, 2000, 1004)).toBeLessThanOrEqual(0);
+  });
+});
+
+describe('cashBalancesAfter', () => {
+  function event(
+    id: string,
+    delta: number,
+    day: number,
+    recordedAt?: Date | null,
+  ): CashEvent {
+    return { id, delta, occurredAt: new Date(2026, 0, day), recordedAt };
+  }
+
+  it('is empty for no events', () => {
+    expect(cashBalancesAfter([])).toEqual(new Map());
+  });
+
+  it('accumulates in chronological order regardless of input order', () => {
+    const balances = cashBalancesAfter([
+      event('b', -200, 2),
+      event('a', 1000, 1),
+    ]);
+    expect(balances.get('a')).toBe(1000);
+    expect(balances.get('b')).toBe(800);
+  });
+
+  it('breaks a same-day tie with recordedAt, like compareFills', () => {
+    const balances = cashBalancesAfter([
+      event('later-logged', -50, 1, new Date(2026, 0, 1, 12, 0, 5)),
+      event('earlier-logged', 1000, 1, new Date(2026, 0, 1, 12, 0, 0)),
+    ]);
+    expect(balances.get('earlier-logged')).toBe(1000);
+    expect(balances.get('later-logged')).toBe(950);
   });
 });

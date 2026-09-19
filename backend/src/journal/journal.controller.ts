@@ -28,6 +28,8 @@ function toInput(body: CreateEntryDto): CreateEntryInput {
           stopLevels: body.trade.stopLevels,
           exitKind: body.trade.exitKind ?? null,
           stopExecutions: body.trade.stopExecutions,
+          reportedNetCash: body.trade.reportedNetCash ?? null,
+          reportedBalance: body.trade.reportedBalance ?? null,
         }
       : undefined,
     cash: body.cash,
