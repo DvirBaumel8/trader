@@ -204,4 +204,97 @@ describe('MarketDataService', () => {
     expect(map.has('NVDA')).toBe(true);
     expect(map.has('ZZZZNOTREAL')).toBe(false);
   });
+
+  describe('a second opinion from Twelve Data', () => {
+    const noExtendedPrint: RawQuote = {
+      symbol: 'NVDA',
+      name: 'NVIDIA',
+      price: 217.55,
+      currency: 'USD',
+      session: 'POST',
+      extended: false,
+      regularPrice: 217.55,
+      previousClose: 212.1,
+      peRatio: null,
+    };
+
+    function fakeTwelveData(price: number | null) {
+      const calls: string[] = [];
+      return {
+        client: {
+          isConfigured: () => true,
+          extendedPrice: async (symbol: string) => {
+            calls.push(symbol);
+            return price;
+          },
+        } as unknown as import('./twelvedata.client.js').TwelveDataClient,
+        calls,
+      };
+    }
+
+    it('asks Twelve Data when Yahoo had no extended print for a PRE/POST/OVERNIGHT session', async () => {
+      const { client, calls } = fakeTwelveData(218.4);
+      const svc = new MarketDataService(
+        fakeClient([noExtendedPrint]),
+        undefined,
+        client,
+      );
+
+      const q = await svc.getQuote('NVDA');
+
+      expect(calls).toEqual(['NVDA']);
+      expect(q).toMatchObject({ price: 218.4, extended: true, session: 'POST' });
+    });
+
+    it('keeps Yahoo\'s own price when Twelve Data has nothing either', async () => {
+      const { client } = fakeTwelveData(null);
+      const svc = new MarketDataService(
+        fakeClient([noExtendedPrint]),
+        undefined,
+        client,
+      );
+
+      const q = await svc.getQuote('NVDA');
+
+      expect(q).toMatchObject({ price: 217.55, extended: false });
+    });
+
+    it('never asks Twelve Data when Yahoo already gave a real extended print', async () => {
+      const withExtended: RawQuote = { ...noExtendedPrint, extended: true, price: 219.0 };
+      const { client, calls } = fakeTwelveData(999);
+      const svc = new MarketDataService(
+        fakeClient([withExtended]),
+        undefined,
+        client,
+      );
+
+      const q = await svc.getQuote('NVDA');
+
+      expect(calls).toEqual([]);
+      expect(q?.price).toBe(219.0);
+    });
+
+    it('never asks Twelve Data during a regular session', async () => {
+      const { client, calls } = fakeTwelveData(999);
+      const svc = new MarketDataService(fakeClient([NVDA]), undefined, client);
+
+      await svc.getQuote('NVDA');
+
+      expect(calls).toEqual([]);
+    });
+
+    it('applies the same second opinion in a batch call', async () => {
+      const { client, calls } = fakeTwelveData(218.4);
+      const svc = new MarketDataService(
+        fakeClient([noExtendedPrint]),
+        undefined,
+        client,
+      );
+
+      const map = await svc.getQuotes(['NVDA']);
+
+      expect(calls).toEqual(['NVDA']);
+      expect(map.get('NVDA')).toMatchObject({ price: 218.4, extended: true });
+    });
+  });
 });

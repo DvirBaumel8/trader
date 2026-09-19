@@ -147,6 +147,27 @@ Both stay comfortably inside Finnhub's free 60-calls-a-minute limit. No key
 means `peRatio: null` and an empty news section, which every screen and both
 AI prompts already render honestly.
 
+## 4c. Twelve Data, for pre/post-market prices (optional)
+
+Same root cause as 4b: Yahoo's crumb-gated quote endpoint carries the real
+pre/post-market print, and it's the one blocked from Render's IP. The
+fallback chart endpoint has no extended print at all, so without this key
+production silently shows the regular-session close during pre-market and
+after-hours — quietly disagreeing with a broker showing the live extended
+price. Confirmed against a live account with `prepost=true` on `/quote`,
+not assumed from docs: the same-shaped promise from Finnhub's free tier
+turned out not to hold.
+
+1. Create a free account at twelvedata.com and copy the API key.
+2. Render dashboard → the `trader-backend` service → **Environment** → add
+   `TWELVEDATA_API_KEY`. Set by hand rather than in `render.yaml`, for the
+   same reason as `FINNHUB_API_KEY`.
+
+Only ever asked as a second opinion — once per quote where Yahoo's own
+answer had no genuine extended print, never on a regular-session quote and
+never overriding a real Yahoo print. No key means production keeps its
+prior behavior: an honest regular-session price, just not an extended one.
+
 ## 5. Keep the API warm
 
 A free Render web service sleeps after ~15 minutes idle and takes roughly 50

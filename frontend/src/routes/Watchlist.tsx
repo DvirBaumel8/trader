@@ -24,7 +24,7 @@ interface WatchRow {
   /** Today's move from the previous close, as a fraction. Null without both prices. */
   todayChangePercent: number | null;
   stale: boolean;
-  session: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
+  session: 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
   extended: boolean;
   targetPrice: number | null;
   targetDirection: 'ABOVE' | 'BELOW' | null;

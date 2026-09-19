@@ -86,12 +86,31 @@ describe('selectPrice', () => {
     ).toEqual({ price: 217.55, session: 'CLOSED', extended: false });
   });
 
-  it('treats an unknown or missing market state as CLOSED', () => {
-    expect(selectPrice({ regularMarketPrice: 10 })?.session).toBe('CLOSED');
+  it('still treats an unrecognized market state string as CLOSED', () => {
     expect(
       selectPrice({ marketState: 'SOMETHING_NEW', regularMarketPrice: 10 })
         ?.session,
     ).toBe('CLOSED');
+  });
+
+  it('computes the session from wall-clock time when the market state is missing entirely', () => {
+    // The production case: Yahoo's crumb-requiring quote endpoint is
+    // blocked from Render's IP, so the fallback carries no marketState at
+    // all. 2026-09-04T13:30:00Z is 9:30am ET (EDT) on a Friday.
+    expect(
+      selectPrice({ regularMarketPrice: 10 }, new Date('2026-09-04T13:30:00Z'))
+        ?.session,
+    ).toBe('REGULAR');
+  });
+
+  it('uses the after-hours print in the computed OVERNIGHT session, same as CLOSED', () => {
+    // 2026-09-05T02:00:00Z is 10pm ET Friday — after the post window closes.
+    expect(
+      selectPrice(
+        { regularMarketPrice: 100, postMarketPrice: 101 },
+        new Date('2026-09-05T02:00:00Z'),
+      ),
+    ).toEqual({ price: 101, session: 'OVERNIGHT', extended: true });
   });
 
   it('accepts a lowercase market state', () => {
@@ -129,6 +148,7 @@ describe('sessionLabel', () => {
   it('labels the extended and closed sessions', () => {
     expect(sessionLabel('PRE')).toBe('PRE-MARKET');
     expect(sessionLabel('POST')).toBe('AFTER HOURS');
+    expect(sessionLabel('OVERNIGHT')).toBe('OVERNIGHT');
     expect(sessionLabel('CLOSED')).toBe('MARKET CLOSED');
   });
 });

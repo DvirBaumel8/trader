@@ -14,7 +14,7 @@ type Coverage = {
   price: number | null;
   regularPrice: number | null;
   stale: boolean;
-  session: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
+  session: 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
   extended: boolean;
 };
 type BriefNote = {

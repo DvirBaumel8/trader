@@ -43,7 +43,9 @@ diary maintains it. There is no separate transaction-entry workflow.
   revision tombstone through `transactions/stop-revisions.ts`; never represent
   a cleared revision as zero rows.
 - `backend/src/market-data/yahoo.client.ts` is the only Yahoo Finance import
-  boundary. `backend/src/llm/llm.client.ts` is the only in-product AI provider
+  boundary, `backend/src/market-data/finnhub.client.ts` the only Finnhub one,
+  and `backend/src/market-data/twelvedata.client.ts` the only Twelve Data
+  one. `backend/src/llm/llm.client.ts` is the only in-product AI provider
   SDK import boundary.
 - Schema changes require a TypeORM migration registered in
   `backend/src/database/data-source.ts`. Do not rely on synchronizing a real

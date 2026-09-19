@@ -4,6 +4,7 @@ import {
   type ConsensusResult,
   type RawQuote,
 } from './yahoo.client.js';
+import { TwelveDataClient } from './twelvedata.client.js';
 import type { MarketSession } from './select-price.js';
 
 export interface Quote {
@@ -66,10 +67,35 @@ export class MarketDataService {
   >();
   private readonly yahoo: YahooClient;
   private readonly ttlMs: number;
+  private readonly twelveData: TwelveDataClient;
 
-  constructor(yahoo: YahooClient, ttlMs: number = DEFAULT_TTL_MS) {
+  constructor(
+    yahoo: YahooClient,
+    ttlMs: number = DEFAULT_TTL_MS,
+    twelveData: TwelveDataClient = new TwelveDataClient(),
+  ) {
     this.yahoo = yahoo;
     this.ttlMs = ttlMs;
+    this.twelveData = twelveData;
+  }
+
+  /**
+   * A second opinion, only when Yahoo genuinely had nothing extended to
+   * offer — never on a regular-session quote, and never overriding a real
+   * pre/post print Yahoo already gave us. This is what actually reaches for
+   * Twelve Data in production, where Yahoo's crumb-gated quote endpoint is
+   * blocked and its fallback carries no extended print at all.
+   */
+  private async augmentWithExtended(raw: RawQuote): Promise<RawQuote> {
+    const missingExtended =
+      !raw.extended &&
+      (raw.session === 'PRE' ||
+        raw.session === 'POST' ||
+        raw.session === 'OVERNIGHT');
+    if (!missingExtended) return raw;
+    const price = await this.twelveData.extendedPrice(raw.symbol);
+    if (price === null) return raw;
+    return { ...raw, price, extended: true };
   }
 
   /**
@@ -141,7 +167,7 @@ export class MarketDataService {
     try {
       const raw = await this.yahoo.quote(key);
       if (!raw) return null;
-      return this.store(key, raw);
+      return this.store(key, await this.augmentWithExtended(raw));
     } catch (err) {
       this.logger.warn(`quote(${key}) failed: ${describe(err)}`);
       // Never show a wrong number as if it were fresh.
@@ -183,7 +209,11 @@ export class MarketDataService {
     if (missing.length === 0) return out;
 
     try {
-      for (const raw of await this.yahoo.quoteMany(missing)) {
+      const rawQuotes = await this.yahoo.quoteMany(missing);
+      const enriched = await Promise.all(
+        rawQuotes.map((raw) => this.augmentWithExtended(raw)),
+      );
+      for (const raw of enriched) {
         const key = raw.symbol.toUpperCase();
         out.set(key, this.store(key, raw));
       }

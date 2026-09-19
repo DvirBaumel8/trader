@@ -1,6 +1,6 @@
 import { resolveStopPrice, type StopLevelInput } from './risk.js';
 
-export type MarketSession = 'PRE' | 'REGULAR' | 'POST' | 'CLOSED';
+export type MarketSession = 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED';
 
 /** One open position's live stop plan, priced against its current quote. */
 export interface StopDistanceInput {

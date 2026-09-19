@@ -29,7 +29,7 @@ interface Position {
   realizedPnl: number;
   price: number | null;
   stale: boolean;
-  session: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
+  session: 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
   extended: boolean;
   regularPrice: number | null;
   marketValue: number | null;
@@ -50,7 +50,7 @@ interface Portfolio {
   accountValue: number;
   hasStalePrices: boolean;
   pricedAt: string;
-  marketSession: 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
+  marketSession: 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
   pricesAreExtended: boolean;
   atRisk: AtRisk;
 }

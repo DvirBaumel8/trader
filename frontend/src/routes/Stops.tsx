@@ -10,7 +10,7 @@ import { Select } from '../components/ui/Select';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { sortStopTiers, type StopSortDir } from '../lib/sortStopTiers';
 
-type Session = 'PRE' | 'REGULAR' | 'POST' | 'CLOSED' | null;
+type Session = 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
 
 interface StopTierRow {
   symbol: string;

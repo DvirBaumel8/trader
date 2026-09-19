@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MarketDataService } from './market-data.service.js';
 import { YahooClient } from './yahoo.client.js';
 import { FinnhubClient } from './finnhub.client.js';
+import { TwelveDataClient } from './twelvedata.client.js';
 import { FundamentalsService } from './fundamentals.service.js';
 import { NewsService } from './news.service.js';
 import { HistoryService } from './history.service.js';
@@ -27,6 +28,9 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
     // Fundamentals only, and only because Yahoo's crumb-gated quote endpoint
     // is blocked from Render — see finnhub.client.ts. Inert without a key.
     FinnhubClient,
+    // A second opinion for pre/post-market prices when Yahoo's own quote had
+    // none to offer — see twelvedata.client.ts. Inert without a key.
+    TwelveDataClient,
     FundamentalsService,
     NewsService,
     EarningsService,
@@ -36,8 +40,9 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
       // Built by factory so the cache TTL stays an explicit constructor
       // argument, which is what makes the service testable without Nest.
       provide: MarketDataService,
-      useFactory: (yahoo: YahooClient) => new MarketDataService(yahoo),
-      inject: [YahooClient],
+      useFactory: (yahoo: YahooClient, twelveData: TwelveDataClient) =>
+        new MarketDataService(yahoo, undefined, twelveData),
+      inject: [YahooClient, TwelveDataClient],
     },
   ],
   controllers: [HistoryController, MarketDataController],
