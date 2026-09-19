@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RawBar } from './yahoo.client.js';
 import {
   buildDailyBriefNotes,
+  momentumStreakDays,
   type BriefSymbolInput,
 } from './daily-brief.js';
 
@@ -57,5 +58,47 @@ describe('daily brief signal rules', () => {
     };
     const notes = buildDailyBriefNotes(input({ price: 105, bars: source }));
     expect(notes.some((note) => note.kind === 'BREAKOUT')).toBe(true);
+  });
+
+  it('phrases a fresh momentum note the same way it always has', () => {
+    // Flat for months, then a single sharp jump today — momentum is real as
+    // of today, but was not true yesterday, so the streak is exactly 1.
+    const source = bars([...Array.from({ length: 89 }, () => 100), 130]);
+    const notes = buildDailyBriefNotes(
+      input({
+        price: source.at(-1)!.close,
+        bars: source,
+        spyBars: bars(Array.from({ length: 90 }, () => 100)),
+      }),
+    );
+    const momentum = notes.find((note) => note.kind === 'MOMENTUM');
+    expect(momentum?.title).toBe('NVDA has good momentum');
+  });
+
+  it('names the streak length once momentum has held for more than a day, instead of repeating the same sentence', () => {
+    const notes = buildDailyBriefNotes(input());
+    const momentum = notes.find((note) => note.kind === 'MOMENTUM');
+    expect(momentum?.title).toMatch(/NVDA has been in a momentum trend for \d+ days/);
+  });
+});
+
+describe('momentumStreakDays', () => {
+  it('is exactly 1 the day a momentum trend first appears', () => {
+    // Flat for months, then a single sharp jump today.
+    const source = bars([...Array.from({ length: 89 }, () => 100), 130]);
+    const spy = bars(Array.from({ length: 90 }, () => 100));
+    expect(momentumStreakDays(source, spy)).toBe(1);
+  });
+
+  it('grows with a long-held uptrend, up to its cap', () => {
+    const source = bars(Array.from({ length: 90 }, (_, i) => 100 + i * 0.2));
+    const spy = bars(Array.from({ length: 90 }, () => 100));
+    expect(momentumStreakDays(source, spy)).toBe(30);
+  });
+
+  it('is zero when momentum does not currently hold', () => {
+    const source = bars(Array.from({ length: 60 }, () => 100));
+    const spy = bars(Array.from({ length: 60 }, () => 100));
+    expect(momentumStreakDays(source, spy)).toBe(0);
   });
 });

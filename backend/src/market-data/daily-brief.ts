@@ -24,6 +24,7 @@ const TREND_PERIOD = 20;
 const LONG_TREND_PERIOD = 50;
 const BREAKOUT_LOOKBACK = 20;
 const BREAKOUT_RELATIVE_VOLUME = 1.5;
+const MOMENTUM_STREAK_CAP = 30;
 
 function ema(values: number[], period: number): number | null {
   if (values.length < period) return null;
@@ -82,6 +83,56 @@ function twentyDayReturn(bars: RawBar[]): number | null {
   return start > 0 ? (end - start) / start : null;
 }
 
+/** The MOMENTUM rule's own condition, factored out so a streak can replay it against earlier days. */
+function momentumHolds(
+  bars: RawBar[],
+  spyBars: RawBar[],
+  priceAt: number,
+): boolean {
+  const closes = bars.map((bar) => bar.close);
+  const ema20 = ema(closes, TREND_PERIOD);
+  const sma50 = sma(closes, LONG_TREND_PERIOD);
+  const ema20FiveDaysAgo = fiveDayEmaAgo(bars);
+  const stockReturn = twentyDayReturn(bars);
+  const spyReturn = twentyDayReturn(spyBars);
+  return (
+    ema20 !== null &&
+    sma50 !== null &&
+    ema20FiveDaysAgo !== null &&
+    stockReturn !== null &&
+    spyReturn !== null &&
+    priceAt > ema20 &&
+    ema20 > sma50 &&
+    ema20 > ema20FiveDaysAgo &&
+    stockReturn > spyReturn
+  );
+}
+
+/**
+ * How many consecutive trading days (ending today) the MOMENTUM condition
+ * has held, by replaying it against progressively earlier days — not stored
+ * anywhere, recomputed fresh from the same bars every time, the same way
+ * every other derived figure in this app is. Without this, a trend that
+ * started two weeks ago repeats the identical "has good momentum" sentence
+ * every single day, which is exactly the kind of stale alert a daily reader
+ * learns to stop reading. Capped rather than walking the whole history: the
+ * exact count stops mattering once it is "over a month".
+ */
+export function momentumStreakDays(bars: RawBar[], spyBars: RawBar[]): number {
+  const sortedBars = [...bars].sort((a, b) => a.date.localeCompare(b.date));
+  const sortedSpy = [...spyBars].sort((a, b) => a.date.localeCompare(b.date));
+  let streak = 0;
+  for (let back = 0; back < MOMENTUM_STREAK_CAP; back++) {
+    const end = sortedBars.length - back;
+    if (end < LONG_TREND_PERIOD + 5) break;
+    const slice = sortedBars.slice(0, end);
+    const spySlice = sortedSpy.slice(0, Math.min(end, sortedSpy.length));
+    if (!momentumHolds(slice, spySlice, slice.at(-1)!.close)) break;
+    streak++;
+  }
+  return streak;
+}
+
 export function buildDailyBriefNotes(input: BriefSymbolInput): BriefNote[] {
   const bars = [...input.bars].sort((a, b) => a.date.localeCompare(b.date));
   const notes: BriefNote[] = [];
@@ -119,11 +170,18 @@ export function buildDailyBriefNotes(input: BriefSymbolInput): BriefNote[] {
     ema20 > ema20FiveDaysAgo &&
     stockReturn > spyReturn
   ) {
+    const streak = momentumStreakDays(bars, input.spyBars);
+    const title =
+      streak > 1
+        ? `${input.symbol} has been in a momentum trend for ${
+            streak >= MOMENTUM_STREAK_CAP ? `${MOMENTUM_STREAK_CAP}+` : streak
+          } days`
+        : `${input.symbol} has good momentum`;
     notes.push({
       kind: 'MOMENTUM',
       symbol: input.symbol,
       source: input.source,
-      title: `${input.symbol} has good momentum`,
+      title,
       detail: `Above rising trend averages and outperforming SPY by ${((stockReturn - spyReturn) * 100).toFixed(1)}%.`,
     });
   }

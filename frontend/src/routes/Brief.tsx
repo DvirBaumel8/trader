@@ -6,6 +6,7 @@ import { Money } from '../components/Money';
 import { SessionBadge } from '../components/SessionBadge';
 import { formatTimestamp } from '../components/format';
 import { RefreshButton } from '../components/RefreshButton';
+import { Markdown } from '../components/Markdown';
 
 type Source = 'PORTFOLIO' | 'WATCHLIST' | 'MARKET';
 type Coverage = {
@@ -18,7 +19,7 @@ type Coverage = {
   extended: boolean;
 };
 type BriefNote = {
-  kind: 'ATR_MOVE' | 'MOMENTUM' | 'BREAKOUT' | 'EARNINGS' | 'ECONOMIC';
+  kind: 'ATR_MOVE' | 'MOMENTUM' | 'BREAKOUT' | 'EARNINGS' | 'ECONOMIC' | 'QUIET_DAY';
   source: Source;
   symbol: string | null;
   title: string;
@@ -31,6 +32,8 @@ type BriefResponse = {
   marketDataAvailable: boolean;
   coverage: Coverage[];
   notes: BriefNote[];
+  /** Null whenever there is nothing to show — no AI configured, or the call failed. Silent by design. */
+  narrative: string | null;
 };
 
 const QUERY_KEY = ['daily-brief'];
@@ -157,6 +160,14 @@ export function Brief() {
           <p role="alert" className="rounded-lg border border-border bg-surface-1 p-3 text-sm text-muted">
             Federal Reserve updates unavailable right now. Market events may be incomplete.
           </p>
+        )}
+        {brief.narrative && (
+          <section
+            aria-label="AI take"
+            className="rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm leading-relaxed"
+          >
+            <Markdown text={brief.narrative} />
+          </section>
         )}
         <section aria-label="Notable events" className="space-y-3">
           <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Notable events</h2>

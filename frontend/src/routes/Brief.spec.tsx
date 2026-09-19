@@ -50,6 +50,30 @@ describe('Brief', () => {
     expect(events.compareDocumentPosition(coverage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('shows the AI take above notable events when one was given', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief,
+      narrative: 'Nothing urgent — FSLR is the one to watch.',
+    });
+    renderBrief();
+
+    const take = await screen.findByRole('region', { name: 'AI take' });
+    expect(take).toHaveTextContent('Nothing urgent — FSLR is the one to watch.');
+    const events = screen.getByRole('region', { name: 'Notable events' });
+    expect(take.compareDocumentPosition(events) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows nothing extra when there is no AI take, rather than an empty box', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief,
+      narrative: null,
+    });
+    renderBrief();
+
+    await screen.findByRole('region', { name: 'Notable events' });
+    expect(screen.queryByRole('region', { name: 'AI take' })).not.toBeInTheDocument();
+  });
+
   it('shows current session coverage and links each ticker to its owning list', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
