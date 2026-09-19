@@ -82,7 +82,7 @@ describe('Trade idea (e2e)', () => {
   beforeEach(async () => {
     await dataSource.query('TRUNCATE trade_ideas RESTART IDENTITY CASCADE');
     await dataSource.query(
-      'TRUNCATE stop_levels, stop_executions, transactions, cash_flows, dividends, journal_entries, entry_tags, tags, daily_closes RESTART IDENTITY CASCADE',
+      'TRUNCATE stop_levels, stop_executions, transactions, cash_flows, dividends, interest_charges, journal_entries, entry_tags, tags, daily_closes RESTART IDENTITY CASCADE',
     );
   });
 

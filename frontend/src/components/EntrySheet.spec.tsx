@@ -717,3 +717,27 @@ describe('EntrySheet, auto-watching a name once fully sold', () => {
     );
   });
 });
+
+describe('EntrySheet, an interest charge', () => {
+  it('submits a margin-interest charge as its own kind, distinct from a cash withdrawal', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.click(screen.getByText('Interest'));
+    await user.type(screen.getByPlaceholderText('amount charged'), '45.5');
+    await user.click(screen.getByText('Save entry'));
+
+    await waitFor(() => {
+      const save = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/journal',
+      );
+      expect(save).toBeDefined();
+      const body = bodyOf(save as unknown[]);
+      expect(body.kind).toBe('INTEREST');
+      expect(body.interest).toEqual({ amount: 45.5 });
+      expect(body.cash).toBeUndefined();
+    });
+  });
+});

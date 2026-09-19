@@ -6,6 +6,7 @@ import { EntryTag } from './entry-tag.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
+import { InterestCharge } from '../transactions/interest-charge.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
@@ -25,6 +26,7 @@ import { UsersModule } from '../users/users.module.js';
       Transaction,
       CashFlow,
       Dividend,
+      InterestCharge,
       StopLevel,
       StopExecution,
       Instrument,

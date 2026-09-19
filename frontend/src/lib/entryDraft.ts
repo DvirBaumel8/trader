@@ -1,6 +1,6 @@
 import type { StopRow } from './stopRow';
 
-export type EntryKind = 'TRADE' | 'CASH' | 'DIVIDEND' | 'NOTE';
+export type EntryKind = 'TRADE' | 'CASH' | 'DIVIDEND' | 'INTEREST' | 'NOTE';
 export type TradeSide = 'BUY' | 'SELL';
 
 export interface EntryDraft {
@@ -18,6 +18,8 @@ export interface EntryDraft {
   cashAmount: string;
   dividendSymbol: string;
   dividendAmount: string;
+  /** A broker-charged cost outside any trade — margin interest, to start. */
+  interestAmount: string;
   setups: string[];
   mistakes: string[];
   /** Codes from the backend's reason vocabulary — why this fill was taken. */
@@ -67,6 +69,7 @@ export function emptyDraft(defaultFee: number): EntryDraft {
     cashAmount: '',
     dividendSymbol: '',
     dividendAmount: '',
+    interestAmount: '',
     setups: [],
     mistakes: [],
     reasons: [],

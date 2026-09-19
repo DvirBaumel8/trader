@@ -34,6 +34,7 @@ function toInput(body: CreateEntryDto): CreateEntryInput {
       : undefined,
     cash: body.cash,
     dividend: body.dividend,
+    interest: body.interest,
     tags: body.tags,
     reasons: body.reasons,
   };

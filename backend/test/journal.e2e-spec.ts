@@ -28,7 +28,7 @@ describe('Journal (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE stop_levels, stop_executions, transactions, cash_flows, dividends, journal_entries, entry_tags, tags, watchlist_items RESTART IDENTITY CASCADE',
+      'TRUNCATE stop_levels, stop_executions, transactions, cash_flows, dividends, interest_charges, journal_entries, entry_tags, tags, watchlist_items RESTART IDENTITY CASCADE',
     );
   });
 
@@ -1120,6 +1120,86 @@ describe('Journal (e2e)', () => {
       .expect(200);
     expect(portfolio.body.cash).toBe(0);
     expect(portfolio.body.dividendsReceived).toBe(0);
+  });
+
+  it('an interest charge lowers cash but not contributed capital', async () => {
+    await post({
+      kind: 'CASH',
+      body: '',
+      occurredAt: '2026-08-01T14:30:00.000Z',
+      cash: { direction: 'DEPOSIT', amount: 10000 },
+    }).expect(201);
+
+    await post({
+      kind: 'INTEREST',
+      body: 'margin interest',
+      occurredAt: '2026-08-20T14:30:00.000Z',
+      interest: { amount: 45.5 },
+    }).expect(201);
+
+    const portfolio = await http(app, token).get('/portfolio').expect(200);
+    // Cash falls by the charge...
+    expect(portfolio.body.cash).toBe(9954.5);
+    // ...but contributed capital does not. A fee is a cost, not a withdrawal.
+    expect(portfolio.body.contributedCapital).toBe(10000);
+    expect(portfolio.body.positions).toEqual([]);
+  });
+
+  it('rejects an interest entry with no amount', async () => {
+    await post({
+      kind: 'INTEREST',
+      body: '',
+      occurredAt: '2026-08-20T14:30:00.000Z',
+    }).expect(400);
+  });
+
+  it('rejects a non-positive interest amount', async () => {
+    await post({
+      kind: 'INTEREST',
+      body: '',
+      occurredAt: '2026-08-20T14:30:00.000Z',
+      interest: { amount: 0 },
+    }).expect(400);
+  });
+
+  it('deletes an interest charge and restores the cash it removed', async () => {
+    const created = await post({
+      kind: 'INTEREST',
+      body: '',
+      occurredAt: '2026-08-20T14:30:00.000Z',
+      interest: { amount: 45.5 },
+    }).expect(201);
+
+    expect(created.body.interest).toMatchObject({ amount: 45.5 });
+
+    await http(app, token).delete(`/journal/${created.body.id}`).expect(200);
+
+    const portfolio = await http(app, token).get('/portfolio').expect(200);
+    expect(portfolio.body.cash).toBe(0);
+  });
+
+  it('edits an interest charge amount', async () => {
+    const created = await post({
+      kind: 'INTEREST',
+      body: '',
+      occurredAt: '2026-08-20T14:30:00.000Z',
+      interest: { amount: 45.5 },
+    }).expect(201);
+
+    const updated = await http(app, token)
+      .patch(`/journal/${created.body.id}`)
+      .send({
+        kind: 'INTEREST',
+        body: 'corrected',
+        occurredAt: '2026-08-20T14:30:00.000Z',
+        interest: { amount: 60 },
+      })
+      .expect(200);
+
+    expect(updated.body.interest).toMatchObject({ amount: 60 });
+
+    const portfolio = await http(app, token).get('/portfolio').expect(200);
+    expect(portfolio.body.cash).toBe(-60);
   });
 
   it('can change an entry from a trade into a note', async () => {

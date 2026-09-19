@@ -20,6 +20,7 @@ import { AddSymbolPatternReads1789430400000 } from './migrations/1789430400000-A
 import { AddEarningsCache1789516800000 } from './migrations/1789516800000-AddEarningsCache.js';
 import { AddAiOutcomes1789603200000 } from './migrations/1789603200000-AddAiOutcomes.js';
 import { AddTradeReconciliation1789689600000 } from './migrations/1789689600000-AddTradeReconciliation.js';
+import { AddInterestCharges1789776000000 } from './migrations/1789776000000-AddInterestCharges.js';
 
 // Migrations are imported explicitly rather than via a glob string. A glob
 // silently matched zero files under some execution contexts in a sibling
@@ -47,6 +48,7 @@ const dataSource = new DataSource({
     AddEarningsCache1789516800000,
     AddAiOutcomes1789603200000,
     AddTradeReconciliation1789689600000,
+    AddInterestCharges1789776000000,
   ],
   synchronize: false,
 });

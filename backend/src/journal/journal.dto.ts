@@ -149,6 +149,14 @@ export class DividendDto {
   amount: number;
 }
 
+export class InterestDto {
+  /** Always positive: an interest charge only ever reduces cash. */
+  @IsNumber()
+  @IsPositive()
+  @Max(MAX_NUMERIC)
+  amount: number;
+}
+
 export class TagDto {
   @IsIn(['SETUP', 'MISTAKE'])
   type: 'SETUP' | 'MISTAKE';
@@ -159,8 +167,8 @@ export class TagDto {
 }
 
 export class CreateEntryDto {
-  @IsIn(['TRADE', 'NOTE', 'CASH', 'DIVIDEND'])
-  kind: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
+  @IsIn(['TRADE', 'NOTE', 'CASH', 'DIVIDEND', 'INTEREST'])
+  kind: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND' | 'INTEREST';
 
   @IsOptional()
   @IsString()
@@ -184,6 +192,11 @@ export class CreateEntryDto {
   @ValidateNested()
   @Type(() => DividendDto)
   dividend?: DividendDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InterestDto)
+  interest?: InterestDto;
 
   @IsOptional()
   @IsArray()
@@ -218,8 +231,8 @@ export class ListQueryDto {
   symbol?: string;
 
   @IsOptional()
-  @IsIn(['TRADE', 'NOTE', 'CASH', 'DIVIDEND'])
-  kind?: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
+  @IsIn(['TRADE', 'NOTE', 'CASH', 'DIVIDEND', 'INTEREST'])
+  kind?: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND' | 'INTEREST';
 
   @IsOptional()
   @IsUUID()

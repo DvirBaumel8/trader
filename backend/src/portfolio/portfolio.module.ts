@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
+import { InterestCharge } from '../transactions/interest-charge.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
@@ -25,6 +26,7 @@ import { JournalModule } from '../journal/journal.module.js';
       Transaction,
       CashFlow,
       Dividend,
+      InterestCharge,
       StopLevel,
       StopExecution,
       JournalEntry,

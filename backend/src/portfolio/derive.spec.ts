@@ -8,6 +8,7 @@ import {
   type DerivedTxn,
   type DerivedFlow,
   type DerivedDividend,
+  type DerivedInterestCharge,
   type CashEvent,
 } from './derive.js';
 
@@ -220,6 +221,14 @@ describe('deriveCash', () => {
       1000 - 10000 - 4,
     );
   });
+
+  it('subtracts an interest charge from cash', () => {
+    const interest: DerivedInterestCharge = {
+      amount: 45.5,
+      occurredAt: new Date(2026, 0, 3),
+    };
+    expect(deriveCash([], [deposit(1000)], [], [interest])).toBe(954.5);
+  });
 });
 
 describe('deriveContributedCapital', () => {
@@ -237,6 +246,19 @@ describe('deriveContributedCapital', () => {
     expect(deriveCash([], flows, [
       { symbol: 'NVDA', amount: 500, occurredAt: new Date(2026, 0, 2) },
     ])).toBe(10500);
+  });
+
+  it('excludes an interest charge too, the mirror image of a dividend', () => {
+    // A margin-interest charge lowers cash but is a real expense, not a
+    // withdrawal — treating it as one would understate contributed capital
+    // and overstate the benchmark return.
+    const flows = [deposit(10000)];
+    expect(deriveContributedCapital(flows)).toBe(10000);
+    expect(
+      deriveCash([], flows, [], [
+        { amount: 45.5, occurredAt: new Date(2026, 0, 2) },
+      ]),
+    ).toBe(9954.5);
   });
 });
 

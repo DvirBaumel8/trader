@@ -11,7 +11,7 @@ export interface StopLevel {
 
 export interface Entry {
   id: string;
-  kind: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
+  kind: 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND' | 'INTEREST';
   body: string;
   occurredAt: string;
   trade: {
@@ -43,6 +43,8 @@ export interface Entry {
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   dividend: { symbol: string; amount: number } | null;
+  /** A broker-charged cost outside any trade — margin interest, to start. */
+  interest: { amount: number } | null;
   tags: { id: string; type: 'SETUP' | 'MISTAKE'; label: string }[];
   /** Codes from the backend's reason vocabulary; labels are resolved for display. */
   reasons?: string[];
@@ -133,7 +135,7 @@ function ReconciliationNote({ trade }: { trade: NonNullable<Entry['trade']> }) {
 function EntryBody({ entry }: { entry: Entry }) {
   const value = entry.trade
     ? Math.abs(entry.trade.quantity * entry.trade.price)
-    : (entry.cash?.amount ?? entry.dividend?.amount ?? null);
+    : (entry.cash?.amount ?? entry.dividend?.amount ?? entry.interest?.amount ?? null);
 
   return (
     <div className="flex min-w-0 flex-1 items-baseline justify-between gap-3">
@@ -183,6 +185,14 @@ function EntryBody({ entry }: { entry: Entry }) {
           </div>
         )}
 
+        {entry.interest && (
+          <div className="flex items-center gap-1.5">
+            <span className="rounded bg-down/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-down">
+              INTEREST
+            </span>
+          </div>
+        )}
+
         {entry.body && (
           <p className="pt-0.5 text-sm leading-snug whitespace-pre-wrap">
             {entry.body}
@@ -211,7 +221,7 @@ function EntryBody({ entry }: { entry: Entry }) {
 
       <div
         className={`shrink-0 text-[15px] font-medium ${
-          entry.dividend ? 'text-up' : ''
+          entry.dividend ? 'text-up' : entry.interest ? 'text-down' : ''
         }`}
       >
         <Money value={value} />

@@ -31,6 +31,7 @@ const KINDS: { value: EntryKind; label: string }[] = [
   { value: 'TRADE', label: 'Trade' },
   { value: 'CASH', label: 'Cash' },
   { value: 'DIVIDEND', label: 'Dividend' },
+  { value: 'INTEREST', label: 'Interest' },
 ];
 
 /** Everything the entry touches, refetched together after any write. */
@@ -65,6 +66,7 @@ function draftFromEntry(entry: Entry, defaultFee: number): EntryDraft {
     cashAmount: entry.cash ? String(entry.cash.amount) : '',
     dividendSymbol: entry.dividend?.symbol ?? '',
     dividendAmount: entry.dividend ? String(entry.dividend.amount) : '',
+    interestAmount: entry.interest ? String(entry.interest.amount) : '',
     setups: entry.tags.filter((t) => t.type === 'SETUP').map((t) => t.label),
     mistakes: entry.tags.filter((t) => t.type === 'MISTAKE').map((t) => t.label),
     reasons: entry.reasons ?? [],
@@ -340,6 +342,10 @@ export function EntrySheet({
                   amount: Math.abs(parseFloat(draft.dividendAmount || '0')),
                 }
               : undefined,
+          interest:
+            draft.kind === 'INTEREST'
+              ? { amount: Math.abs(parseFloat(draft.interestAmount || '0')) }
+              : undefined,
         }),
       }),
     onSuccess: async () => {
@@ -585,6 +591,17 @@ export function EntrySheet({
           </div>
         )}
 
+        {draft.kind === 'INTEREST' && (
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="amount charged"
+            value={draft.interestAmount}
+            onChange={(e) => set({ interestAmount: e.target.value })}
+            className={inputClass}
+          />
+        )}
+
         <label className="block space-y-1">
           <span className="block text-xs text-muted">Date</span>
           <input
@@ -719,7 +736,9 @@ function DeleteEntry({
             ? 'Deleting this removes the cash movement from your balance.'
             : entry.dividend
               ? 'Deleting this removes the dividend from your cash.'
-              : 'This note will be deleted.'}
+              : entry.interest
+                ? 'Deleting this restores the cash the charge removed.'
+                : 'This note will be deleted.'}
       </p>
       <div className="flex gap-2">
         <Button

@@ -7,7 +7,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export type EntryKind = 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
+export type EntryKind = 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND' | 'INTEREST';
 
 /**
  * The single timeline. A TRADE entry owns one transaction, a CASH entry owns

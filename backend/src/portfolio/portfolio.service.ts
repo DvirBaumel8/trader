@@ -4,6 +4,7 @@ import { DataSource, MoreThanOrEqual, Repository } from 'typeorm';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
+import { InterestCharge } from '../transactions/interest-charge.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { StopExecution } from '../transactions/stop-execution.entity.js';
 import { JournalEntry } from '../journal/journal-entry.entity.js';
@@ -24,6 +25,7 @@ import {
   type DerivedTxn,
   type DerivedFlow,
   type DerivedDividend,
+  type DerivedInterestCharge,
 } from './derive.js';
 import { tradeId } from './trade-window.js';
 import { computeAtRisk } from './risk.js';
@@ -39,6 +41,8 @@ export class PortfolioService {
     private readonly flows: Repository<CashFlow>,
     @InjectRepository(Dividend)
     private readonly dividendRows: Repository<Dividend>,
+    @InjectRepository(InterestCharge)
+    private readonly interestChargeRows: Repository<InterestCharge>,
     @InjectRepository(StopLevel)
     private readonly stopLevels: Repository<StopLevel>,
     @InjectRepository(StopExecution)
@@ -70,11 +74,12 @@ export class PortfolioService {
     void this.history.ensureFresh().catch(() => {});
 
     const user = await this.users.currentUser();
-    const [txnRows, flowRows, divRows, instrumentRows, entryRows] =
+    const [txnRows, flowRows, divRows, interestRows, instrumentRows, entryRows] =
       await Promise.all([
         this.txns.find({ where: { userId: user.id } }),
         this.flows.find({ where: { userId: user.id } }),
         this.dividendRows.find({ where: { userId: user.id } }),
+        this.interestChargeRows.find({ where: { userId: user.id } }),
         this.instruments.find(),
         this.entries.find({ where: { userId: user.id } }),
       ]);
@@ -114,8 +119,20 @@ export class PortfolioService {
       occurredAt: d.occurredAt,
     }));
 
+    const derivedInterestCharges: DerivedInterestCharge[] = interestRows.map(
+      (i) => ({
+        amount: i.amount,
+        occurredAt: i.occurredAt,
+      }),
+    );
+
     const derived = derivePositions(derivedTxns).filter((p) => p.isOpen);
-    const cash = deriveCash(derivedTxns, derivedFlows, derivedDividends);
+    const cash = deriveCash(
+      derivedTxns,
+      derivedFlows,
+      derivedDividends,
+      derivedInterestCharges,
+    );
 
     const heldSymbols = derived.map((p) => p.symbol);
     const heldInstruments = instrumentRows.filter((i) => heldSymbols.includes(i.symbol));

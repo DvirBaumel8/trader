@@ -12,6 +12,7 @@ import { EntryTag } from './entry-tag.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
+import { InterestCharge } from '../transactions/interest-charge.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import {
   isClearedRevision,
@@ -91,7 +92,7 @@ function sameTierSet(current: StopLevel[], requested: StopLevelSpec[]): boolean 
   });
 }
 
-export type EntryKindInput = 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND';
+export type EntryKindInput = 'TRADE' | 'NOTE' | 'CASH' | 'DIVIDEND' | 'INTEREST';
 
 export interface EntryView {
   id: string;
@@ -134,6 +135,8 @@ export interface EntryView {
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
   dividend: { symbol: string; amount: number } | null;
+  /** A broker-charged cost outside any trade — margin interest, to start. See interest-charge.entity.ts. */
+  interest: { amount: number } | null;
   tags: { id: string; type: 'SETUP' | 'MISTAKE'; label: string }[];
   /** Codes from `reasons.ts` — empty, never null, when none were given. */
   reasons: string[];
@@ -160,6 +163,7 @@ export interface CreateEntryInput {
   };
   cash?: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number };
   dividend?: { symbol: string; amount: number };
+  interest?: { amount: number };
   tags?: { type: 'SETUP' | 'MISTAKE'; label: string }[];
   /**
    * Codes from `reasons.ts`. Undefined leaves any stored reasons untouched on
@@ -192,6 +196,8 @@ export class JournalService {
     private readonly flows: Repository<CashFlow>,
     @InjectRepository(Dividend)
     private readonly dividends: Repository<Dividend>,
+    @InjectRepository(InterestCharge)
+    private readonly interestCharges: Repository<InterestCharge>,
     @InjectRepository(StopLevel)
     private readonly stopLevels: Repository<StopLevel>,
     @InjectRepository(StopExecution)
@@ -209,7 +215,7 @@ export class JournalService {
 
   async list(filters: ListFilters = {}): Promise<EntryView[]> {
     const user = await this.users.currentUser();
-    const [entries, txns, flows, divs, instruments, allTags, joins, levels, executions] =
+    const [entries, txns, flows, divs, interest, instruments, allTags, joins, levels, executions] =
       await Promise.all([
         this.entries.find({
           where: { userId: user.id },
@@ -218,6 +224,7 @@ export class JournalService {
         this.txns.find({ where: { userId: user.id } }),
         this.flows.find({ where: { userId: user.id } }),
         this.dividends.find({ where: { userId: user.id } }),
+        this.interestCharges.find({ where: { userId: user.id } }),
         this.instruments.find(),
         this.tags.find({ where: { userId: user.id } }),
         this.entryTags.find(),
@@ -229,6 +236,7 @@ export class JournalService {
     const txnByEntry = new Map(txns.map((t) => [t.entryId, t]));
     const flowByEntry = new Map(flows.map((f) => [f.entryId, f]));
     const divByEntry = new Map(divs.map((d) => [d.entryId, d]));
+    const interestByEntry = new Map(interest.map((i) => [i.entryId, i]));
     const tagById = new Map(allTags.map((t) => [t.id, t]));
 
     // Same tie-break the portfolio derivation uses for same-day fills: a
@@ -255,6 +263,12 @@ export class JournalService {
         delta: d.amount,
         occurredAt: d.occurredAt,
         recordedAt: recordedAtByEntry.get(d.entryId),
+      })),
+      ...interest.map((i) => ({
+        id: i.id,
+        delta: -i.amount,
+        occurredAt: i.occurredAt,
+        recordedAt: recordedAtByEntry.get(i.entryId),
       })),
     ];
     const balanceAfter = cashBalancesAfter(cashEvents);
@@ -296,6 +310,7 @@ export class JournalService {
       const t = txnByEntry.get(e.id);
       const f = flowByEntry.get(e.id);
       const d = divByEntry.get(e.id);
+      const i = interestByEntry.get(e.id);
 
       let trade: EntryView['trade'] = null;
       if (t) {
@@ -363,6 +378,7 @@ export class JournalService {
               amount: d.amount,
             }
           : null,
+        interest: i ? { amount: i.amount } : null,
         // WATCH tags belong to the watchlist and share the `tags` table with
         // setups and mistakes. A journal entry can never legitimately carry
         // one, so they are filtered here rather than cast away — if one ever
@@ -579,6 +595,9 @@ export class JournalService {
     }
     if (input.kind === 'CASH' && !input.cash) {
       throw new BadRequestException('A cash entry needs an amount');
+    }
+    if (input.kind === 'INTEREST' && !input.interest) {
+      throw new BadRequestException('An interest entry needs an amount');
     }
     if (input.kind === 'DIVIDEND') {
       if (!input.dividend) {
@@ -908,10 +927,21 @@ export class JournalService {
         }),
       );
     }
+
+    if (input.kind === 'INTEREST' && input.interest) {
+      await manager.save(
+        manager.create(InterestCharge, {
+          userId,
+          entryId,
+          amount: Math.abs(input.interest.amount),
+          occurredAt: new Date(input.occurredAt),
+        }),
+      );
+    }
   }
 
   /**
-   * Deletes the entry's Transaction/CashFlow/Dividend rows. Stop levels are
+   * Deletes the entry's Transaction/CashFlow/Dividend/InterestCharge rows. Stop levels are
    * deliberately NOT touched here — they are history, kept across an
    * `update()`'s delete-and-recreate of the transaction row (see
    * `writeOwnedRows`) and only ever hard-deleted by `remove()`, or by
@@ -924,6 +954,7 @@ export class JournalService {
     await manager.delete(Transaction, { entryId });
     await manager.delete(CashFlow, { entryId });
     await manager.delete(Dividend, { entryId });
+    await manager.delete(InterestCharge, { entryId });
   }
 
   /**

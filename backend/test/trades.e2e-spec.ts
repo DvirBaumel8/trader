@@ -37,7 +37,7 @@ describe('Trades (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE stop_levels, transactions, cash_flows, dividends, journal_entries, entry_tags, tags, daily_closes RESTART IDENTITY CASCADE',
+      'TRUNCATE stop_levels, transactions, cash_flows, dividends, interest_charges, journal_entries, entry_tags, tags, daily_closes RESTART IDENTITY CASCADE',
     );
   });
 

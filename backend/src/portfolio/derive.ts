@@ -62,6 +62,17 @@ export interface DerivedDividend {
   occurredAt: Date;
 }
 
+/**
+ * A broker-charged cost outside any trade — margin interest, to start.
+ * The mirror image of a dividend: it lowers cash but is NOT a withdrawal —
+ * see interest-charge.entity.ts for why that distinction matters to the
+ * benchmark the same way it does for a dividend.
+ */
+export interface DerivedInterestCharge {
+  amount: number; // always positive
+  occurredAt: Date;
+}
+
 export interface DerivedPosition {
   symbol: string;
   /** Negative means short. */
@@ -164,6 +175,7 @@ export function deriveCash(
   txns: DerivedTxn[],
   flows: DerivedFlow[],
   dividends: DerivedDividend[] = [],
+  interestCharges: DerivedInterestCharge[] = [],
 ): number {
   let cash = 0;
   for (const f of flows) {
@@ -175,6 +187,11 @@ export function deriveCash(
   // Dividends add to cash but never to contributed capital.
   for (const d of dividends) {
     cash += d.amount;
+  }
+  // Interest charges subtract from cash but never from contributed capital —
+  // the mirror image of a dividend.
+  for (const i of interestCharges) {
+    cash -= i.amount;
   }
   return round(cash);
 }
