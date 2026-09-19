@@ -54,7 +54,15 @@ describe('api client URL construction', () => {
     );
   });
 
-  it('fetches <base>/health/ping without /api segment when querying health', async () => {
+  it('fetches <base>/api/health/ping, same prefix as every other route', async () => {
+    // The backend excludes health from its global 'api' prefix (so a
+    // caller hitting it directly, unprefixed, still works), but it ALSO
+    // rewrites '/api/health*' back to '/health*' before routing — which is
+    // what lets this go through the local Vite dev proxy at all: Vite only
+    // forwards paths under /api, so a bare '/health/ping' request used to
+    // fall through to Vite's own index.html instead of the backend,
+    // showing a permanent false "Can't reach the server" banner in every
+    // local dev session.
     vi.stubEnv('VITE_API_BASE_URL', 'https://trader-backend.onrender.com');
     const { api } = await import('./client');
 
@@ -62,7 +70,7 @@ describe('api client URL construction', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://trader-backend.onrender.com/health/ping',
+      'https://trader-backend.onrender.com/api/health/ping',
     );
   });
 
