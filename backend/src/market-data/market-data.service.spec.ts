@@ -283,6 +283,25 @@ describe('MarketDataService', () => {
       expect(calls).toEqual([]);
     });
 
+    it('asks Twelve Data on a plain CLOSED session too — a weekend has no fresher print either', async () => {
+      // The exact case this was missing: a quote with no extended print at
+      // all and session CLOSED (weekend, or a provider explicitly saying so)
+      // is indistinguishable from OVERNIGHT for pricing purposes — both mean
+      // "no live session, show the last known trade" (see select-price.ts).
+      const closedNoExtended: RawQuote = { ...noExtendedPrint, session: 'CLOSED' };
+      const { client, calls } = fakeTwelveData(218.4);
+      const svc = new MarketDataService(
+        fakeClient([closedNoExtended]),
+        undefined,
+        client,
+      );
+
+      const q = await svc.getQuote('NVDA');
+
+      expect(calls).toEqual(['NVDA']);
+      expect(q).toMatchObject({ price: 218.4, extended: true });
+    });
+
     it('applies the same second opinion in a batch call', async () => {
       const { client, calls } = fakeTwelveData(218.4);
       const svc = new MarketDataService(

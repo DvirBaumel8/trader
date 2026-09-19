@@ -87,11 +87,7 @@ export class MarketDataService {
    * blocked and its fallback carries no extended print at all.
    */
   private async augmentWithExtended(raw: RawQuote): Promise<RawQuote> {
-    const missingExtended =
-      !raw.extended &&
-      (raw.session === 'PRE' ||
-        raw.session === 'POST' ||
-        raw.session === 'OVERNIGHT');
+    const missingExtended = !raw.extended && raw.session !== 'REGULAR';
     if (!missingExtended) return raw;
     const price = await this.twelveData.extendedPrice(raw.symbol);
     if (price === null) return raw;
