@@ -2,9 +2,10 @@
 
 > Read this when you need to know what is true now before planning, resuming, deploying, or testing work.
 
-**Last verified:** 2026-09-16 against `package.json`, `backend/package.json`,
+**Last verified:** 2026-09-19 against `package.json`, `backend/package.json`,
 `render.yaml`, `docs/DEPLOYMENT.md`, `docs/backlog.md`,
-`backend/src/auth/auth.module.ts`, and `backend/src/main.ts`.
+`backend/src/auth/auth.module.ts`, `backend/src/main.ts`, and
+`backend/src/journal/journal.service.ts`.
 
 This is a current-state reference, not a changelog. Follow the linked source
 documents for decisions, implementation detail, and history.
@@ -24,7 +25,12 @@ documents for decisions, implementation detail, and history.
   and per-symbol pattern reads. They use app-computed facts; model prose is not
   the source of portfolio numbers.
 - The watchlist supports targets and a cached AI ranking of the whole list.
-  See [the backlog](backlog.md) for feature-level context and open work.
+- A trade entry can carry the broker's own reported net cash and resulting
+  balance for that fill. When given, price is derived from it (full
+  precision) rather than trusting a typed guess, and a mismatch badge flags
+  remaining drift — a stopgap for reconciling against the broker, not a
+  permanent fixture. See [the backlog](backlog.md) for feature-level context
+  and open work.
 
 ## Operating facts
 
@@ -46,8 +52,10 @@ documents for decisions, implementation detail, and history.
 
 ## Active checkpoints
 
-- Reconcile the app's figures with the broker only after the owner provides one
-  date, account screenshot, and ticker with the largest discrepancy.
+- Confirm whether margin interest, or another broker-charged fee the app
+  never models, explains the remaining ~$1,170 aggregate cash gap against the
+  broker — check the broker's activity log for a debit near that size outside
+  of trades and deposits. See the top bug in [the backlog](backlog.md).
 - The owner needs to inspect the trade chart on a phone: confirm close axis
   labels do not crowd and that per-fill marker placement reads well.
 - Review the UI as a whole and decide which remaining conventions or layout

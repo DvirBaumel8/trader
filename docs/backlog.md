@@ -9,18 +9,32 @@ this file says what remains.
 ## Bugs — correctness
 
 - [ ] **The app's numbers disagree with his broker — balance, returns and
-  history, all of it.** Raised 2026-09-12. This is a joint investigation, not
-  something to guess at alone.
+  history, all of it.** Raised 2026-09-12, joint investigation ongoing.
 
-  Start with a reconciliation for one account and date: put our figure beside
-  the broker's, find where they diverge, then ask for the largest-gap ticker.
-  Before changing code, check whether the gap is fees (entry defaults versus
-  broker per-fill/minimum schedules), cash definitions (settled cash, margin
-  interest, or unrecorded dividends), price session (4:30pm extended versus
-  4:00pm official close), partial-fill averaging, pre-seed realised history, or
-  unhandled corporate actions. The result decides whether this is a bug, a
-  definition difference to document, or new modelling work. The read-only IBKR
-  work below could make this continuous rather than manual.
+  2026-09-19: found and fixed one confirmed cause. A real SMCI trade was off
+  by $3 — logged at a rounded 2-decimal price (36.92) while the broker's
+  actual fill averaged a sub-cent higher (36.925) from partial fills at
+  slightly different prices. A trade entry can now carry the broker's own
+  reported net cash and resulting balance for that fill; when given, the
+  backend derives the fill's exact price from it instead of trusting a typed
+  guess, and a mismatch badge on the entry flags any remaining drift
+  (`3c273eb`, "feat: reconcile trade fills against the platform's reported
+  cash"). These two fields are a deliberate stopgap for learning the
+  platform's behavior, not meant to be permanent.
+
+  Not closed: the owner's aggregate cash was still off by roughly $1,170
+  (ours -164018 vs broker -165188) before that fix, and no cash-flow kind
+  exists for a broker-charged fee or margin interest outside of a trade —
+  the leading suspect for what remains, since the account runs on margin.
+  Next step: check the broker's activity log for a debit near that size
+  labelled interest or a fee; if found, decide whether it needs a new entry
+  kind or fits inside `CASH`.
+
+  Before changing further code, still check whether any remaining gap is
+  cash definitions (settled cash, unrecorded dividends), price session
+  (4:30pm extended versus 4:00pm official close), pre-seed realised history,
+  or unhandled corporate actions. The read-only IBKR work below could make
+  this continuous rather than manual.
 
 - [ ] **Trade chart: shipped, awaiting the owner's eye.** Fills, stops, and
   targets are price-anchored and labelled; `plannedTarget` now reaches
