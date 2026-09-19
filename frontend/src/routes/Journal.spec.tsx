@@ -142,3 +142,39 @@ describe('Journal restoring an in-progress edit after a background/reload', () =
   });
 });
 
+describe('Journal, the Balance tab', () => {
+  it('shows an interest charge alongside cash and dividends, not just dividends', async () => {
+    const interestEntry: Entry = {
+      id: 'interest-1',
+      kind: 'INTEREST',
+      body: 'Margin interest',
+      occurredAt: '2026-08-30T00:00:00.000Z',
+      trade: null,
+      cash: null,
+      dividend: null,
+      interest: { amount: 38.2 },
+      tags: [],
+    };
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/settings') return Promise.resolve({ defaultFee: 4 });
+      if (path === '/portfolio/stats') return Promise.resolve({});
+      if (path === '/portfolio') {
+        return Promise.resolve({
+          cash: -38.2,
+          contributedCapital: 0,
+          dividendsReceived: 0,
+        });
+      }
+      if (path === '/journal?kind=INTEREST') {
+        return Promise.resolve([interestEntry]);
+      }
+      return Promise.resolve([]);
+    });
+
+    renderJournal();
+    await userEvent.setup().click(screen.getByText('Balance'));
+
+    expect(await screen.findByText('Margin interest')).toBeInTheDocument();
+  });
+});
+

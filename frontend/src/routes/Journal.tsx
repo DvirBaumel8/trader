@@ -150,17 +150,22 @@ function BalanceTab({
   const { data: cashEntries } = useQuery({
     queryKey: ['journal', 'MONEY'],
     queryFn: async () => {
-      const [cash, dividends] = await Promise.all([
+      const [cash, dividends, interest] = await Promise.all([
         api<Entry[]>('/journal?kind=CASH'),
         api<Entry[]>('/journal?kind=DIVIDEND'),
+        api<Entry[]>('/journal?kind=INTEREST'),
       ]);
-      return [...cash, ...dividends].sort((a, b) =>
+      return [...cash, ...dividends, ...interest].sort((a, b) =>
         b.occurredAt.localeCompare(a.occurredAt),
       );
     },
   });
 
   const entries = cashEntries ?? [];
+  const interestPaid = entries.reduce(
+    (sum, e) => sum + (e.interest?.amount ?? 0),
+    0,
+  );
 
   return (
     <div className="space-y-5">
@@ -197,6 +202,14 @@ function BalanceTab({
               <Money value={balance?.dividendsReceived} />
             </div>
           </div>
+          {interestPaid > 0 && (
+            <div className="rounded-xl border border-border bg-surface-1 p-3">
+              <div className="text-xs text-muted">Interest paid</div>
+              <div className="mt-1 font-medium text-down">
+                <Money value={interestPaid} />
+              </div>
+            </div>
+          )}
         </section>
       )}
 
