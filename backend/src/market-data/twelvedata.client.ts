@@ -41,13 +41,18 @@ export class TwelveDataClient {
   }
 
   /**
-   * The latest pre- or post-market print, or null whenever there is nothing
-   * usable — unconfigured, provider down, an in-body error, the regular
-   * session (no extended print to report), or a non-positive number. Never
-   * throws: this decorates a price Yahoo already answered, and must not be
-   * able to take down a quote over a second opinion.
+   * The latest pre- or post-market print and when it was made, or null
+   * whenever there is nothing usable — unconfigured, provider down, an
+   * in-body error, the regular session (no extended print to report), a
+   * non-positive number, or no timestamp to judge it by. The timestamp is
+   * required, not decorative: the free tier has been observed returning a
+   * stale print with no error at all, carried over from a prior session, and
+   * the caller needs the print's own time to catch that — see
+   * extended-print-freshness.ts. Never throws: this decorates a price Yahoo
+   * already answered, and must not be able to take down a quote over a
+   * second opinion.
    */
-  async extendedPrice(symbol: string): Promise<number | null> {
+  async extendedPrice(symbol: string): Promise<{ price: number; timestamp: Date } | null> {
     if (!this.isConfigured()) return null;
 
     const url = `${BASE_URL}?symbol=${encodeURIComponent(symbol)}&prepost=true&apikey=${this.apiKey}`;
@@ -60,13 +65,17 @@ export class TwelveDataClient {
       const body = (await res.json()) as {
         status?: string;
         extended_price?: string | number;
+        extended_timestamp?: string | number;
       };
       if (body.status === 'error') {
         this.logger.warn(`extendedPrice(${symbol}) provider error`);
         return null;
       }
       const price = Number(body.extended_price);
-      return Number.isFinite(price) && price > 0 ? price : null;
+      const timestampSeconds = Number(body.extended_timestamp);
+      if (!Number.isFinite(price) || price <= 0) return null;
+      if (!Number.isFinite(timestampSeconds) || timestampSeconds <= 0) return null;
+      return { price, timestamp: new Date(timestampSeconds * 1000) };
     } catch (err) {
       this.logger.warn(
         `extendedPrice(${symbol}) failed: ${err instanceof Error ? err.message : String(err)}`,

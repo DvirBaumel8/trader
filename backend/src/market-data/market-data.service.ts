@@ -6,6 +6,7 @@ import {
 } from './yahoo.client.js';
 import { TwelveDataClient } from './twelvedata.client.js';
 import type { MarketSession } from './select-price.js';
+import { isExtendedPrintFresh } from './extended-print-freshness.js';
 
 export interface Quote {
   symbol: string;
@@ -89,9 +90,12 @@ export class MarketDataService {
   private async augmentWithExtended(raw: RawQuote): Promise<RawQuote> {
     const missingExtended = !raw.extended && raw.session !== 'REGULAR';
     if (!missingExtended) return raw;
-    const price = await this.twelveData.extendedPrice(raw.symbol);
-    if (price === null) return raw;
-    return { ...raw, price, extended: true };
+    const result = await this.twelveData.extendedPrice(raw.symbol);
+    if (result === null) return raw;
+    // The free tier has been caught returning a print carried over from a
+    // prior session with no error at all — see extended-print-freshness.ts.
+    if (!isExtendedPrintFresh(new Date(), result.timestamp, raw.session)) return raw;
+    return { ...raw, price: result.price, extended: true };
   }
 
   /**

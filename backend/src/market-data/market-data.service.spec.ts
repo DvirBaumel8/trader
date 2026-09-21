@@ -218,14 +218,14 @@ describe('MarketDataService', () => {
       peRatio: null,
     };
 
-    function fakeTwelveData(price: number | null) {
+    function fakeTwelveData(price: number | null, timestamp: Date = new Date()) {
       const calls: string[] = [];
       return {
         client: {
           isConfigured: () => true,
           extendedPrice: async (symbol: string) => {
             calls.push(symbol);
-            return price;
+            return price === null ? null : { price, timestamp };
           },
         } as unknown as import('./twelvedata.client.js').TwelveDataClient,
         calls,
@@ -299,6 +299,39 @@ describe('MarketDataService', () => {
       const q = await svc.getQuote('NVDA');
 
       expect(calls).toEqual(['NVDA']);
+      expect(q).toMatchObject({ price: 218.4, extended: true });
+    });
+
+    it('rejects a Twelve Data print carried over from a prior session', async () => {
+      // The exact NBIS/MSTR bug found live: Twelve Data returned a print with
+      // no error, but its own timestamp gave away that it was days stale.
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const { client, calls } = fakeTwelveData(218.4, threeDaysAgo);
+      const svc = new MarketDataService(
+        fakeClient([noExtendedPrint]),
+        undefined,
+        client,
+      );
+
+      const q = await svc.getQuote('NVDA');
+
+      expect(calls).toEqual(['NVDA']);
+      expect(q).toMatchObject({ price: 217.55, extended: false });
+    });
+
+    it('still trusts a stale-looking print when the market is CLOSED', async () => {
+      // A weekend genuinely has nothing fresher than Friday's print.
+      const closedNoExtended: RawQuote = { ...noExtendedPrint, session: 'CLOSED' };
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const { client } = fakeTwelveData(218.4, threeDaysAgo);
+      const svc = new MarketDataService(
+        fakeClient([closedNoExtended]),
+        undefined,
+        client,
+      );
+
+      const q = await svc.getQuote('NVDA');
+
       expect(q).toMatchObject({ price: 218.4, extended: true });
     });
 

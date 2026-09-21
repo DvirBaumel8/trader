@@ -33,12 +33,27 @@ describe('TwelveDataClient configuration', () => {
 });
 
 describe('extendedPrice', () => {
-  it('reads the extended-hours print from a quote payload', async () => {
+  it('reads the extended-hours print and its timestamp from a quote payload', async () => {
     vi.stubEnv('TWELVEDATA_API_KEY', 'test-key');
-    // Twelve Data reports numeric fields as strings.
-    const { http } = httpReturning({ close: '665.75', extended_price: '668.20' });
+    // Twelve Data reports numeric fields as strings, and the timestamp as
+    // whole seconds since epoch.
+    const { http } = httpReturning({
+      close: '665.75',
+      extended_price: '668.20',
+      extended_timestamp: 1789775940,
+    });
 
-    expect(await new TwelveDataClient(http).extendedPrice('META')).toBe(668.2);
+    expect(await new TwelveDataClient(http).extendedPrice('META')).toEqual({
+      price: 668.2,
+      timestamp: new Date(1789775940 * 1000),
+    });
+  });
+
+  it('returns null when the print has no timestamp to judge freshness by', async () => {
+    vi.stubEnv('TWELVEDATA_API_KEY', 'test-key');
+    const { http } = httpReturning({ extended_price: '668.20' });
+
+    expect(await new TwelveDataClient(http).extendedPrice('META')).toBeNull();
   });
 
   it('asks for the symbol it was given, with prepost=true and the key', async () => {
