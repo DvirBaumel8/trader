@@ -14,6 +14,14 @@ export interface Settings {
    * that moved the risk arithmetic out after it drifted twice.
    */
   reasons: { opening: Reason[]; closing: Reason[] };
+  /**
+   * The raw last-saved snapshot of the broker's "month-to-date interest"
+   * figure — see backend/src/users/user.entity.ts. Not month-filtered here;
+   * `/portfolio/fees`'s `interestCost` is what drops a stale prior-month
+   * value, so that endpoint (not this one) is what the UI displays.
+   */
+  interestAccrualAmount: number | null;
+  interestAccrualAsOf: string | null;
 }
 
 /** One definition of the settings fetch, so both callers share a cache entry. */

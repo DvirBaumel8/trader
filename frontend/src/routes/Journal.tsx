@@ -1,5 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useSettings } from '../api/settings';
 import { EntryCard, type Entry } from '../components/EntryCard';
@@ -9,7 +14,7 @@ import { EntrySheet } from '../components/EntrySheet';
 import { loadUiState, saveUiState } from '../lib/uiState';
 import { dayLabel } from '../lib/dayHeading';
 import { FeesChart } from '../components/FeesChart';
-import type { FeesResponse, Period } from '../lib/feeTypes';
+import type { FeesResponse, InterestCost, Period } from '../lib/feeTypes';
 import { FilterBar, type SortValue } from '../components/FilterBar';
 import {
   emptyFilters,
@@ -231,6 +236,79 @@ function BalanceTab({
   );
 }
 
+/**
+ * The broker charges margin interest as one lump sum a month but accrues it
+ * daily — the owner checks the platform's own running total and logs it
+ * here, since there is no live feed for it yet. Separate from the trading
+ * fees chart above: a different kind of cost, on its own card, but on the
+ * same tab because "what is being in minus costing me" is the whole point.
+ */
+function InterestCostCard({ cost }: { cost: InterestCost }) {
+  const queryClient = useQueryClient();
+  const [amount, setAmount] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      api('/settings/interest-accrual', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          amount: parseFloat(amount),
+          asOf: new Date().toISOString().slice(0, 10),
+        }),
+      }),
+    onSuccess: () => {
+      setAmount('');
+      queryClient.invalidateQueries({ queryKey: ['portfolio', 'fees'] });
+    },
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-surface-1 p-3">
+      <div className="text-xs tracking-wide text-muted uppercase">
+        Margin interest
+      </div>
+      <div className="mt-1 text-2xl font-semibold text-down">
+        <Money value={cost.total} />
+      </div>
+      <div className="mt-1 text-xs text-muted">
+        Charged to date: <Money value={cost.posted} />
+        {cost.accrued > 0 && (
+          <>
+            {' · Accruing this month: '}
+            <Money value={cost.accrued} />
+            {cost.asOf && ` (as of ${cost.asOf})`}
+          </>
+        )}
+      </div>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (parseFloat(amount) > 0) mutation.mutate();
+        }}
+        className="mt-3 flex items-center gap-2"
+      >
+        <input
+          type="number"
+          inputMode="decimal"
+          placeholder="Platform's MTD interest"
+          aria-label="Month-to-date interest"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          className="min-w-0 flex-1 rounded-lg border border-border bg-surface-0 px-2.5 py-1.5 text-sm"
+        />
+        <button
+          type="submit"
+          disabled={!(parseFloat(amount) > 0) || mutation.isPending}
+          className="shrink-0 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs text-accent disabled:opacity-50"
+        >
+          Update
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function FeesTab() {
   const [period, setPeriod] = useState<Period>('MONTH');
 
@@ -247,12 +325,15 @@ function FeesTab() {
   if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
 
   return (
-    <FeesChart
-      buckets={data?.buckets ?? []}
-      total={data?.total ?? 0}
-      period={period}
-      onPeriodChange={setPeriod}
-    />
+    <div className="space-y-4">
+      <FeesChart
+        buckets={data?.buckets ?? []}
+        total={data?.total ?? 0}
+        period={period}
+        onPeriodChange={setPeriod}
+      />
+      {data?.interestCost && <InterestCostCard cost={data.interestCost} />}
+    </div>
   );
 }
 

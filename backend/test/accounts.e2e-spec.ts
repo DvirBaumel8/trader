@@ -231,6 +231,39 @@ describe('Accounts (e2e)', () => {
         .expect(200);
       expect(theirs.body.defaultFee).not.toBe(12);
     });
+
+    it('records and returns an interest accrual snapshot', async () => {
+      const signup = await post('/auth/signup', {
+        email: 's3@b.com',
+        password: 'longenough1',
+      }).expect(201);
+      const accessToken = signup.body.accessToken;
+
+      const before = await http(app, accessToken).get('/settings').expect(200);
+      expect(before.body.interestAccrualAmount).toBeNull();
+      expect(before.body.interestAccrualAsOf).toBeNull();
+
+      await http(app, accessToken)
+        .patch('/settings/interest-accrual')
+        .send({ amount: 28.05, asOf: '2026-09-21' })
+        .expect(200);
+
+      const after = await http(app, accessToken).get('/settings').expect(200);
+      expect(after.body.interestAccrualAmount).toBe(28.05);
+      expect(after.body.interestAccrualAsOf).toBe('2026-09-21');
+    });
+
+    it('rejects a non-positive interest accrual amount', async () => {
+      const signup = await post('/auth/signup', {
+        email: 's4@b.com',
+        password: 'longenough1',
+      }).expect(201);
+
+      await http(app, signup.body.accessToken)
+        .patch('/settings/interest-accrual')
+        .send({ amount: 0, asOf: '2026-09-21' })
+        .expect(400);
+    });
   });
 
   describe('google', () => {

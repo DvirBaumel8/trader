@@ -178,3 +178,62 @@ describe('Journal, the Balance tab', () => {
   });
 });
 
+describe('Journal, the Fees tab', () => {
+  function mockApiForFeesTab() {
+    (api as ReturnType<typeof vi.fn>).mockImplementation(
+      (path: string, init?: RequestInit) => {
+        if (path === '/settings') return Promise.resolve({ defaultFee: 4 });
+        if (path === '/portfolio/stats') return Promise.resolve({});
+        if (path.startsWith('/portfolio/fees')) {
+          return Promise.resolve({
+            period: 'MONTH',
+            buckets: [],
+            total: 0,
+            interestCost: { posted: 45.5, accrued: 28.05, total: 73.55, asOf: '2026-09-21' },
+          });
+        }
+        if (path === '/settings/interest-accrual' && init?.method === 'PATCH') {
+          return Promise.resolve({ interestAccrualAmount: 30, interestAccrualAsOf: '2026-09-22' });
+        }
+        return Promise.resolve([]);
+      },
+    );
+  }
+
+  it('shows the cost of margin interest, charged plus accruing', async () => {
+    mockApiForFeesTab();
+    renderJournal();
+
+    await userEvent.setup().click(screen.getByText('Fees'));
+
+    expect(await screen.findByText('Margin interest')).toBeInTheDocument();
+    expect(screen.getByText('$73.55')).toBeInTheDocument();
+    expect(screen.getByText(/45\.50/)).toBeInTheDocument();
+    expect(screen.getByText(/28\.05/)).toBeInTheDocument();
+    expect(screen.getByText(/2026-09-21/)).toBeInTheDocument();
+  });
+
+  it('lets the owner record a fresh month-to-date interest snapshot', async () => {
+    mockApiForFeesTab();
+    const user = userEvent.setup();
+    renderJournal();
+
+    await user.click(screen.getByText('Fees'));
+    await user.type(
+      await screen.findByLabelText('Month-to-date interest'),
+      '30',
+    );
+    await user.click(screen.getByText('Update'));
+
+    await waitFor(() => {
+      const patchCall = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/settings/interest-accrual',
+      ) as [string, RequestInit] | undefined;
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(patchCall![1].body as string);
+      expect(body.amount).toBe(30);
+      expect(typeof body.asOf).toBe('string');
+    });
+  });
+});
+

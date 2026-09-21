@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bucketFees, bucketKey, totalFees } from './fee-buckets.js';
+import { bucketFees, bucketKey, computeInterestCost, totalFees } from './fee-buckets.js';
 
 /** Dates arrive as local noon converted to UTC — see the module's doc comment. */
 const on = (date: string, fee: number) => ({
@@ -79,5 +79,41 @@ describe('totalFees', () => {
     expect(totalFees([on('2026-09-01', 4.005), on('2026-09-02', 2), on('2026-09-03', -1)])).toBe(
       6.01,
     );
+  });
+});
+
+describe('computeInterestCost', () => {
+  const now = new Date('2026-09-21T08:00:00Z');
+
+  it('combines posted charges with a current-month accrual snapshot', () => {
+    const cost = computeInterestCost(
+      { postedInterest: 45.5, accrualAmount: 28.05, accrualAsOf: '2026-09-21' },
+      now,
+    );
+    expect(cost).toEqual({ posted: 45.5, accrued: 28.05, total: 73.55, asOf: '2026-09-21' });
+  });
+
+  it('drops an accrual snapshot left over from a previous month', () => {
+    const cost = computeInterestCost(
+      { postedInterest: 0, accrualAmount: 999, accrualAsOf: '2026-08-30' },
+      now,
+    );
+    expect(cost).toEqual({ posted: 0, accrued: 0, total: 0, asOf: null });
+  });
+
+  it('reports zero with no posted charges and no snapshot at all', () => {
+    const cost = computeInterestCost(
+      { postedInterest: 0, accrualAmount: null, accrualAsOf: null },
+      now,
+    );
+    expect(cost).toEqual({ posted: 0, accrued: 0, total: 0, asOf: null });
+  });
+
+  it('counts posted charges even with no accrual snapshot', () => {
+    const cost = computeInterestCost(
+      { postedInterest: 12, accrualAmount: null, accrualAsOf: null },
+      now,
+    );
+    expect(cost).toEqual({ posted: 12, accrued: 0, total: 12, asOf: null });
   });
 });

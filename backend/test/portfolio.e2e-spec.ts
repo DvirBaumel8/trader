@@ -443,6 +443,66 @@ describe('Portfolio (e2e)', () => {
     expect(fallback.body.period).toBe('MONTH');
   });
 
+  describe('interest cost', () => {
+    it('reports zero with nothing posted and no current accrual snapshot', async () => {
+      // The shared owner user's settings are not truncated between tests —
+      // pin a stale snapshot rather than assume a pristine null default.
+      await http(app, token)
+        .patch('/settings/interest-accrual')
+        .send({ amount: 999, asOf: '2000-01-15' })
+        .expect(200);
+
+      const res = await http(app, token).get('/portfolio/fees').expect(200);
+      expect(res.body.interestCost).toEqual({
+        posted: 0,
+        accrued: 0,
+        total: 0,
+        asOf: null,
+      });
+    });
+
+    it('sums posted interest charges with the current month\'s accrual snapshot', async () => {
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'INTEREST',
+          body: 'margin interest',
+          occurredAt: '2026-08-20T14:30:00.000Z',
+          interest: { amount: 45.5 },
+        })
+        .expect(201);
+
+      const today = new Date().toISOString().slice(0, 10);
+      await http(app, token)
+        .patch('/settings/interest-accrual')
+        .send({ amount: 28.05, asOf: today })
+        .expect(200);
+
+      const res = await http(app, token).get('/portfolio/fees').expect(200);
+      expect(res.body.interestCost).toEqual({
+        posted: 45.5,
+        accrued: 28.05,
+        total: 73.55,
+        asOf: today,
+      });
+    });
+
+    it('ignores an accrual snapshot left over from a previous month', async () => {
+      await http(app, token)
+        .patch('/settings/interest-accrual')
+        .send({ amount: 999, asOf: '2000-01-15' })
+        .expect(200);
+
+      const res = await http(app, token).get('/portfolio/fees').expect(200);
+      expect(res.body.interestCost).toEqual({
+        posted: 0,
+        accrued: 0,
+        total: 0,
+        asOf: null,
+      });
+    });
+  });
+
   describe('stop-risk', () => {
     // The stop editor's live figure. Stateless and writes nothing: it prices
     // a plan the owner is still typing, which may never be saved. It exists

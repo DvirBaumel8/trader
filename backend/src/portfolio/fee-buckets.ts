@@ -168,6 +168,49 @@ export function totalFees(events: FeeEvent[]): number {
   return round(events.reduce((sum, e) => sum + (e.fee > 0 ? e.fee : 0), 0));
 }
 
+export interface InterestCostInputs {
+  /** Sum of every posted `INTEREST` journal entry to date. */
+  postedInterest: number;
+  /** The owner's manually-entered "month-to-date interest" snapshot — see user.entity.ts. */
+  accrualAmount: number | null;
+  /** The snapshot's date, `YYYY-MM-DD`. */
+  accrualAsOf: string | null;
+}
+
+export interface InterestCost {
+  posted: number;
+  accrued: number;
+  total: number;
+  asOf: string | null;
+}
+
+/**
+ * The broker charges margin interest as one lump sum per month, but accrues
+ * it into the live cash balance daily — see extended-print-freshness's
+ * sibling reasoning for a broker feature the app has no discrete transaction
+ * for yet. The owner's snapshot only means anything for the month it was
+ * taken in: once the calendar rolls over, that figure is either about to be
+ * superseded by the real posted charge or simply stale, so it drops out
+ * rather than silently overstating a past month's cost.
+ */
+export function computeInterestCost(
+  inputs: InterestCostInputs,
+  now: Date,
+): InterestCost {
+  const currentMonth = now.toISOString().slice(0, 7);
+  const snapshotIsCurrent =
+    inputs.accrualAmount !== null &&
+    inputs.accrualAsOf !== null &&
+    inputs.accrualAsOf.slice(0, 7) === currentMonth;
+  const accrued = snapshotIsCurrent ? inputs.accrualAmount! : 0;
+  return {
+    posted: round(inputs.postedInterest),
+    accrued: round(accrued),
+    total: round(inputs.postedInterest + accrued),
+    asOf: snapshotIsCurrent ? inputs.accrualAsOf : null,
+  };
+}
+
 function round(n: number): number {
   return Math.round(n * 100) / 100;
 }

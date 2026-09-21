@@ -45,6 +45,24 @@ export class User {
   })
   defaultFee: number;
 
+  /**
+   * A manually-entered snapshot of the broker's own "month-to-date interest"
+   * figure — not a journal entry, since the broker has not posted a dated
+   * transaction for it yet, only accrued it daily into the live cash it
+   * shows. Display-only: see PortfolioService.getFees.
+   */
+  @Column('numeric', {
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  interestAccrualAmount: number | null;
+
+  /** The date the snapshot above was taken, YYYY-MM-DD. */
+  @Column({ type: 'date', nullable: true })
+  interestAccrualAsOf: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

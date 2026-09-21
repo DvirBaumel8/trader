@@ -30,7 +30,7 @@ import {
 import { tradeId } from './trade-window.js';
 import { computeAtRisk } from './risk.js';
 import { computeStopDistances } from './stop-distance.js';
-import { bucketFees, totalFees, type FeePeriod } from './fee-buckets.js';
+import { bucketFees, computeInterestCost, totalFees, type FeePeriod } from './fee-buckets.js';
 
 @Injectable()
 export class PortfolioService {
@@ -314,10 +314,16 @@ export class PortfolioService {
    */
   async getFees(period: FeePeriod) {
     const user = await this.users.currentUser();
-    const rows = await this.txns.find({
-      where: { userId: user.id },
-      select: { executedAt: true, fee: true },
-    });
+    const [rows, interestRows] = await Promise.all([
+      this.txns.find({
+        where: { userId: user.id },
+        select: { executedAt: true, fee: true },
+      }),
+      this.interestChargeRows.find({
+        where: { userId: user.id },
+        select: { amount: true },
+      }),
+    ]);
     const events = rows.map((t) => ({ occurredAt: t.executedAt, fee: t.fee }));
 
     return {
@@ -327,6 +333,14 @@ export class PortfolioService {
       // the window is a display limit, and a "total fees" that silently
       // excluded older trades would be wrong rather than merely partial.
       total: totalFees(events),
+      interestCost: computeInterestCost(
+        {
+          postedInterest: interestRows.reduce((sum, r) => sum + r.amount, 0),
+          accrualAmount: user.interestAccrualAmount,
+          accrualAsOf: user.interestAccrualAsOf,
+        },
+        new Date(),
+      ),
     };
   }
 

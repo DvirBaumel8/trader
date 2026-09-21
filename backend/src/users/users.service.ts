@@ -60,7 +60,12 @@ export class UsersService {
 
   async getSettings() {
     const user = await this.currentUser();
-    return { defaultFee: user.defaultFee, reasons: reasonVocabulary() };
+    return {
+      defaultFee: user.defaultFee,
+      reasons: reasonVocabulary(),
+      interestAccrualAmount: user.interestAccrualAmount,
+      interestAccrualAsOf: user.interestAccrualAsOf,
+    };
   }
 
   async updateSettings(defaultFee: number) {
@@ -68,5 +73,21 @@ export class UsersService {
     user.defaultFee = Math.abs(defaultFee);
     await this.users.save(user);
     return { defaultFee: user.defaultFee };
+  }
+
+  /**
+   * A manually-entered snapshot of the broker's own month-to-date interest
+   * figure — see user.entity.ts. Overwrites the previous snapshot outright;
+   * there is only ever "the latest one", not a history.
+   */
+  async updateInterestAccrual(amount: number, asOf: string) {
+    const user = await this.currentUser();
+    user.interestAccrualAmount = Math.abs(amount);
+    user.interestAccrualAsOf = asOf;
+    await this.users.save(user);
+    return {
+      interestAccrualAmount: user.interestAccrualAmount,
+      interestAccrualAsOf: user.interestAccrualAsOf,
+    };
   }
 }
