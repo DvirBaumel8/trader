@@ -285,6 +285,10 @@ export class WatchlistRankingService {
         user: userPrompt,
         grounded: false,
         model: RANKING_MODEL,
+        // gemini-2.5-flash-lite rejects thinkingConfig outright — confirmed
+        // against the real API, not assumed — so this must override even a
+        // process-wide LLM_THINKING_LEVEL, not merely omit its own opinion.
+        thinkingLevel: 'NONE',
       });
     } catch (err) {
       const kind: LlmFailureKind = err instanceof LlmFailure ? err.kind : 'unknown';

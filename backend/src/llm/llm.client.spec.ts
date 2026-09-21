@@ -311,6 +311,22 @@ describe('GeminiClient', () => {
     expect(config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
   });
 
+  it('lets a caller force no thinkingConfig at all, overriding the env default', async () => {
+    // gemini-2.5-flash-lite rejects thinkingConfig outright ("Thinking level
+    // is not supported for this model") — confirmed against the real API,
+    // not merely undocumented behaviour. A caller routed to a model like
+    // that needs to suppress it entirely, which plain `undefined` cannot do
+    // once LLM_THINKING_LEVEL is set process-wide.
+    process.env.LLM_THINKING_LEVEL = 'HIGH';
+    generateContent.mockResolvedValueOnce({ text: 'hello' });
+    const client = new GeminiClient();
+
+    await client.complete({ system: 's', user: 'u', thinkingLevel: 'NONE' });
+
+    const config = generateContent.mock.calls[0][0].config;
+    expect(config.thinkingConfig).toBeUndefined();
+  });
+
   it('lets a caller override the model per call, ahead of LLM_MODEL', async () => {
     // A lower-stakes, batch-shaped feature (the watchlist ranking) can be
     // routed to a cheaper model with more free-tier headroom, conserving

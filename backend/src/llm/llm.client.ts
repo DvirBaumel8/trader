@@ -7,7 +7,7 @@ import { ApiError, GoogleGenAI, ThinkingLevel } from '@google/genai';
  * this file is the only one permitted to. `GeminiClient` maps it onto the
  * real enum internally.
  */
-export type ThinkingBudget = 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH';
+export type ThinkingBudget = 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'NONE';
 
 export interface CompleteParams {
   /** The role/system prompt — see prompts.ts. */
@@ -26,6 +26,15 @@ export interface CompleteParams {
    * structured enough (a trade idea, say) that less thinking costs nothing
    * visible, without forcing that same tradeoff on every other feature via
    * one process-wide env var.
+   *
+   * `'NONE'` is not a low budget, it is the absence of `thinkingConfig` in
+   * the request at all — required rather than merely preferred by a model
+   * that rejects the field outright (confirmed against the real API:
+   * gemini-2.5-flash-lite 400s with "Thinking level is not supported for
+   * this model" the instant `thinkingConfig` is present, whatever its
+   * value). Plain `undefined` cannot express this once
+   * `LLM_THINKING_LEVEL` is set process-wide, since undefined just falls
+   * through to that default.
    */
   thinkingLevel?: ThinkingBudget;
   /**
@@ -303,16 +312,21 @@ export class GeminiClient extends LlmClient {
     thinkingLevel: ThinkingBudget | undefined,
   ) {
     // Per-call override first, then LLM_THINKING_LEVEL, then the provider's
-    // own automatic budget (no thinkingConfig sent at all).
-    const resolvedThinkingLevel = thinkingLevel ?? this.thinkingLevel;
+    // own automatic budget (no thinkingConfig sent at all). 'NONE' short-
+    // circuits this chain rather than joining it: it means "never send
+    // thinkingConfig", which the env default cannot otherwise be overridden
+    // to do once it is set.
+    const resolvedThinkingLevel =
+      thinkingLevel === 'NONE' ? undefined : (thinkingLevel ?? this.thinkingLevel);
     return {
       systemInstruction: system,
       // Gemini enables Google Search grounding by attaching the tool; no
       // grounded request is made unless the caller opts in.
       ...(grounded ? { tools: [{ googleSearch: {} }] } : {}),
-      // ThinkingBudget's literal values are identical to the SDK's own
-      // ThinkingLevel enum values by construction — this file is the one
-      // place allowed to know that and bridge the two.
+      // ThinkingBudget's literal values (bar 'NONE', handled above) are
+      // identical to the SDK's own ThinkingLevel enum values by
+      // construction — this file is the one place allowed to know that and
+      // bridge the two.
       ...(resolvedThinkingLevel
         ? { thinkingConfig: { thinkingLevel: resolvedThinkingLevel as ThinkingLevel } }
         : {}),
