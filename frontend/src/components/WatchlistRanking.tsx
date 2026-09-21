@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api/client';
 import { Button } from './ui/Button';
 import { CollapsibleCard } from './ui/CollapsibleCard';
 import { Markdown } from './Markdown';
+import { isSameLocalDay } from '../lib/dayHeading';
 
 const RANKING_KEY = ['watchlist', 'ranking'];
 
@@ -76,13 +77,38 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
       api<RankingResponse>('/watchlist/ranking/refresh', { method: 'POST' }),
     onSuccess: (data) => {
       queryClient.setQueryData(RANKING_KEY, data);
-      setReasoningOpen(true);
     },
   });
 
-  if (!hasTickers) return null;
+  /**
+   * Opening the reasoning card is for a refresh the owner asked for — it IS
+   * the answer to the question they just pressed a button to ask. The
+   * automatic same-day refresh below shares this same mutation but must NOT
+   * pop it open: nobody asked anything by merely opening the page.
+   */
+  const requestRefresh = () =>
+    refreshMutation.mutate(undefined, { onSuccess: () => setReasoningOpen(true) });
 
   const ranking = rankingQuery.data;
+
+  // Walking in this morning to yesterday's ranking is the same as not having
+  // one — auto-refresh once per mount rather than making the owner remember
+  // to hit Refresh, but only once: a successful refresh's own response sets
+  // `rankedAt` to now, so without this guard the effect would just fire
+  // again on the next render.
+  const autoRefreshed = useRef(false);
+  useEffect(() => {
+    if (autoRefreshed.current) return;
+    if (!ranking || !ranking.configured || ranking.rankedAt === null) return;
+    if (isSameLocalDay(new Date(ranking.rankedAt), new Date())) return;
+    autoRefreshed.current = true;
+    refreshMutation.mutate();
+    // refreshMutation is stable across renders (from useMutation); including
+    // it would refire this on every mutate state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ranking]);
+
+  if (!hasTickers) return null;
 
   return (
     <section className="space-y-2">
@@ -129,7 +155,7 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
                 <Button
                   variant="secondary"
                   disabled={refreshMutation.isPending}
-                  onClick={() => refreshMutation.mutate()}
+                  onClick={requestRefresh}
                 >
                   {refreshMutation.isPending ? 'Ranking…' : 'Rank watchlist'}
                 </Button>
@@ -172,7 +198,7 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
                     variant="secondary"
                     className="ml-auto"
                     disabled={refreshMutation.isPending}
-                    onClick={() => refreshMutation.mutate()}
+                    onClick={requestRefresh}
                   >
                     {refreshMutation.isPending ? 'Ranking…' : 'Refresh'}
                   </Button>

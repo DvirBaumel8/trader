@@ -30,6 +30,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { WatchlistItem } from '../watchlist/watchlist-item.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { HistoryService } from '../market-data/history.service.js';
+import { WatchlistChangeNotifier } from '../common/watchlist-change-notifier.js';
 import { UsersService } from '../users/users.service.js';
 import { computeRisk } from '../portfolio/risk.js';
 
@@ -211,6 +212,7 @@ export class JournalService {
     private readonly history: HistoryService,
     private readonly users: UsersService,
     private readonly dataSource: DataSource,
+    private readonly watchlistChanges: WatchlistChangeNotifier,
   ) {}
 
   async list(filters: ListFilters = {}): Promise<EntryView[]> {
@@ -452,21 +454,34 @@ export class JournalService {
     const user = await this.users.currentUser();
     const resolved = await this.resolveTrade(input);
 
-    const entryId = await this.dataSource.transaction(async (manager) => {
-      const entry = await manager.save(
-        manager.create(JournalEntry, {
-          userId: user.id,
-          kind: input.kind,
-          body: input.body ?? '',
-          occurredAt: new Date(input.occurredAt),
-          reasons: input.reasons ?? [],
-        }),
-      );
+    const { entryId, watchlistTickerRemoved } = await this.dataSource.transaction(
+      async (manager) => {
+        const entry = await manager.save(
+          manager.create(JournalEntry, {
+            userId: user.id,
+            kind: input.kind,
+            body: input.body ?? '',
+            occurredAt: new Date(input.occurredAt),
+            reasons: input.reasons ?? [],
+          }),
+        );
 
-      await this.writeOwnedRows(manager, user.id, entry.id, input, resolved, null);
-      await this.applyTags(manager, user.id, entry.id, input.tags ?? []);
-      return entry.id;
-    });
+        const written = await this.writeOwnedRows(
+          manager,
+          user.id,
+          entry.id,
+          input,
+          resolved,
+          null,
+        );
+        await this.applyTags(manager, user.id, entry.id, input.tags ?? []);
+        return { entryId: entry.id, ...written };
+      },
+    );
+    // Only after the transaction actually commits — a buy that ultimately
+    // rolls back must not spend a ranking refresh on a removal that never
+    // really happened.
+    if (watchlistTickerRemoved) this.watchlistChanges.notifyTickerRemoved();
 
     const [view] = (await this.list()).filter((e) => e.id === entryId);
     return view;
@@ -496,7 +511,7 @@ export class JournalService {
 
     const resolved = await this.resolveTrade(input);
 
-    await this.dataSource.transaction(async (manager) => {
+    const { watchlistTickerRemoved } = await this.dataSource.transaction(async (manager) => {
       const previousTxn = await manager.findOne(Transaction, {
         where: { entryId: id },
       });
@@ -515,7 +530,7 @@ export class JournalService {
         },
       );
       await this.clearOwnedRows(manager, id);
-      await this.writeOwnedRows(
+      const written = await this.writeOwnedRows(
         manager,
         user.id,
         id,
@@ -533,7 +548,9 @@ export class JournalService {
       if (previousTxn && !stillTrade) {
         await manager.delete(StopLevel, { transactionId: previousTxn.id });
       }
+      return written;
     });
+    if (watchlistTickerRemoved) this.watchlistChanges.notifyTickerRemoved();
 
     const [view] = (await this.list()).filter((e) => e.id === id);
     return view;
@@ -792,7 +809,8 @@ export class JournalService {
      * transaction to carry forward.
      */
     previousTransactionId: string | null,
-  ): Promise<void> {
+  ): Promise<{ watchlistTickerRemoved: boolean }> {
+    let watchlistTickerRemoved = false;
     if (input.kind === 'TRADE' && input.trade && resolved) {
       const hasAttribution =
         !!input.trade.exitKind || (input.trade.stopExecutions ?? []).length > 0;
@@ -844,10 +862,11 @@ export class JournalService {
       // would create a real cycle (Journal -> Watchlist -> Portfolio ->
       // Journal); see watchlist-item import above.
       if (resolved.side === 'BUY') {
-        await manager.delete(WatchlistItem, {
+        const deleted = await manager.delete(WatchlistItem, {
           userId,
           instrumentId: resolved.instrumentId,
         });
+        watchlistTickerRemoved = (deleted.affected ?? 0) > 0;
       }
 
       if (previousTransactionId && previousTransactionId !== txn.id) {
@@ -938,6 +957,8 @@ export class JournalService {
         }),
       );
     }
+
+    return { watchlistTickerRemoved };
   }
 
   /**

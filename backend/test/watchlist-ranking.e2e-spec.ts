@@ -202,6 +202,67 @@ describe('Watchlist ranking (e2e)', () => {
     expect(res.body.order.map((t: { symbol: string }) => t.symbol)).toEqual(['NVDA']);
   });
 
+  describe('auto-refresh when a buy removes a watchlisted ticker', () => {
+    /**
+     * Fire-and-forget: the refresh triggered by the buy is not awaited by the
+     * request that triggers it, so this polls briefly rather than assuming
+     * any fixed delay is enough.
+     */
+    async function waitForCall(before: number): Promise<void> {
+      for (let i = 0; i < 20; i++) {
+        if (llmStub.complete.mock.calls.length > before) return;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    }
+
+    it('refreshes the ranking automatically once the buy removes the ticker', async () => {
+      // Two tickers, not one: a refresh with nothing left to rank correctly
+      // short-circuits without a model call (see refresh()'s empty-list
+      // check) — PLTR staying behind is what proves this refresh actually
+      // ran, rather than merely being asked to run.
+      await add({ symbol: 'NVDA' }).expect(201);
+      await add({ symbol: 'PLTR' }).expect(201);
+      await http(app, token).post('/watchlist/ranking/refresh').expect(201);
+      const callsBefore = llmStub.complete.mock.calls.length;
+
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: '',
+          occurredAt: '2026-09-21T14:30:00.000Z',
+          trade: { symbol: 'NVDA', quantity: 10, price: 100, fee: 1 },
+        })
+        .expect(201);
+      await waitForCall(callsBefore);
+
+      const watchlist = await http(app, token).get('/watchlist').expect(200);
+      expect(watchlist.body.map((r: { symbol: string }) => r.symbol)).toEqual(['PLTR']);
+      expect(llmStub.complete.mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+
+    it('does not refresh when the bought ticker was never on the watchlist', async () => {
+      await add({ symbol: 'PLTR' }).expect(201);
+      await http(app, token).post('/watchlist/ranking/refresh').expect(201);
+      const callsBefore = llmStub.complete.mock.calls.length;
+
+      // NVDA was never watchlisted, so nothing is removed by this buy.
+      await http(app, token)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: '',
+          occurredAt: '2026-09-21T14:30:00.000Z',
+          trade: { symbol: 'NVDA', quantity: 10, price: 100, fee: 1 },
+        })
+        .expect(201);
+      // Nothing to wait for — this asserts the call count never moves.
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(llmStub.complete.mock.calls.length).toBe(callsBefore);
+    });
+  });
+
   describe('when no model is configured', () => {
     let unconfiguredApp: INestApplication;
     let unconfiguredToken: string;

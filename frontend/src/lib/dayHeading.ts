@@ -21,3 +21,17 @@ export function dayLabel(iso: string): string {
     year: 'numeric',
   });
 }
+
+/**
+ * Whether two instants fall on the same LOCAL calendar day — the viewer's
+ * own "today", not a UTC one. Used to decide whether a cached answer is
+ * still "from today" for whoever is looking at it right now, the same
+ * everyday sense `dayLabel`'s grouping already uses.
+ */
+export function isSameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
