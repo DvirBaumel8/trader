@@ -500,7 +500,10 @@ export function EntrySheet({
               />
               <input
                 type="number"
-                inputMode="decimal"
+                // No inputMode="decimal": that hides the minus key on iOS
+                // and Android number pads, and this is the one reconciliation
+                // field typed as a raw signed value straight off the
+                // platform — a margin balance is routinely negative.
                 placeholder="balance after"
                 aria-label="Platform balance after"
                 value={draft.reportedBalance}

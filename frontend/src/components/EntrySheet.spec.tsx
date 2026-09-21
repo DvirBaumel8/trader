@@ -195,6 +195,25 @@ describe('EntrySheet, platform reconciliation fields', () => {
     });
   });
 
+  it('lets the balance field take a minus sign on a mobile keyboard', async () => {
+    // inputMode="decimal" hides the minus key on iOS/Android number pads —
+    // jsdom's userEvent.type happily accepts a leading "-" regardless, so it
+    // cannot catch this; the real bug is only visible in the attribute a
+    // mobile keyboard actually honors. The balance is read straight off the
+    // platform and can legitimately be negative (margin), unlike net cash,
+    // price, and fee, which are typed as positive magnitudes with the
+    // Buy/Sell toggle supplying the sign.
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+
+    expect(screen.getByLabelText('Platform balance after')).not.toHaveAttribute(
+      'inputMode',
+      'decimal',
+    );
+  });
+
   it('fills the price from quantity, fee, and platform net cash — recovering precision a typed 2-decimal price would lose', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
     const user = userEvent.setup();
