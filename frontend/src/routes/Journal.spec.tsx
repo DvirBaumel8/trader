@@ -142,6 +142,74 @@ describe('Journal restoring an in-progress edit after a background/reload', () =
   });
 });
 
+describe('Journal, the Activities tab', () => {
+  const trade1: Entry = {
+    ...staleEntry,
+    id: 'trade-1',
+    occurredAt: '2026-09-20T12:00:00.000Z',
+    trade: { ...staleEntry.trade!, symbol: 'NVDA', fee: 5 },
+  };
+  const trade2: Entry = {
+    ...staleEntry,
+    id: 'trade-2',
+    occurredAt: '2026-09-19T12:00:00.000Z',
+    trade: { ...staleEntry.trade!, symbol: 'MSFT', fee: 3 },
+  };
+  const interestEntry: Entry = {
+    id: 'interest-1',
+    kind: 'INTEREST',
+    body: '',
+    occurredAt: '2026-09-19T00:00:00.000Z',
+    trade: null,
+    cash: null,
+    dividend: null,
+    interest: { amount: 10 },
+    tags: [],
+  };
+
+  function mockApiForActivitiesTab() {
+    const calls: string[] = [];
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      calls.push(path);
+      if (path === '/settings') return Promise.resolve({ defaultFee: 4 });
+      if (path === '/portfolio/stats') return Promise.resolve({});
+      if (path.startsWith('/journal?') && path.includes('kind=TRADE')) {
+        return Promise.resolve([trade1, trade2]);
+      }
+      if (path.startsWith('/journal?') && path.includes('kind=INTEREST')) {
+        return Promise.resolve([interestEntry]);
+      }
+      return Promise.resolve([]);
+    });
+    return calls;
+  }
+
+  it('sums trading fees and interest for the selected time frame', async () => {
+    mockApiForActivitiesTab();
+    renderJournal();
+
+    expect(await screen.findByText('NVDA')).toBeInTheDocument();
+    expect(screen.getByText(/\$8\.00/)).toBeInTheDocument(); // fees: 5 + 3
+    expect(screen.getByText(/\$10\.00/)).toBeInTheDocument(); // interest
+  });
+
+  it('refetches with new date bounds when a time frame preset is picked', async () => {
+    const calls = mockApiForActivitiesTab();
+    const user = userEvent.setup();
+    renderJournal();
+
+    await screen.findByText('NVDA');
+    await user.click(screen.getByRole('button', { name: '1W' }));
+
+    await waitFor(() => {
+      const tradeCall = calls.find(
+        (p) => p.startsWith('/journal?') && p.includes('kind=TRADE') && p.includes('from='),
+      );
+      expect(tradeCall).toBeDefined();
+    });
+  });
+});
+
 describe('Journal, the Balance tab', () => {
   it('shows an interest charge alongside cash and dividends, not just dividends', async () => {
     const interestEntry: Entry = {

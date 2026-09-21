@@ -25,6 +25,15 @@ import {
 } from '../lib/entryFilters';
 import { useDebounced } from '../lib/useDebounced';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
+import { RangeSelector } from '../components/ui/RangeSelector';
+import { rangeToDates, type Range } from '../lib/benchmarkRange';
+
+function interestQuery(from: string, to: string): string {
+  const params = new URLSearchParams({ kind: 'INTEREST' });
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  return params.toString();
+}
 
 type Tab = 'ACTIVITIES' | 'BALANCE' | 'FEES';
 
@@ -78,15 +87,21 @@ function ActivitiesTab({
 }) {
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [sort, setSort] = useState<SortValue>('NEWEST');
+  const [range, setRange] = useState<Range>('ALL');
 
   // The server does the selecting; this waits for a pause in typing so a
   // search is one request rather than one per keystroke.
   const settled = useDebounced(filters);
-  const active = hasActiveFilters(settled);
+  const { from, to } = rangeToDates(range);
+  // The time frame preset IS a filter, folded into the same from/to the
+  // (now hidden) date pickers used — one date concept, not two competing
+  // controls, same reasoning as the Trades tab's RangeSelector.
+  const effective: Filters = { ...settled, from, to };
+  const active = hasActiveFilters(effective);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['journal', 'TRADE', settled],
-    queryFn: () => api<Entry[]>(`/journal?${journalQuery(settled)}`),
+    queryKey: ['journal', 'TRADE', effective],
+    queryFn: () => api<Entry[]>(`/journal?${journalQuery(effective)}`),
     placeholderData: keepPreviousData,
   });
 
@@ -98,6 +113,13 @@ function ActivitiesTab({
     enabled: active,
   });
 
+  // Margin interest has no symbol to search on, so it is scoped by the time
+  // frame alone — searching a ticker narrows trades, not what interest cost.
+  const { data: interestData } = useQuery({
+    queryKey: ['journal', 'INTEREST', from, to],
+    queryFn: () => api<Entry[]>(`/journal?${interestQuery(from, to)}`),
+  });
+
   if (isLoading) return <p className="text-sm text-muted">Loading…</p>;
   const entries = data ?? [];
   if (entries.length === 0 && !active) {
@@ -107,6 +129,11 @@ function ActivitiesTab({
   const totalCount = active ? (allData?.length ?? entries.length) : entries.length;
   const shown = sortEntries(entries, sort);
   const byId = new Map(shown.map((e) => [e.id, e]));
+  const feesTotal = shown.reduce((sum, e) => sum + (e.trade?.fee ?? 0), 0);
+  const interestTotal = (interestData ?? []).reduce(
+    (sum, e) => sum + (e.interest?.amount ?? 0),
+    0,
+  );
   // Day headings only make sense while the list is in date order. Sorted by
   // money, they would break the list into meaningless one-row groups.
   const chronological = sort === 'NEWEST' || sort === 'OLDEST';
@@ -120,6 +147,20 @@ function ActivitiesTab({
 
   return (
     <div className="space-y-3">
+      <RangeSelector range={range} onRangeChange={setRange} />
+      {(feesTotal > 0 || interestTotal > 0) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-surface-1 p-3 text-xs text-muted">
+          <span>
+            Fees <Money value={feesTotal} />
+          </span>
+          <span>
+            Interest <Money value={interestTotal} />
+          </span>
+          <span className="font-medium">
+            Total <Money value={feesTotal + interestTotal} />
+          </span>
+        </div>
+      )}
       <FilterBar
         filters={filters}
         onFiltersChange={setFilters}
@@ -127,6 +168,7 @@ function ActivitiesTab({
         onSortChange={setSort}
         resultCount={shown.length}
         totalCount={totalCount}
+        showDateFilter={false}
       />
       {shown.length === 0 ? (
         <p className="text-sm text-muted">Nothing matches those filters.</p>
