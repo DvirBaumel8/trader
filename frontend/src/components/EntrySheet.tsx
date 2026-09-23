@@ -12,8 +12,8 @@ import {
   localDate,
   signedQuantity,
   signedReportedNetCash,
-  parsedReportedBalance,
   computedPriceFromReportedCash,
+  computedBalanceFromReportedCash,
   type EntryDraft,
   type EntryKind,
 } from '../lib/entryDraft';
@@ -137,12 +137,30 @@ export function EntrySheet({
   const [priceTouched, setPriceTouched] = useState(false);
 
   /**
+   * Same rule as `priceTouched`, for the platform's resulting balance: once
+   * net cash is given, the balance previews here from the account's current
+   * cash plus this fill's own impact — the same arithmetic the backend's
+   * ledger performs — rather than making the owner type a number the app
+   * can already work out. A balance he typed himself always wins.
+   */
+  const [balanceTouched, setBalanceTouched] = useState(false);
+
+  /**
    * Same rule as `quantityTouched`, for the exit reason chips: a closing
    * fill with no reason picked yet defaults to "Stop executed" — most sells
    * are — but a deliberate tap to change or clear it must stick, not keep
    * reappearing because the draft still reads as untouched.
    */
   const [reasonsTouched, setReasonsTouched] = useState(false);
+
+  /**
+   * True only once the owner has actually tried to save while the platform
+   * reconciliation fields were incomplete. A brand-new, still-empty composer
+   * must never greet him with a validation error for something he hasn't
+   * had a chance to fill in yet — the error only earns its place once he's
+   * tried and it's still missing.
+   */
+  const [saveAttempted, setSaveAttempted] = useState(false);
 
   const { data: settings } = useSettings();
 
@@ -153,7 +171,7 @@ export function EntrySheet({
    */
   const { data: portfolio } = useQuery({
     queryKey: ['portfolio'],
-    queryFn: () => api<{ positions: HeldPosition[] }>('/portfolio'),
+    queryFn: () => api<{ positions: HeldPosition[]; cash: number }>('/portfolio'),
     enabled: open && draft.kind === 'TRADE',
     staleTime: 30_000,
   });
@@ -188,6 +206,23 @@ export function EntrySheet({
    */
   const computedPrice = editing || priceTouched ? undefined : computedPriceFromReportedCash(draft);
   const priceValue = draft.price !== '' ? draft.price : (computedPrice !== undefined ? String(computedPrice) : '');
+
+  /**
+   * Same rule again, for the resulting balance: only ever previewed for a
+   * brand-new entry, since computing the right "previous balance" during an
+   * edit would mean backing this same entry's own effect out of the current
+   * cash first — not attempted here.
+   */
+  const computedBalance =
+    editing || balanceTouched
+      ? undefined
+      : computedBalanceFromReportedCash(draft, portfolio?.cash ?? null);
+  const balanceValue =
+    draft.reportedBalance !== ''
+      ? draft.reportedBalance
+      : computedBalance !== undefined
+        ? String(computedBalance)
+        : '';
 
   /**
    * Which chips to show follows the same rule as the suggestion. Codes from
@@ -227,7 +262,9 @@ export function EntrySheet({
       setDraft(draftFromEntry(editing, defaultFee));
       setQuantityTouched(false);
       setPriceTouched(false);
+      setBalanceTouched(false);
       setReasonsTouched(false);
+      setSaveAttempted(false);
       return;
     }
     // The one exception to starting blank: this same form coming back after
@@ -243,7 +280,9 @@ export function EntrySheet({
     setDraft(emptyDraft(defaultFee));
     setQuantityTouched(false);
     setPriceTouched(false);
+    setBalanceTouched(false);
     setReasonsTouched(false);
+    setSaveAttempted(false);
     clearDraft(DRAFT_KEY);
   }, [open, editing, defaultFee, resuming]);
 
@@ -275,7 +314,10 @@ export function EntrySheet({
     draft.kind === 'TRADE' &&
     (!editing || editing.trade?.reportedNetCash != null);
   const hasReportedNetCash = draft.reportedNetCash.trim() !== '';
-  const hasReportedBalance = draft.reportedBalance.trim() !== '';
+  // Includes the auto-computed preview, not just what was typed — once the
+  // app can work the balance out for itself, that satisfies the requirement
+  // exactly as well as the owner typing the same number in by hand.
+  const hasReportedBalance = balanceValue.trim() !== '';
   const reportedCashIncomplete =
     draft.kind === 'TRADE' &&
     (reportedCashRequired
@@ -322,7 +364,9 @@ export function EntrySheet({
                       quantity: Math.abs(parseFloat(r.quantity)),
                     })),
                   reportedNetCash: signedReportedNetCash(draft),
-                  reportedBalance: parsedReportedBalance(draft),
+                  reportedBalance: hasReportedBalance
+                    ? parseFloat(balanceValue)
+                    : undefined,
                 }
               : undefined,
           cash:
@@ -358,7 +402,9 @@ export function EntrySheet({
         setDraft((prev) => ({ ...emptyDraft(defaultFee), occurredAt: prev.occurredAt }));
         setQuantityTouched(false);
         setPriceTouched(false);
+        setBalanceTouched(false);
         setReasonsTouched(false);
+        setSaveAttempted(false);
       }
       await invalidate();
 
@@ -506,8 +552,11 @@ export function EntrySheet({
                 // platform — a margin balance is routinely negative.
                 placeholder="balance after"
                 aria-label="Platform balance after"
-                value={draft.reportedBalance}
-                onChange={(e) => set({ reportedBalance: e.target.value })}
+                value={balanceValue}
+                onChange={(e) => {
+                  setBalanceTouched(true);
+                  set({ reportedBalance: e.target.value });
+                }}
                 className={inputClass}
               />
             </div>
@@ -671,8 +720,18 @@ export function EntrySheet({
             variant="primary"
             size="lg"
             className="flex-1"
-            disabled={mutation.isPending || reportedCashIncomplete}
-            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            onClick={() => {
+              // A fresh, still-empty composer must never greet the owner
+              // with a validation error for something he hasn't had a
+              // chance to fill in yet — only a genuine save attempt earns
+              // the error its place. See `saveAttempted`'s own comment.
+              if (reportedCashIncomplete) {
+                setSaveAttempted(true);
+                return;
+              }
+              mutation.mutate();
+            }}
           >
             {mutation.isPending
               ? 'Saving…'
@@ -682,7 +741,7 @@ export function EntrySheet({
           </Button>
         </div>
 
-        {reportedCashIncomplete && (
+        {saveAttempted && reportedCashIncomplete && (
           <p className="text-xs text-down">
             {reportedCashRequired
               ? 'Enter both the net cash and the resulting balance from your platform.'

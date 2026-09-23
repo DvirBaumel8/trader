@@ -3,6 +3,7 @@ import {
   emptyDraft,
   signedReportedNetCash,
   parsedReportedBalance,
+  computedBalanceFromReportedCash,
   type EntryDraft,
 } from './entryDraft';
 
@@ -55,5 +56,49 @@ describe('parsedReportedBalance', () => {
 
   it('parses a positive balance', () => {
     expect(parsedReportedBalance(draft({ reportedBalance: '8996' }))).toBe(8996);
+  });
+});
+
+describe('computedBalanceFromReportedCash', () => {
+  it('is undefined when the previous balance is not known yet', () => {
+    expect(
+      computedBalanceFromReportedCash(
+        draft({ side: 'BUY', reportedNetCash: '1004' }),
+        null,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('is undefined when net cash has not been given', () => {
+    expect(
+      computedBalanceFromReportedCash(draft({ reportedNetCash: '' }), -165188),
+    ).toBeUndefined();
+  });
+
+  it('subtracts a buy\'s net cash from the previous balance', () => {
+    expect(
+      computedBalanceFromReportedCash(
+        draft({ side: 'BUY', reportedNetCash: '24924' }),
+        -165188,
+      ),
+    ).toBe(-190112);
+  });
+
+  it('adds a sell\'s net cash to the previous balance', () => {
+    expect(
+      computedBalanceFromReportedCash(
+        draft({ side: 'SELL', reportedNetCash: '12039' }),
+        -205881,
+      ),
+    ).toBe(-193842);
+  });
+
+  it('rounds to the cent', () => {
+    expect(
+      computedBalanceFromReportedCash(
+        draft({ side: 'BUY', reportedNetCash: '10.005' }),
+        100,
+      ),
+    ).toBe(90);
   });
 });

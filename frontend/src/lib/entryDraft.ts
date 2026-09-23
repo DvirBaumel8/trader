@@ -125,3 +125,21 @@ export function computedPriceFromReportedCash(
   const notional = draft.side === 'BUY' ? magnitude - fee : magnitude + fee;
   return notional > 0 ? notional / quantity : undefined;
 }
+
+/**
+ * A live preview of the resulting platform balance, from the account's cash
+ * immediately before this fill plus the fill's own signed net cash impact —
+ * the same arithmetic the backend's ledger performs, previewed here so the
+ * owner rarely has to type a number the app can already work out. Undefined
+ * whenever there isn't enough to compute from yet: no net cash given, or the
+ * previous balance isn't known (see the caller for where that comes from).
+ */
+export function computedBalanceFromReportedCash(
+  draft: EntryDraft,
+  previousBalance: number | null,
+): number | undefined {
+  if (previousBalance === null) return undefined;
+  const netCash = signedReportedNetCash(draft);
+  if (netCash === undefined) return undefined;
+  return Math.round((previousBalance + netCash) * 100) / 100;
+}

@@ -154,7 +154,20 @@ describe('EntrySheet, composing two new entries in a row', () => {
 });
 
 describe('EntrySheet, platform reconciliation fields', () => {
-  it('disables Save on a new trade until both platform fields are filled', async () => {
+  it('never shows a validation error on a fresh, untouched composer', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await screen.findByText('Save entry');
+
+    expect(
+      screen.queryByText(/enter both the net cash/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('blocks the save and explains why on a new trade until both platform fields are filled', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'created-1' });
     const user = userEvent.setup();
     renderHarness();
@@ -162,13 +175,25 @@ describe('EntrySheet, platform reconciliation fields', () => {
     await user.click(screen.getByText('New entry'));
     await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
     await user.type(screen.getByPlaceholderText('qty'), '10');
-    expect(screen.getByText('Save entry')).toBeDisabled();
+    await user.click(screen.getByText('Save entry'));
+
+    // The click did not submit — an incomplete reconciliation blocks it —
+    // and only NOW, having actually tried, does the reason appear.
+    expect(api).not.toHaveBeenCalledWith('/journal', expect.anything());
+    expect(
+      await screen.findByText(/enter both the net cash/i),
+    ).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Platform net cash'), '1000');
-    expect(screen.getByText('Save entry')).toBeDisabled();
-
     await user.type(screen.getByLabelText('Platform balance after'), '5000');
-    expect(screen.getByText('Save entry')).not.toBeDisabled();
+    expect(
+      screen.queryByText(/enter both the net cash/i),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('Save entry'));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith('/journal', expect.anything()),
+    );
   });
 
   it('sends the net cash negated for a buy and as-is for a sell, from a plain positive amount', async () => {
@@ -347,10 +372,71 @@ describe('EntrySheet, platform reconciliation fields', () => {
 
     await screen.findByDisplayValue('NVDA');
     expect(screen.getByLabelText('Platform net cash')).toHaveValue(2004);
-    expect(screen.getByText('Save changes')).not.toBeDisabled();
+    expect(
+      screen.queryByText(/enter both the net cash/i),
+    ).not.toBeInTheDocument();
 
     await user.clear(screen.getByLabelText('Platform net cash'));
-    expect(screen.getByText('Save changes')).toBeDisabled();
+    await user.click(screen.getByText('Save changes'));
+
+    expect(api).not.toHaveBeenCalledWith('/journal/entry-1', expect.anything());
+    expect(
+      await screen.findByText(/enter both the net cash/i),
+    ).toBeInTheDocument();
+  });
+
+  it('auto-computes the resulting balance from the account\'s current cash once net cash is given', async () => {
+    const user = userEvent.setup();
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/portfolio') {
+        return Promise.resolve({ positions: [], cash: -165188 });
+      }
+      return Promise.resolve({ id: 'created-1' });
+    });
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+    await user.type(screen.getByLabelText('Platform net cash'), '24924');
+
+    // BUY debits cash: -165188 + (-24924) = -190112, never typed by hand.
+    expect(
+      await screen.findByLabelText('Platform balance after'),
+    ).toHaveValue(-190112);
+
+    await user.click(screen.getByText('Save entry'));
+    await waitFor(() => {
+      const save = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/journal',
+      );
+      expect(bodyOf(save as unknown[]).trade).toMatchObject({
+        reportedBalance: -190112,
+      });
+    });
+  });
+
+  it('never overwrites a balance the owner typed himself, even as net cash changes', async () => {
+    const user = userEvent.setup();
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/portfolio') {
+        return Promise.resolve({ positions: [], cash: -165188 });
+      }
+      return Promise.resolve({ id: 'created-1' });
+    });
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+    await user.type(screen.getByLabelText('Platform net cash'), '24924');
+    await screen.findByLabelText('Platform balance after');
+
+    await user.clear(screen.getByLabelText('Platform balance after'));
+    await user.type(screen.getByLabelText('Platform balance after'), '-999999');
+    await user.type(screen.getByLabelText('Platform net cash'), '1');
+
+    expect(screen.getByLabelText('Platform balance after')).toHaveValue(-999999);
   });
 });
 
