@@ -9,7 +9,6 @@ import { api } from '../api/client';
 import { useSettings } from '../api/settings';
 import { EntryCard, type Entry } from '../components/EntryCard';
 import { Money } from '../components/Money';
-import { StatsHeader } from '../components/StatsHeader';
 import { EntrySheet } from '../components/EntrySheet';
 import { loadUiState, saveUiState } from '../lib/uiState';
 import { dayLabel } from '../lib/dayHeading';
@@ -442,8 +441,6 @@ export function Journal() {
 
   return (
     <div className="space-y-4 pb-20">
-      <StatsHeader />
-
       <div className="-mx-4 flex items-center gap-1 overflow-x-auto px-4">
         {TABS.map((t) => (
           <button
