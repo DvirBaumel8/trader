@@ -102,6 +102,26 @@ describe('Dashboard holdings table', () => {
     expect(screen.getByText('Earnings', { selector: 'span.hidden' })).toBeInTheDocument();
   });
 
+  it('sorts by soonest earnings, sinking a ticker with none (an ETF) to the end', async () => {
+    renderDashboard([
+      position('LATE', 1, { daysUntilEarnings: 30 }),
+      position('ETF', 1, { daysUntilEarnings: null }),
+      position('SOON', 1, { daysUntilEarnings: 2 }),
+    ]);
+    const user = userEvent.setup();
+
+    await screen.findByText('SOON');
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Sort holdings' }),
+      'daysUntilEarnings:asc',
+    );
+
+    const rows = screen
+      .getAllByTestId(/^holding-/)
+      .map((el) => el.getAttribute('data-testid'));
+    expect(rows).toEqual(['holding-SOON', 'holding-LATE', 'holding-ETF']);
+  });
+
   it('remembers when the portfolio overview is minimized', async () => {
     const first = renderDashboard([position('NVDA', 100)]);
     const user = userEvent.setup();

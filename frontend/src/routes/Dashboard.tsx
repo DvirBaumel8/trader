@@ -91,6 +91,7 @@ const SORT_OPTIONS: { key: SortKey; dir: SortDir; label: string }[] = [
   { key: 'unrealizedPnl', dir: 'asc', label: 'P&L — biggest loss' },
   { key: 'symbol', dir: 'asc', label: 'Symbol — A to Z' },
   { key: 'symbol', dir: 'desc', label: 'Symbol — Z to A' },
+  { key: 'daysUntilEarnings', dir: 'asc', label: 'Earnings — soonest first' },
 ];
 
 const encode = (s: SortPref) => `${s.key}:${s.dir}`;

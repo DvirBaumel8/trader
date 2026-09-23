@@ -1,4 +1,9 @@
-export type SortKey = 'symbol' | 'marketValue' | 'unrealizedPct' | 'unrealizedPnl';
+export type SortKey =
+  | 'symbol'
+  | 'marketValue'
+  | 'unrealizedPct'
+  | 'unrealizedPnl'
+  | 'daysUntilEarnings';
 export type SortDir = 'asc' | 'desc';
 
 export interface SortablePosition {
@@ -6,6 +11,8 @@ export interface SortablePosition {
   marketValue: number | null;
   unrealizedPct: number | null;
   unrealizedPnl: number | null;
+  /** Null for a ticker with no upcoming earnings date (an ETF, say) — always sinks to the end, see below. */
+  daysUntilEarnings: number | null;
 }
 
 /**

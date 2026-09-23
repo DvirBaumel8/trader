@@ -6,8 +6,9 @@ function p(
   marketValue: number | null,
   unrealizedPct: number | null,
   unrealizedPnl: number | null,
+  daysUntilEarnings: number | null = null,
 ): SortablePosition {
-  return { symbol, marketValue, unrealizedPct, unrealizedPnl };
+  return { symbol, marketValue, unrealizedPct, unrealizedPnl, daysUntilEarnings };
 }
 
 const book: SortablePosition[] = [
@@ -103,5 +104,36 @@ describe('sortPositions', () => {
 
   it('handles an empty book', () => {
     expect(sortPositions([], 'marketValue', 'desc')).toEqual([]);
+  });
+
+  it('sorts by days to earnings ascending — soonest first', () => {
+    const withEarnings = [
+      p('LATE', 100, 0.1, 10, 30),
+      p('SOON', 100, 0.1, 10, 2),
+      p('MID', 100, 0.1, 10, 10),
+    ];
+    expect(symbols(sortPositions(withEarnings, 'daysUntilEarnings', 'asc'))).toEqual([
+      'SOON',
+      'MID',
+      'LATE',
+    ]);
+  });
+
+  it('sinks a ticker with no earnings date (an ETF) to the end, whichever direction', () => {
+    const mixed = [
+      p('ETF', 100, 0.1, 10, null),
+      p('SOON', 100, 0.1, 10, 2),
+      p('LATE', 100, 0.1, 10, 30),
+    ];
+    expect(symbols(sortPositions(mixed, 'daysUntilEarnings', 'asc'))).toEqual([
+      'SOON',
+      'LATE',
+      'ETF',
+    ]);
+    expect(symbols(sortPositions(mixed, 'daysUntilEarnings', 'desc'))).toEqual([
+      'LATE',
+      'SOON',
+      'ETF',
+    ]);
   });
 });
