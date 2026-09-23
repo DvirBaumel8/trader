@@ -7,6 +7,7 @@ import { SessionBadge } from '../components/SessionBadge';
 import { formatTimestamp } from '../components/format';
 import { RefreshButton } from '../components/RefreshButton';
 import { Markdown } from '../components/Markdown';
+import { DAILY_BRIEF_QUERY_KEY, fetchDailyBrief } from '../api/dailyBrief';
 
 type Source = 'PORTFOLIO' | 'WATCHLIST' | 'MARKET';
 type Coverage = {
@@ -36,7 +37,7 @@ type BriefResponse = {
   narrative: string | null;
 };
 
-const QUERY_KEY = ['daily-brief'];
+const QUERY_KEY = DAILY_BRIEF_QUERY_KEY;
 const GROUPS: { source: Source; label: string }[] = [
   { source: 'MARKET', label: 'Market' },
   { source: 'PORTFOLIO', label: 'Portfolio' },
@@ -106,7 +107,7 @@ export function Brief() {
   const [refreshFailed, setRefreshFailed] = useState(false);
   const query = useQuery({
     queryKey: QUERY_KEY,
-    queryFn: () => refreshInFlight.current ?? api<BriefResponse>('/watchlist/daily-brief'),
+    queryFn: () => refreshInFlight.current ?? fetchDailyBrief<BriefResponse>(),
     staleTime: 300_000,
     refetchInterval: (current) => (current.state.data?.refreshAfterSeconds ?? 300) * 1000,
   });

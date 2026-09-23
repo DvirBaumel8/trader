@@ -1,6 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink, Outlet } from 'react-router-dom';
 import { api } from '../api/client';
+import { DAILY_BRIEF_QUERY_KEY, fetchDailyBrief } from '../api/dailyBrief';
 import { Logo } from './Logo';
 
 type Health = { status: string; database: string; userId: string | null };
@@ -36,6 +38,21 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
   }`;
 
 export function AppShell() {
+  const queryClient = useQueryClient();
+
+  // Fired once per app session, not on every route change or click — by the
+  // time the owner actually taps Brief, its slowest part (the AI narrative
+  // call) has often already finished, not just started. Shares Brief's own
+  // staleTime so mounting the real query there does not immediately refetch
+  // what this already just fetched.
+  useEffect(() => {
+    queryClient.prefetchQuery({
+      queryKey: DAILY_BRIEF_QUERY_KEY,
+      queryFn: () => fetchDailyBrief(),
+      staleTime: 300_000,
+    });
+  }, [queryClient]);
+
   return (
     <div className="mx-auto flex min-h-full max-w-3xl flex-col">
       <header className="flex items-center gap-2.5 px-4 pt-4 pb-3">
