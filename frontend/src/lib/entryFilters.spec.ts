@@ -25,10 +25,16 @@ function entry(
   };
 }
 
-const buy = (symbol: string, qty: number, price: number, day = '01') =>
+const buy = (
+  symbol: string,
+  qty: number,
+  price: number,
+  day = '01',
+  netCash = qty * price,
+) =>
   entry({
     occurredAt: `2026-08-${day}T14:30:00.000Z`,
-    trade: { symbol, quantity: qty, price },
+    trade: { symbol, quantity: qty, price, netCash },
   });
 
 describe('hasActiveFilters', () => {
@@ -61,6 +67,16 @@ describe('entryValue', () => {
   });
   it('is positive for a sell, which is still money moved', () => {
     expect(entryValue(buy('NVDA', -10, 200))).toBe(2000);
+  });
+
+  /**
+   * The exact bug found live: a buy's real cash impact includes the fee
+   * (netCash), which is not the same number as bare quantity×price — the
+   * activities list must sort and display by the same figure, not two
+   * different ones that happen to usually be close.
+   */
+  it('is the fee-inclusive netCash, not the bare quantity times price', () => {
+    expect(entryValue(buy('IONQ', 10, 200, '01', -2004))).toBe(2004);
   });
 });
 

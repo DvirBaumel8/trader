@@ -43,14 +43,19 @@ export interface FilterableEntry {
 export type EntrySort = 'NEWEST' | 'OLDEST' | 'LARGEST' | 'SMALLEST';
 
 export interface SortableEntry extends FilterableEntry {
-  trade: { symbol: string; quantity: number; price: number } | null;
+  trade: { symbol: string; quantity: number; price: number; netCash: number } | null;
   cash: { amount: number } | null;
   dividend: { symbol: string; amount: number } | null;
 }
 
-/** What an entry moved, in dollars — the figure the money sorts use. */
+/**
+ * What an entry moved, in dollars — the figure the money sorts use. A
+ * trade's own real, fee-inclusive cash impact, the same figure the
+ * activities list displays — not the bare quantity×price notional, which
+ * would sort by a different number than what's shown next to it.
+ */
 export function entryValue(e: SortableEntry): number {
-  if (e.trade) return Math.abs(e.trade.quantity * e.trade.price);
+  if (e.trade) return Math.abs(e.trade.netCash);
   if (e.cash) return Math.abs(e.cash.amount);
   if (e.dividend) return Math.abs(e.dividend.amount);
   return 0;

@@ -34,6 +34,8 @@ export interface Entry {
     stopExecutions: { stopLevelId: string; quantity: number }[];
     reportedNetCash: number | null;
     reportedBalance: number | null;
+    /** This fill's real, fee-inclusive cash impact — see backend journal.service.ts. */
+    netCash: number;
     reconciliation: {
       expectedNetCash: number;
       expectedBalance: number;
@@ -134,7 +136,7 @@ function ReconciliationNote({ trade }: { trade: NonNullable<Entry['trade']> }) {
  */
 function EntryBody({ entry }: { entry: Entry }) {
   const value = entry.trade
-    ? Math.abs(entry.trade.quantity * entry.trade.price)
+    ? Math.abs(entry.trade.netCash)
     : (entry.cash?.amount ?? entry.dividend?.amount ?? entry.interest?.amount ?? null);
 
   return (

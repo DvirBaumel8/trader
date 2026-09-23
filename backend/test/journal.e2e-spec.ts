@@ -424,6 +424,36 @@ describe('Journal (e2e)', () => {
       expect(res.body.trade.reconciliation).toBeNull();
     });
 
+    /**
+     * The exact bug found live: a buy of 10 @ 200 with fee 4 has a real cash
+     * impact of -2004 (the fee makes the debit bigger), but bare
+     * quantity×price is 2000 — a plain activities list showing that instead
+     * quietly excludes the fee and reads wrong next to what the owner typed
+     * from his own broker confirmation.
+     */
+    it('includes the fee in netCash even when no platform reconciliation was given', async () => {
+      const res = await trade(10, 200, '2026-08-29T14:30:00.000Z', {
+        fee: 4,
+      }).expect(201);
+      expect(res.body.trade.netCash).toBe(-2004);
+    });
+
+    it('reports a sell\'s netCash as the fee-reduced credit', async () => {
+      const res = await trade(-10, 200, '2026-08-29T14:30:00.000Z', {
+        fee: 4,
+      }).expect(201);
+      expect(res.body.trade.netCash).toBe(1996);
+    });
+
+    it('uses the platform\'s own reported net cash as netCash, exactly, when given', async () => {
+      const res = await trade(10, 200, '2026-08-29T14:30:00.000Z', {
+        fee: 4,
+        reportedNetCash: -2004,
+        reportedBalance: 5000,
+      }).expect(201);
+      expect(res.body.trade.netCash).toBe(-2004);
+    });
+
     it('flags no mismatch when the platform numbers match what we derive', async () => {
       // 600 sold @ 36.92, fee 6: net cash = 600*36.92 - 6 = 22146.
       // Starting from a 0 balance, that is also the balance after.

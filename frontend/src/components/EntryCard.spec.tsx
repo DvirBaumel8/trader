@@ -31,6 +31,7 @@ const entry = (reasons: string[], reconciliation: Reconciliation = null): Entry 
     stopExecutions: [],
     reportedNetCash: reconciliation ? 1000 : null,
     reportedBalance: reconciliation ? 5000 : null,
+    netCash: 1000,
     reconciliation,
   },
   cash: null,

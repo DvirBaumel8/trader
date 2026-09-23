@@ -123,6 +123,16 @@ export interface EntryView {
     reportedNetCash: number | null;
     reportedBalance: number | null;
     /**
+     * This fill's real, fee-inclusive cash impact — the platform's own
+     * `reportedNetCash` when given (exact), otherwise `tradeNetCash`
+     * computed from the stored price, fee, and side. Always present, unlike
+     * `reconciliation` below: this is what a plain list of activities
+     * should show as "the amount", not the bare quantity×price notional,
+     * which quietly excludes the fee and reads wrong next to what the
+     * owner typed from his own broker confirmation.
+     */
+    netCash: number;
+    /**
      * Diagnostic comparison against what we derive, present only when both
      * `reportedNetCash` and `reportedBalance` were given. Never fed back
      * into `deriveCash` or position math — see `derive.ts`.
@@ -349,6 +359,7 @@ export class JournalService {
           })),
           reportedNetCash: t.reportedNetCash,
           reportedBalance: t.reportedBalance,
+          netCash: t.reportedNetCash ?? tradeNetCash(t),
           reconciliation:
             t.reportedNetCash != null && t.reportedBalance != null
               ? (() => {
