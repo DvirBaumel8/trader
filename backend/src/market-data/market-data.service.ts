@@ -86,8 +86,16 @@ export class MarketDataService {
    * pre/post print Yahoo already gave us. This is what actually reaches for
    * Twelve Data in production, where Yahoo's crumb-gated quote endpoint is
    * blocked and its fallback carries no extended print at all.
+   *
+   * Public rather than private: `TickerFactsService` calls a raw Yahoo quote
+   * directly on its own fallback path (it needs the provider's own
+   * throw-on-failure behaviour, which `getQuote` deliberately swallows into
+   * a stale/null return) and must apply this exact same augmentation to it —
+   * otherwise a trade idea on a symbol nothing else has warmed in the quote
+   * cache silently reasons from a stale regular-session close during
+   * pre/post-market, the bug found live on IONQ's after-hours news jump.
    */
-  private async augmentWithExtended(raw: RawQuote): Promise<RawQuote> {
+  async augmentWithExtended(raw: RawQuote): Promise<RawQuote> {
     const missingExtended = !raw.extended && raw.session !== 'REGULAR';
     if (!missingExtended) return raw;
     const result = await this.twelveData.extendedPrice(raw.symbol);

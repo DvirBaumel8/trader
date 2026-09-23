@@ -41,6 +41,7 @@ function makeService(opts: {
   quote?: () => unknown;
   dailyBars?: () => unknown;
   peekFreshQuote?: () => Quote | null;
+  augmentWithExtended?: (raw: unknown) => unknown;
   findInstrument?: () => Instrument | null;
   storedRows?: () => DailyClose[];
   recentHeadlines?: () => Promise<NewsHeadline[]>;
@@ -56,6 +57,11 @@ function makeService(opts: {
   // one that ran before this file had a cache to reuse at all.
   const marketData = {
     peekFreshQuote: vi.fn().mockImplementation(opts.peekFreshQuote ?? (() => null)),
+    // Identity by default — a test that cares about the extended-hours
+    // augmentation overrides this to prove it is actually applied.
+    augmentWithExtended: vi
+      .fn()
+      .mockImplementation(opts.augmentWithExtended ?? ((raw: unknown) => Promise.resolve(raw))),
   } as unknown as MarketDataService;
   const history = {
     ensureFresh: vi.fn().mockResolvedValue(undefined),
@@ -250,6 +256,45 @@ describe('TickerFactsService.get — reusing what the rest of the app already fe
   it('never creates an instrument or writes a daily_closes row for an untracked symbol', async () => {
     const { service } = makeService({ findInstrument: () => null });
     await expect(service.get('NVDA')).resolves.toMatchObject({ symbol: 'NVDA' });
+  });
+
+  /**
+   * The exact bug found live: IONQ jumped ~9% after hours on real news, but
+   * a trade idea on a symbol with nothing already warmed in the quote cache
+   * fetched the provider directly and skipped the same Twelve Data
+   * extended-hours augmentation `MarketDataService.getQuote` applies —
+   * so the idea reasoned from the stale regular-session close instead of
+   * the real after-hours price the owner could see on the platform.
+   */
+  it('applies the same extended-hours augmentation as the rest of the app when nothing is cached', async () => {
+    const afterHoursRaw = { ...QUOTE, session: 'POST' as const, extended: false };
+    const augmented = { ...afterHoursRaw, price: 44.9, extended: true };
+    const { service, marketData } = makeService({
+      quote: async () => afterHoursRaw,
+      augmentWithExtended: () => Promise.resolve(augmented),
+    });
+
+    const facts = await service.get('NVDA');
+
+    expect(marketData.augmentWithExtended).toHaveBeenCalledWith(afterHoursRaw);
+    expect(facts.price).toBe(44.9);
+    expect(facts.extended).toBe(true);
+  });
+
+  it('does not re-augment a quote already fresh in the shared cache — it was already applied there', async () => {
+    const cached = {
+      ...QUOTE,
+      stale: false,
+      session: 'POST' as const,
+      extended: true,
+      price: 44.9,
+    } as Quote;
+    const { service, marketData } = makeService({ peekFreshQuote: () => cached });
+
+    const facts = await service.get('NVDA');
+
+    expect(marketData.augmentWithExtended).not.toHaveBeenCalled();
+    expect(facts.price).toBe(44.9);
   });
 });
 

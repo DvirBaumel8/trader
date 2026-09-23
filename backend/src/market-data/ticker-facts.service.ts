@@ -137,16 +137,26 @@ export class TickerFactsService {
   /**
    * A fresh quote already sitting in the shared cache (the portfolio poll,
    * the watchlist, a refresh button) is reused instead of asking Yahoo
-   * again. `peekFreshQuote` never calls the provider and never returns a
-   * degraded stale fallback, so a miss here still goes straight to
-   * `this.yahoo.quote` — preserving the exact throw-on-failure behavior
-   * `get` depends on to tell "the provider is down" apart from "the ticker
-   * does not exist".
+   * again — already carrying `MarketDataService`'s own extended-hours
+   * augmentation, so nothing more is needed here.
+   *
+   * A miss still goes straight to `this.yahoo.quote` rather than
+   * `MarketDataService.getQuote`, preserving the exact throw-on-failure
+   * behavior `get` depends on to tell "the provider is down" apart from "the
+   * ticker does not exist" (`getQuote` deliberately swallows a provider
+   * failure into a stale-or-null return, which this cannot afford). But the
+   * raw quote that comes back is run through the SAME `augmentWithExtended`
+   * `getQuote` itself applies — without this, a symbol nothing else has
+   * warmed in the quote cache would silently reason from a stale
+   * regular-session close during pre/post-market, exactly the bug found
+   * live on IONQ's after-hours news jump.
    */
-  private resolveQuote(symbol: string): Promise<RawQuote | Quote | null> {
+  private async resolveQuote(symbol: string): Promise<RawQuote | Quote | null> {
     const cached = this.marketData.peekFreshQuote(symbol);
-    if (cached) return Promise.resolve(cached);
-    return this.yahoo.quote(symbol);
+    if (cached) return cached;
+    const raw = await this.yahoo.quote(symbol);
+    if (!raw) return null;
+    return this.marketData.augmentWithExtended(raw);
   }
 
   /**
