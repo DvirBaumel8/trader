@@ -668,4 +668,55 @@ describe('computeAtRisk', () => {
       expect.objectContaining({ symbol: 'A', issue: 'OVER_COVERED' }),
     ]);
   });
+
+  /**
+   * Distinct from `stopPlanNeedsUpdate`'s OVER_COVERED case above (recorded
+   * tiers add up to MORE than what's held — a data problem to fix) and from
+   * `positionsWithoutStop` (no plan at all): here the plan is perfectly
+   * healthy, it just deliberately or accidentally protects fewer shares
+   * than are held. The uncovered remainder is exactly as unbounded a risk
+   * as having no stop at all, so it must stay visible the same way.
+   */
+  it('flags a position whose stop covers only part of the position, with no other issue', () => {
+    const result = computeAtRisk(
+      [{ symbol: 'A', quantity: 100, price: 110 }],
+      new Map([
+        ['A', plan({ avgEntry: 100, levels: [fixed(90, 40)] })], // covers 40 of 100
+      ]),
+    );
+
+    expect(result.positionsWithPartialStop).toEqual({
+      count: 1,
+      positions: [{ symbol: 'A', coveredQuantity: 40, heldQuantity: 100 }],
+    });
+    expect(result.stopPlanNeedsUpdate.count).toBe(0);
+    expect(result.positionsWithoutStop.symbols).toEqual([]);
+  });
+
+  it('does not double-flag an over-covered plan as also partially stopped', () => {
+    const result = computeAtRisk(
+      [{ symbol: 'A', quantity: 100, price: 110 }],
+      new Map([['A', plan({ avgEntry: 100, levels: [fixed(90, 150)] })]]),
+    );
+
+    expect(result.positionsWithPartialStop).toEqual({ count: 0, positions: [] });
+  });
+
+  it('does not flag a fully-covered position as partially stopped', () => {
+    const result = computeAtRisk(
+      [{ symbol: 'A', quantity: 100, price: 110 }],
+      new Map([['A', plan({ avgEntry: 100, levels: [fixed(90, 100)] })]]),
+    );
+
+    expect(result.positionsWithPartialStop).toEqual({ count: 0, positions: [] });
+  });
+
+  it('does not count a position with no stop at all as partially stopped', () => {
+    const result = computeAtRisk(
+      [{ symbol: 'A', quantity: 100, price: 110 }],
+      new Map(),
+    );
+
+    expect(result.positionsWithPartialStop).toEqual({ count: 0, positions: [] });
+  });
 });

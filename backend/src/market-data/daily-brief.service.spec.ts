@@ -166,6 +166,43 @@ describe('DailyBriefService', () => {
     expect(move?.detail).not.toMatch(/no stop/i);
   });
 
+  it('mentions a partial stop on a portfolio position with a notable move', async () => {
+    const dates = Array.from({ length: 20 }, (_, i) => `2026-08-${String(i + 1).padStart(2, '0')}`);
+    const bars = dates.map((date, i) => ({
+      instrumentId: 'nvda',
+      date,
+      close: i === 19 ? 103 : 100,
+      high: i === 19 ? 104 : 101,
+      low: i === 19 ? 99 : 99,
+      volume: 1_000_000,
+    }));
+    const service = new DailyBriefService(
+      {
+        getPortfolio: vi.fn().mockResolvedValue({
+          positions: [{ symbol: 'NVDA', price: 103, regularPrice: 103, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null }],
+          atRisk: {
+            positionsWithoutStop: { count: 0, symbols: [] },
+            positionsWithPartialStop: {
+              count: 1,
+              positions: [{ symbol: 'NVDA', coveredQuantity: 40, heldQuantity: 100 }],
+            },
+          },
+        }),
+      } as any,
+      { list: vi.fn().mockResolvedValue([]) } as any,
+      { find: vi.fn().mockResolvedValue(bars) } as any,
+      { find: vi.fn().mockResolvedValue([{ id: 'nvda', symbol: 'NVDA' }]) } as any,
+      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
+      { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
+    );
+
+    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
+
+    const move = result.notes.find((note) => note.kind === 'ATR_MOVE');
+    expect(move?.detail).toMatch(/partial stop/i);
+    expect(move?.detail).not.toMatch(/no stop/i);
+  });
+
   it('names the day\'s biggest mover when nothing else earns a note', async () => {
     const dates = Array.from({ length: 20 }, (_, i) => `2026-08-${String(i + 1).padStart(2, '0')}`);
     // A move clearly smaller than the ATR (~1.0 from the flat prior days),

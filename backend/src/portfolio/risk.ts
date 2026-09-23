@@ -419,6 +419,22 @@ export function evaluateStopPlan(input: {
 export interface AtRiskResult {
   amount: number;
   positionsWithoutStop: { count: number; symbols: string[] };
+  /**
+   * A healthy, current plan that simply protects fewer shares than are
+   * held — not the same as `stopPlanNeedsUpdate`'s OVER_COVERED (tiers add
+   * up to MORE than held, a data problem) or UNRESOLVED_TRAILING (a
+   * different tier cannot be priced at all). The uncovered remainder here
+   * is exactly as unbounded a risk as `positionsWithoutStop`, just for part
+   * of the position rather than all of it.
+   */
+  positionsWithPartialStop: {
+    count: number;
+    positions: Array<{
+      symbol: string;
+      coveredQuantity: number;
+      heldQuantity: number;
+    }>;
+  };
   stopPlanNeedsUpdate: {
     count: number;
     positions: Array<{
@@ -474,6 +490,7 @@ export function computeAtRisk(
   let amount = 0;
   const symbolsWithoutStop: string[] = [];
   const needsUpdate: AtRiskResult['stopPlanNeedsUpdate']['positions'] = [];
+  const partiallyStopped: AtRiskResult['positionsWithPartialStop']['positions'] = [];
 
   for (const p of positions) {
     const plan = currentStopsBySymbol.get(p.symbol);
@@ -533,6 +550,15 @@ export function computeAtRisk(
         recordedQuantity: status.recordedQuantity,
         heldQuantity: status.heldQuantity,
       });
+    } else if (!risk.fullyCovered && risk.coveredQuantity > EPSILON) {
+      // A healthy plan (no OVER_COVERED/UNRESOLVED_TRAILING data problem)
+      // that simply protects fewer shares than are held — the uncovered
+      // remainder is real, unbounded risk, same as no stop at all.
+      partiallyStopped.push({
+        symbol: p.symbol,
+        coveredQuantity: risk.coveredQuantity,
+        heldQuantity: status.heldQuantity,
+      });
     }
   }
 
@@ -541,6 +567,10 @@ export function computeAtRisk(
     positionsWithoutStop: {
       count: symbolsWithoutStop.length,
       symbols: symbolsWithoutStop,
+    },
+    positionsWithPartialStop: {
+      count: partiallyStopped.length,
+      positions: partiallyStopped,
     },
     stopPlanNeedsUpdate: {
       count: needsUpdate.length,

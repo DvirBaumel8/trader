@@ -43,7 +43,14 @@ interface Position {
 interface Portfolio {
   positions: Position[];
   accountValue: number;
-  atRisk: { amount: number; positionsWithoutStop: { count: number; symbols: string[] } };
+  atRisk: {
+    amount: number;
+    positionsWithoutStop: { count: number; symbols: string[] };
+    positionsWithPartialStop: {
+      count: number;
+      positions: { symbol: string; coveredQuantity: number; heldQuantity: number }[];
+    };
+  };
   stopTiers: StopTierRow[];
 }
 
@@ -262,6 +269,83 @@ function UnstoppedPositions({
   );
 }
 
+/**
+ * A healthy plan that simply protects fewer shares than are held — not the
+ * same as `UnstoppedPositions` (no plan at all), but the uncovered
+ * remainder is exactly as unbounded a risk, so it gets the same visual
+ * weight rather than being invisible next to a fully-covered position.
+ */
+function PartialStopPositions({
+  positions,
+}: {
+  positions: Array<Position & { coveredQuantity: number; heldQuantity: number }>;
+}) {
+  if (positions.length === 0) return null;
+
+  const sorted = [...positions].sort(
+    (a, b) => Math.abs(b.marketValue ?? 0) - Math.abs(a.marketValue ?? 0),
+  );
+
+  return (
+    <section className="rounded-xl border border-down/40 bg-down/10 p-3">
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-down">
+        Partial stop · {positions.length}{' '}
+        {positions.length === 1 ? 'position' : 'positions'}
+      </div>
+      <ul>
+        {sorted.map((p) => {
+          const content = (
+            <div className="flex items-baseline justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[15px] font-semibold leading-tight">
+                    {p.symbol}
+                  </span>
+                  {p.quantity < 0 && (
+                    <span className="rounded bg-down/15 px-1 py-px text-[9px] font-medium tracking-wide text-down">
+                      SHORT
+                    </span>
+                  )}
+                  {p.stale && (
+                    <span className="text-[9px] tracking-wide text-down">
+                      STALE
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 truncate text-[11px] leading-tight text-muted">
+                  {formatQuantity(p.coveredQuantity)} of{' '}
+                  {formatQuantity(p.heldQuantity)} sh covered
+                </div>
+              </div>
+              <div className="shrink-0 text-right text-[13px] font-medium leading-tight text-down">
+                {formatQuantity(p.heldQuantity - p.coveredQuantity)} sh
+                unprotected
+              </div>
+            </div>
+          );
+          return (
+            <li
+              key={p.symbol}
+              className="border-b border-down/20 py-2 last:border-0 last:pb-0"
+            >
+              {p.tradeId !== null ? (
+                <Link
+                  to={`/trades/${encodeURIComponent(p.tradeId)}`}
+                  className="block"
+                >
+                  {content}
+                </Link>
+              ) : (
+                content
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export function Stops() {
   const [dir, setDir] = useState<StopSortDir>(
     () => loadDraft(SORT_KEY, { dir: DEFAULT_DIR }).dir,
@@ -299,6 +383,14 @@ export function Stops() {
   const unstoppedPositions = data.positions.filter((p) =>
     unstoppedSymbols.has(p.symbol),
   );
+  const positionBySymbol = new Map(data.positions.map((p) => [p.symbol, p]));
+  const partiallyStoppedPositions: Array<
+    Position & { coveredQuantity: number; heldQuantity: number }
+  > = [];
+  for (const coverage of data.atRisk.positionsWithPartialStop.positions) {
+    const p = positionBySymbol.get(coverage.symbol);
+    if (p) partiallyStoppedPositions.push({ ...p, ...coverage });
+  }
   const sortedTiers = sortStopTiers(data.stopTiers, dir);
 
   // Every position is priced in the same market session, so the badge is a
@@ -378,6 +470,7 @@ export function Stops() {
         positions={unstoppedPositions}
         accountValue={data.accountValue}
       />
+      <PartialStopPositions positions={partiallyStoppedPositions} />
 
       <section>
         <div className="mb-2 flex items-center justify-between">

@@ -42,6 +42,10 @@ interface Position {
 interface AtRisk {
   amount: number;
   positionsWithoutStop: { count: number; symbols: string[] };
+  positionsWithPartialStop: {
+    count: number;
+    positions: { symbol: string; coveredQuantity: number; heldQuantity: number }[];
+  };
 }
 
 interface Portfolio {
@@ -312,6 +316,20 @@ export function Dashboard() {
                 ? 'POSITION'
                 : 'POSITIONS'}{' '}
               WITHOUT A STOP
+            </div>
+          )}
+          {data.atRisk.positionsWithPartialStop.count > 0 && (
+            <div
+              className="mt-0.5 text-[10px] tracking-wide text-down"
+              title={data.atRisk.positionsWithPartialStop.positions
+                .map((p) => p.symbol)
+                .join(', ')}
+            >
+              +{data.atRisk.positionsWithPartialStop.count}{' '}
+              {data.atRisk.positionsWithPartialStop.count === 1
+                ? 'POSITION'
+                : 'POSITIONS'}{' '}
+              WITH A PARTIAL STOP
             </div>
           )}
         </div>

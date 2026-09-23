@@ -135,6 +135,18 @@ export class DailyBriefService {
     const symbolsWithoutStop = new Set<string>(
       portfolio.atRisk?.positionsWithoutStop?.symbols ?? [],
     );
+    // A healthy plan that simply covers fewer shares than are held — the
+    // uncovered remainder is exactly as unbounded a risk as no stop at
+    // all, so a notable move on it deserves the same callout, worded for
+    // what's actually true of it.
+    const partialStopBySymbol = new Map<string, { coveredQuantity: number; heldQuantity: number }>(
+      (portfolio.atRisk?.positionsWithPartialStop?.positions ?? []).map(
+        (p: { symbol: string; coveredQuantity: number; heldQuantity: number }) => [
+          p.symbol,
+          { coveredQuantity: p.coveredQuantity, heldQuantity: p.heldQuantity },
+        ],
+      ),
+    );
     const notes: DailyBriefResponse['notes'] = [];
     for (const symbol of symbols) {
       const price = coverageBySymbol.get(symbol)?.price;
@@ -147,9 +159,14 @@ export class DailyBriefService {
           bars: barsByInstrument.get(instrument.id) ?? [],
           spyBars,
         });
+        const partialStop = partialStopBySymbol.get(symbol);
         if (symbolsWithoutStop.has(symbol)) {
           for (const note of symbolNotes) {
             note.detail = `${note.detail} No stop is set on this position.`;
+          }
+        } else if (partialStop) {
+          for (const note of symbolNotes) {
+            note.detail = `${note.detail} Partial stop: only ${partialStop.coveredQuantity} of ${partialStop.heldQuantity} shares are covered.`;
           }
         }
         notes.push(...symbolNotes);

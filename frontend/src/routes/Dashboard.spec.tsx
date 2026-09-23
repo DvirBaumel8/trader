@@ -122,6 +122,19 @@ describe('Dashboard holdings table', () => {
     expect(rows).toEqual(['holding-SOON', 'holding-LATE', 'holding-ETF']);
   });
 
+  it('flags positions with only a partial stop, alongside those with none', async () => {
+    renderDashboard([position('NVDA', 100)], '/', {
+      positionsWithoutStop: { count: 1, symbols: ['MSFT'] },
+      positionsWithPartialStop: {
+        count: 1,
+        positions: [{ symbol: 'NVDA', coveredQuantity: 40, heldQuantity: 100 }],
+      },
+    });
+
+    expect(await screen.findByText(/without a stop/i)).toBeInTheDocument();
+    expect(screen.getByText(/with a partial stop/i)).toBeInTheDocument();
+  });
+
   it('remembers when the portfolio overview is minimized', async () => {
     const first = renderDashboard([position('NVDA', 100)]);
     const user = userEvent.setup();
@@ -139,7 +152,17 @@ describe('Dashboard holdings table', () => {
   });
 });
 
-function renderDashboard(positions: ReturnType<typeof position>[], initialPath = '/') {
+function renderDashboard(
+  positions: ReturnType<typeof position>[],
+  initialPath = '/',
+  atRiskOverrides: Partial<{
+    positionsWithoutStop: { count: number; symbols: string[] };
+    positionsWithPartialStop: {
+      count: number;
+      positions: { symbol: string; coveredQuantity: number; heldQuantity: number }[];
+    };
+  }> = {},
+) {
   (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
     if (path.startsWith('/performance'))
       return Promise.resolve({ points: [] });
@@ -156,6 +179,8 @@ function renderDashboard(positions: ReturnType<typeof position>[], initialPath =
         atRisk: {
           amount: 100,
           positionsWithoutStop: { count: 0, symbols: [] },
+          positionsWithPartialStop: { count: 0, positions: [] },
+          ...atRiskOverrides,
         },
       });
     return Promise.resolve({});
