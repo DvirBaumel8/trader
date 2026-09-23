@@ -178,18 +178,48 @@ Render's free tier allows 750 instance hours a month. A service kept awake
 around the clock uses about 730, so a permanent keep-warm ping fits inside
 the cap — but only for a single free service.
 
-1. Create a free account at uptimerobot.com.
-2. Add an **HTTP(s)** monitor:
-   - URL: `https://trader-backend-ufhg.onrender.com/health/ping`
-   - Interval: 5 minutes.
-3. That's all. `/health/ping` returns a static `{"status":"ok"}` and touches
-   no database (`backend/src/health/health.controller.ts`) — the ping keeps
-   Render's instance awake without waking Neon or spending its database
-   compute every five minutes.
+A small Cloudflare Worker under `keepalive/` does this, the same solution
+already proven in the sibling `sapako` project — no third-party monitoring
+account, just the Cloudflare credentials this repo already has for Pages:
 
-This does not remove the cold start after a deploy, or if the ping lapses,
-and it does not need to help the database — Neon's own free-tier
+```
+Cloudflare Cron Trigger (every 5 minutes)
+  -> keepalive Worker scheduled handler
+  -> GET https://trader-backend-ufhg.onrender.com/health/ping
+  -> Render free web service stays active
+```
+
+- `keepalive/src/index.ts` is the scheduled handler and its testable
+  health-check function; `keepalive/src/index.test.ts` covers success, a
+  non-2xx response, and a network failure with a mocked `fetch`.
+- `keepalive/wrangler.jsonc` declares the Worker name, entrypoint, and the
+  `*/5 * * * *` Cron Trigger. `workers_dev` is disabled — the Worker has no
+  public route and cannot be used as a proxy or triggered externally.
+- `.github/workflows/deploy-keepalive.yml` tests, typechecks, and deploys the
+  Worker on pushes touching `keepalive/**`, using the same
+  `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repo secrets
+  `deploy-web.yml` already uses. Every branch verifies it; only `main`
+  replaces the shared production Worker.
+- It hits `/health/ping` specifically, not `/health` — that endpoint is
+  deliberately DB-free (`backend/src/health/health.controller.ts`), so the
+  keep-warm ping never re-wakes Neon or spends its database compute every
+  five minutes.
+- A failed ping logs to the Worker's Cloudflare logs and does not retry — the
+  next Cron Trigger tries again five minutes later. This is a keepalive, not
+  an availability monitor: it doesn't page or email anyone.
+
+One-time setup: push this repo (the workflow deploys on any branch touching
+`keepalive/**`, and replaces the production Worker only from `main`). No
+Cloudflare dashboard steps beyond the Pages ones you already did in step 0 —
+the same API token covers Workers.
+
+This does not remove the cold start after a deploy, or if the Cron Trigger
+lapses, and it does not need to help the database — Neon's own free-tier
 scale-to-zero wakes in well under a second, which nobody notices.
+
+If an UptimeRobot monitor from an earlier setup is still pointed at this
+service, delete it once the Worker is deployed and confirmed — running both
+is harmless but redundant.
 
 ## 6. Move the real portfolio data
 
