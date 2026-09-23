@@ -104,12 +104,17 @@ describe('Watchlist ranking (e2e)', () => {
     expect(llmStub.complete.mock.calls.length).toBe(1);
   });
 
-  it('ranks with the cheaper Flash-Lite model, conserving the default model\'s tighter free-tier quota', async () => {
+  it('ranks with the same default model every other AI feature uses', async () => {
+    // Previously routed to gemini-2.5-flash-lite for its larger free-tier
+    // quota, but that model rejects thinkingConfig outright — see
+    // llm.client.ts's 'NONE' thinking level — and, worse, was unreliable
+    // about the [RANK] output format with no thinking budget to spend on it.
+    // Reliability won out over quota headroom.
     await add({ symbol: 'NVDA' }).expect(201);
     const res = await http(app, token).post('/watchlist/ranking/refresh').expect(201);
 
-    expect(llmStub.complete.mock.calls[0][0].model).toBe('gemini-2.5-flash-lite');
-    expect(res.body.model).toBe('gemini-2.5-flash-lite');
+    expect(llmStub.complete.mock.calls[0][0].model).toBeUndefined();
+    expect(res.body.model).toBe('stub-ranking-model');
   });
 
   it('serves the stored ranking without calling the model again', async () => {
