@@ -349,6 +349,26 @@ describe('MarketDataService', () => {
       expect(map.get('NVDA')).toMatchObject({ price: 218.4, extended: true });
     });
 
+    it("keeps the caller's symbol order for Twelve Data even when the provider answers out of order", async () => {
+      // Yahoo's batch response is not contracted to preserve request order.
+      // `getQuotes(['NVDA', 'META'])` means NVDA is higher priority for the
+      // shared Twelve Data budget — that must hold even if the provider
+      // hands META back first.
+      const meta: RawQuote = { ...noExtendedPrint, symbol: 'META' };
+      const { client, calls } = fakeTwelveData(218.4);
+      // fakeClient returns quotes in ITS OWN array order (META before NVDA),
+      // the reverse of the requested priority.
+      const svc = new MarketDataService(
+        fakeClient([meta, noExtendedPrint]),
+        undefined,
+        client,
+      );
+
+      await svc.getQuotes(['NVDA', 'META']);
+
+      expect(calls).toEqual(['NVDA', 'META']);
+    });
+
     it('skips Twelve Data entirely when the caller passes augment: false', async () => {
       // The watchlist's own call — a shared 8-requests-a-minute budget must
       // not go to a decorative price when account value and Stops need it.

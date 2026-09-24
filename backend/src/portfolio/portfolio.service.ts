@@ -136,8 +136,31 @@ export class PortfolioService {
 
     const heldSymbols = derived.map((p) => p.symbol);
     const heldInstruments = instrumentRows.filter((i) => heldSymbols.includes(i.symbol));
+
+    // Pulled forward from below, purely so its stop plans are known BEFORE
+    // quotes are requested — see `heldSymbolsByPriority` immediately after.
+    // `deriveAllTrades` reads only transactions/stop rows, never quotes, so
+    // this reordering costs nothing else.
+    const openTrades = (await this.trades.deriveAllTrades()).filter(
+      (t) => t.isOpen,
+    );
+    const symbolsWithCurrentStop = new Set(
+      openTrades.filter((t) => t.currentStops.length > 0).map((t) => t.symbol),
+    );
+    // The Stops page's own distances matter more than account value's
+    // running total, which matters more than the watchlist's decorative
+    // price (already excluded — see `WatchlistService.list`'s `augment:
+    // false`). Twelve Data's extended-price second opinion is an 8-a-minute
+    // budget shared across every symbol asked in the same call (see
+    // `MarketDataService.getQuotes`'s doc comment), and that budget is spent
+    // in array order — a burst of held symbols large enough to exceed it
+    // must not leave a stopped position behind a bare one by accident.
+    const heldSymbolsByPriority = [...heldSymbols].sort(
+      (a, b) => Number(symbolsWithCurrentStop.has(b)) - Number(symbolsWithCurrentStop.has(a)),
+    );
+
     const [quotes, earningsBySymbol] = await Promise.all([
-      this.marketData.getQuotes(heldSymbols, opts.refresh === true),
+      this.marketData.getQuotes(heldSymbolsByPriority, opts.refresh === true),
       this.earnings.daysUntil(heldInstruments),
     ]);
     // Production prices come from Yahoo's chart endpoint, which carries no
@@ -145,9 +168,6 @@ export class PortfolioService {
     // trailing EPS. A no-op where the quote already had one.
     await this.fundamentals.fillMissingPeRatios(quotes);
 
-    const openTrades = (await this.trades.deriveAllTrades()).filter(
-      (t) => t.isOpen,
-    );
     const openTradeBySymbol = new Map(
       openTrades.map((t) => [t.symbol, tradeId(t.symbol, t.enteredAt)]),
     );

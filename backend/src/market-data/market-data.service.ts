@@ -232,8 +232,21 @@ export class MarketDataService {
 
     try {
       const rawQuotes = await this.yahoo.quoteMany(missing);
+      // Twelve Data's budget is spent in array order (see
+      // `TwelveDataClient.hasBudget`), so a caller's priority — `missing`'s
+      // own order, e.g. `PortfolioService` putting stopped symbols first —
+      // must survive here even though Yahoo's batch response is not
+      // contracted to come back in request order.
+      const priority = new Map(missing.map((symbol, index) => [symbol, index]));
+      const ordered = augment
+        ? [...rawQuotes].sort(
+            (a, b) =>
+              (priority.get(a.symbol.toUpperCase()) ?? 0) -
+              (priority.get(b.symbol.toUpperCase()) ?? 0),
+          )
+        : rawQuotes;
       const enriched = augment
-        ? await Promise.all(rawQuotes.map((raw) => this.augmentWithExtended(raw)))
+        ? await Promise.all(ordered.map((raw) => this.augmentWithExtended(raw)))
         : rawQuotes;
       for (const raw of enriched) {
         const key = raw.symbol.toUpperCase();
