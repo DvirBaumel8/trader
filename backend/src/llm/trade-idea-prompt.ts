@@ -19,7 +19,7 @@ import { NEWS_LOOKBACK_DAYS } from '../market-data/news.service.js';
 export function buildTradeIdeaPrompt(
   facts: TickerFacts,
   usualRisk: number | null,
-  context?: { book: string; record: string },
+  context?: { book: string; record: string; note?: string },
 ): string {
   const i = facts.indicators;
 
@@ -74,8 +74,13 @@ export function buildTradeIdeaPrompt(
     );
   }
 
-  return `I am thinking about buying ${facts.symbol} at the current price. Tell me what you actually think.
+  const trimmedNote = context?.note?.trim();
+  const noteBlock = trimmedNote
+    ? `\nHIS OWN NOTE ON THIS IDEA — his own reasoning for asking, not verified data. If it states something as fact, weigh it as his belief rather than confirmed information, and say so plainly if it conflicts with the facts above or the real news below:\n"${trimmedNote}"\n`
+    : '';
 
+  return `I am thinking about buying ${facts.symbol} at the current price. Tell me what you actually think.
+${noteBlock}
 Answer three things, in this order:
 1. Does this fit the way I trade? Use my profile above — my setups, my rules,
    my stated weaknesses — AND my book and my record below. If I already hold

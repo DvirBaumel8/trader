@@ -514,6 +514,11 @@ export function Ideas() {
   // mid-read is the normal way this screen gets used. The result matters
   // most: it cost a model call, and losing it means paying for it twice.
   const [symbol, setSymbol] = usePersistentState('trader.ideas.symbol', '');
+  // His own free-text reasoning for asking, optional — see trade-idea-prompt.ts
+  // for how it's framed to the model. Survives an app discard the same way
+  // symbol does, so a half-typed thought is not lost.
+  const [note, setNote] = usePersistentState('trader.ideas.note', '');
+  const [noteOpen, setNoteOpen] = useState(false);
   const [openId, setOpenId] = usePersistentState<string | null>(
     'trader.ideas.openId',
     null,
@@ -538,7 +543,7 @@ export function Ideas() {
     navigate(-1);
   };
 
-  async function generate(ticker: string) {
+  async function generate(ticker: string, note?: string) {
     setResultReasoningOpen(undefined);
     setGenerateState({ status: 'streaming', text: '' });
     let text = '';
@@ -560,7 +565,7 @@ export function Ideas() {
             setGenerateState({ status: 'streaming', text });
           }
         },
-        { symbol: ticker },
+        note ? { symbol: ticker, note } : { symbol: ticker },
       );
     } catch (err) {
       setGenerateState({ status: 'error', message: errorMessage(err) });
@@ -594,7 +599,7 @@ export function Ideas() {
     event.preventDefault();
     const ticker = symbol.trim().toUpperCase();
     if (!ticker || generateState.status === 'streaming') return;
-    void generate(ticker);
+    void generate(ticker, note.trim() || undefined);
   }
 
   /**
@@ -646,6 +651,31 @@ export function Ideas() {
           )}
         </button>
       </form>
+
+      {/*
+        Collapsed by default — the common case is still just a ticker, and
+        this must never slow that down. Shown open when a note already has
+        text (e.g. restored after an app discard) so it's never hidden
+        behind an extra tap.
+      */}
+      {note || noteOpen ? (
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Add context (optional) — why are you looking at this, or what have you seen?"
+          rows={2}
+          maxLength={2000}
+          className="w-full resize-none rounded-lg border border-border bg-surface-1 px-3 py-2.5 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setNoteOpen(true)}
+          className="text-xs font-medium text-muted underline decoration-dotted underline-offset-4"
+        >
+          + Add context
+        </button>
+      )}
 
       {generateState.status === 'streaming' && generateState.text && (
         // Growing text, not yet the finished card — no levels/risk/facts

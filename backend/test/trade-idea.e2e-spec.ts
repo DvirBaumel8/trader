@@ -133,6 +133,34 @@ describe('Trade idea (e2e)', () => {
     expect(prompts.at(-1)).toContain('RECENT NEWS: none found in the last 7 days.');
   });
 
+  it('carries an owner-supplied note through to the real prompt the model reads', async () => {
+    prompts.length = 0;
+    await http(app, token)
+      .post('/ai/trade-idea')
+      .send({ symbol: 'NVDA', note: 'Heard a buyback rumor on a podcast.' })
+      .expect(201);
+
+    expect(prompts.at(-1)).toContain('Heard a buyback rumor on a podcast.');
+    expect(prompts.at(-1)).toMatch(/his own|not verified|not a fact|his belief/i);
+  });
+
+  it('asks perfectly well with no note at all — the common case', async () => {
+    prompts.length = 0;
+    await http(app, token)
+      .post('/ai/trade-idea')
+      .send({ symbol: 'NVDA' })
+      .expect(201);
+
+    expect(prompts.at(-1)).not.toMatch(/his own note/i);
+  });
+
+  it('rejects a note past the length cap', async () => {
+    await http(app, token)
+      .post('/ai/trade-idea')
+      .send({ symbol: 'NVDA', note: 'x'.repeat(2001) })
+      .expect(400);
+  });
+
   it('shows the prose and NO derived numbers when the levels cannot be read', async () => {
     const res = await http(app, token)
       .post('/ai/trade-idea')

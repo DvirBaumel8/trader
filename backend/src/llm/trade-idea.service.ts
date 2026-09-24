@@ -80,7 +80,7 @@ export class TradeIdeaService {
    * the usual risk, and the assembled prompt. Neither the model call nor
    * persistence lives here, so both callers stay free to handle those
    * differently. */
-  private async buildIdeaContext(upper: string) {
+  private async buildIdeaContext(upper: string, note?: string) {
     // The book and the record, not just the chart. Without them the model
     // answered "should I open this?" when he already held 4,600 shares of the
     // name — see trade-idea-context.ts.
@@ -119,12 +119,13 @@ export class TradeIdeaService {
     const user = buildTradeIdeaPrompt(facts, usualRisk, {
       book: buildBookSection(book, upper),
       record: buildRecordSection(stats, upper),
+      note,
     });
 
     return { facts, book, usualRisk, system, user };
   }
 
-  async analyse(symbol: string): Promise<TradeIdeaResult> {
+  async analyse(symbol: string, note?: string): Promise<TradeIdeaResult> {
     const upper = symbol.trim().toUpperCase();
 
     // Short-circuit before any market data is fetched: with no key there is
@@ -145,7 +146,7 @@ export class TradeIdeaService {
       };
     }
 
-    const { facts, book, usualRisk, system, user } = await this.buildIdeaContext(upper);
+    const { facts, book, usualRisk, system, user } = await this.buildIdeaContext(upper, note);
 
     let raw: string;
     try {
@@ -249,7 +250,7 @@ export class TradeIdeaService {
    * line here is already LEVELS-free and placeholder-substituted; nothing
    * further needs doing to it before display.
    */
-  async *analyseStream(symbol: string): AsyncGenerator<string> {
+  async *analyseStream(symbol: string, note?: string): AsyncGenerator<string> {
     const emit = (data: TradeIdeaStreamDone) => `${JSON.stringify(data)}\n`;
     const upper = symbol.trim().toUpperCase();
 
@@ -269,7 +270,7 @@ export class TradeIdeaService {
       return;
     }
 
-    const { facts, book, usualRisk, system, user } = await this.buildIdeaContext(upper);
+    const { facts, book, usualRisk, system, user } = await this.buildIdeaContext(upper, note);
 
     try {
       const raw = this.llm.completeStream({

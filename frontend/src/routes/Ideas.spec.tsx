@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -130,6 +130,74 @@ describe('Ideas — asking for an opinion', () => {
       await screen.findByText('This looks like a solid breakout.'),
     ).toBeInTheDocument();
     resolveSecondRead();
+  });
+
+  it('starts with the free-text context collapsed behind a toggle', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      streamedNdjsonResponse([
+        '{"done":true,"configured":true,"symbol":"NVDA","facts":null,"levels":null,"risk":null,"levelsUnreadable":false,"error":null,"errorKind":null}\n',
+      ]),
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter><Ideas /></MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText('+ Add context')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/why are you looking/i)).not.toBeInTheDocument();
+  });
+
+  it('sends the free-text note alongside the symbol once revealed and filled in', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      streamedNdjsonResponse([
+        '{"done":true,"configured":true,"symbol":"NVDA","facts":null,"levels":null,"risk":null,"levelsUnreadable":false,"error":null,"errorKind":null}\n',
+      ]),
+    );
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter><Ideas /></MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.type(screen.getByPlaceholderText('Ticker, e.g. NVDA'), 'NVDA');
+    await user.click(screen.getByText('+ Add context'));
+    await user.type(
+      screen.getByPlaceholderText(/why are you looking/i),
+      'Heard a buyback rumor on a podcast.',
+    );
+    await user.click(screen.getByRole('button', { name: 'Ask' }));
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body).toEqual({
+      symbol: 'NVDA',
+      note: 'Heard a buyback rumor on a podcast.',
+    });
+  });
+
+  it('omits the note entirely when the box was never used — the common case', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      streamedNdjsonResponse([
+        '{"done":true,"configured":true,"symbol":"NVDA","facts":null,"levels":null,"risk":null,"levelsUnreadable":false,"error":null,"errorKind":null}\n',
+      ]),
+    );
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter><Ideas /></MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.type(screen.getByPlaceholderText('Ticker, e.g. NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'Ask' }));
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body).toEqual({ symbol: 'NVDA' });
   });
 
   it('keeps the finished streamed reasoning visible once the done line arrives', async () => {

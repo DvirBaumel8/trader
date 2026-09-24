@@ -74,7 +74,7 @@ describe('LlmController', () => {
 
     await controller.tradeIdeaStream({ symbol: 'nvda' }, res as never);
 
-    expect(tradeIdeas.analyseStream).toHaveBeenCalledWith('nvda');
+    expect(tradeIdeas.analyseStream).toHaveBeenCalledWith('nvda', undefined);
     expect(res.setHeader).toHaveBeenCalledWith(
       'Content-Type',
       'application/x-ndjson; charset=utf-8',
@@ -84,6 +84,27 @@ describe('LlmController', () => {
       '{"done":true,"configured":true,"symbol":"NVDA","facts":null,"levels":{"stop":10,"target":20},"risk":null,"levelsUnreadable":false,"error":null,"errorKind":null}\n',
     ]);
     expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /ai/trade-idea passes the owner\'s note through to the service', async () => {
+    const tradeIdeas = fakeTradeIdeas();
+    (tradeIdeas.analyse as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    const controller = new LlmController(
+      {} as LlmService,
+      fakeSummaries(),
+      tradeIdeas,
+      fakeTradeIdeaHistory(),
+      fakeTradeReviews(),
+      fakeSymbolPatterns(),
+      fakeOutcomes(),
+    );
+
+    await controller.tradeIdea({ symbol: 'nvda', note: 'Saw a bullish note from an analyst.' });
+
+    expect(tradeIdeas.analyse).toHaveBeenCalledWith(
+      'nvda',
+      'Saw a bullish note from an analyst.',
+    );
   });
 
   it('POST /ai/portfolio-summary returns whatever the service produces, unconfigured included', async () => {

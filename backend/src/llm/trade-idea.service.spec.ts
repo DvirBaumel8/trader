@@ -145,6 +145,81 @@ describe('TradeIdeaService.analyse — gathering', () => {
       expect.objectContaining({ thinkingLevel: 'MINIMAL' }),
     );
   });
+
+  it('threads an owner-supplied note into the prompt the model actually reads', async () => {
+    const complete = vi.fn().mockResolvedValue('an opinion');
+    const llm = {
+      complete,
+      completeStream: vi.fn(),
+      isConfigured: () => true,
+      modelName: () => 'test-model',
+    } as unknown as LlmClient;
+    const tickerFacts = {
+      get: vi.fn().mockResolvedValue(fullFacts()),
+    } as unknown as TickerFactsService;
+    const portfolio = {
+      getPortfolio: vi.fn().mockResolvedValue(fullPortfolio()),
+    } as unknown as PortfolioService;
+    const trades = {
+      getStats: vi.fn().mockResolvedValue(fullStats()),
+    } as unknown as TradesService;
+    const users = {
+      currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+    } as unknown as UsersService;
+    const service = new TradeIdeaService(
+      llm, tickerFacts, portfolio, trades,
+      {
+        create: vi.fn((data: unknown) => data),
+        save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-1' })),
+      } as never,
+      users,
+      { recordOutcome: vi.fn() } as unknown as AiOutcomeService,
+    );
+
+    await service.analyse('NVDA', 'Saw insider buying reported yesterday.');
+
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.stringContaining('Saw insider buying reported yesterday.'),
+      }),
+    );
+  });
+
+  it('never mentions an owner note when none was given', async () => {
+    const complete = vi.fn().mockResolvedValue('an opinion');
+    const llm = {
+      complete,
+      completeStream: vi.fn(),
+      isConfigured: () => true,
+      modelName: () => 'test-model',
+    } as unknown as LlmClient;
+    const tickerFacts = {
+      get: vi.fn().mockResolvedValue(fullFacts()),
+    } as unknown as TickerFactsService;
+    const portfolio = {
+      getPortfolio: vi.fn().mockResolvedValue(fullPortfolio()),
+    } as unknown as PortfolioService;
+    const trades = {
+      getStats: vi.fn().mockResolvedValue(fullStats()),
+    } as unknown as TradesService;
+    const users = {
+      currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+    } as unknown as UsersService;
+    const service = new TradeIdeaService(
+      llm, tickerFacts, portfolio, trades,
+      {
+        create: vi.fn((data: unknown) => data),
+        save: vi.fn().mockImplementation(async (r: unknown) => ({ ...(r as object), id: 'idea-1' })),
+      } as never,
+      users,
+      { recordOutcome: vi.fn() } as unknown as AiOutcomeService,
+    );
+
+    await service.analyse('NVDA');
+
+    const [{ user }] = complete.mock.calls[0];
+    expect(user).not.toMatch(/his own note/i);
+  });
 });
 
 describe('TradeIdeaService.analyse — book placeholders', () => {

@@ -61,3 +61,43 @@ describe('buildTradeIdeaPrompt — recent news', () => {
     expect(prompt).toMatch(/headlines/i);
   });
 });
+
+describe('buildTradeIdeaPrompt — the owner\'s own note', () => {
+  it('includes the note verbatim when given', () => {
+    const prompt = buildTradeIdeaPrompt(FACTS, null, {
+      book: '',
+      record: '',
+      note: 'Heard on a podcast they might announce a buyback this week.',
+    });
+
+    expect(prompt).toContain(
+      'Heard on a podcast they might announce a buyback this week.',
+    );
+  });
+
+  it('frames the note as his own belief, not verified data', () => {
+    const prompt = buildTradeIdeaPrompt(FACTS, null, {
+      book: '',
+      record: '',
+      note: 'It is up 20% today.',
+    });
+
+    expect(prompt).toMatch(/his own|not verified|not a fact|his belief/i);
+  });
+
+  it('omits the note section entirely when none was given', () => {
+    const prompt = buildTradeIdeaPrompt(FACTS, null, { book: '', record: '' });
+
+    expect(prompt).not.toMatch(/his own note/i);
+  });
+
+  it('omits the note section when it is blank or only whitespace', () => {
+    const prompt = buildTradeIdeaPrompt(FACTS, null, {
+      book: '',
+      record: '',
+      note: '   ',
+    });
+
+    expect(prompt).not.toMatch(/his own note/i);
+  });
+});

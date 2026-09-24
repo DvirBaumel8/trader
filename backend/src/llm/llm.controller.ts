@@ -10,7 +10,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { IsString, Length, Matches } from 'class-validator';
+import { IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 import { LlmService } from './llm.service.js';
 import { AiSummaryService } from './ai-summary.service.js';
 import { TradeIdeaService } from './trade-idea.service.js';
@@ -28,6 +28,16 @@ class TradeIdeaDto {
   // reaches the provider at all.
   @Matches(/^[A-Za-z0-9.-]+$/, { message: 'symbol must be a ticker' })
   symbol: string;
+
+  /**
+   * His own free-text reasoning for asking — not a fact the app verifies,
+   * see trade-idea-prompt.ts for how it's framed to the model. Optional:
+   * the common case is still just a ticker.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string;
 }
 
 @Controller('ai')
@@ -65,7 +75,7 @@ export class LlmController {
 
   @Post('trade-idea')
   tradeIdea(@Body() body: TradeIdeaDto) {
-    return this.tradeIdeas.analyse(body.symbol);
+    return this.tradeIdeas.analyse(body.symbol, body.note);
   }
 
   /** Newline-delimited JSON — see `portfolioSummaryStream`'s own doc comment
@@ -73,7 +83,7 @@ export class LlmController {
   @Post('trade-idea/stream')
   async tradeIdeaStream(@Body() body: TradeIdeaDto, @Res() res: Response) {
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-    for await (const line of this.tradeIdeas.analyseStream(body.symbol)) {
+    for await (const line of this.tradeIdeas.analyseStream(body.symbol, body.note)) {
       res.write(line);
     }
     res.end();
