@@ -106,8 +106,16 @@ export class WatchlistService {
 
     // One batched quote call for the whole list — the cache makes a repeat
     // visit free for 60s, and a per-row call would be N round trips.
+    // `augment: false` — Twelve Data's extended-print second opinion is a
+    // shared 8-requests-a-minute budget (see `getQuotes`'s doc comment), and
+    // the watchlist's live pre/post price is a nicety next to what account
+    // value and the Stops page need from that same budget.
     const [quotes, earningsBySymbol] = await Promise.all([
-      this.marketData.getQuotes(instruments.map((i) => i.symbol), options.refresh === true),
+      this.marketData.getQuotes(
+        instruments.map((i) => i.symbol),
+        options.refresh === true,
+        false,
+      ),
       this.earnings.daysUntil(instruments),
     ]);
 

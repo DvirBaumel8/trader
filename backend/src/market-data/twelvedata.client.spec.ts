@@ -114,3 +114,53 @@ describe('extendedPrice', () => {
     expect(await new TwelveDataClient(http).extendedPrice('META')).toBeNull();
   });
 });
+
+describe('extendedPrice rate limiting', () => {
+  // Found live: 30+ symbols asked for an extended print on the same poll
+  // against an 8/minute plan, and every single one came back HTTP 429. The
+  // client must stop asking once its own budget for the window is spent,
+  // rather than firing into a guaranteed rejection.
+  it('stops calling the provider once 8 requests have gone out within a minute', async () => {
+    vi.stubEnv('TWELVEDATA_API_KEY', 'test-key');
+    const { http, calls } = httpReturning({ extended_price: '668.20', extended_timestamp: 1 });
+    let now = 0;
+    const client = new TwelveDataClient(http, () => now);
+
+    for (let i = 0; i < 8; i++) {
+      expect(await client.extendedPrice(`SYM${i}`)).not.toBeNull();
+    }
+    expect(calls).toHaveLength(8);
+
+    // The 9th request in the same window must not reach the network at all.
+    expect(await client.extendedPrice('SYM9')).toBeNull();
+    expect(calls).toHaveLength(8);
+  });
+
+  it('allows new requests once the oldest ones age out of the window', async () => {
+    vi.stubEnv('TWELVEDATA_API_KEY', 'test-key');
+    const { http, calls } = httpReturning({ extended_price: '668.20', extended_timestamp: 1 });
+    let now = 0;
+    const client = new TwelveDataClient(http, () => now);
+
+    for (let i = 0; i < 8; i++) {
+      await client.extendedPrice(`SYM${i}`);
+    }
+    expect(await client.extendedPrice('BLOCKED')).toBeNull();
+
+    now += 60_000; // a full window later, the earliest 8 calls have aged out
+
+    expect(await client.extendedPrice('ALLOWED')).not.toBeNull();
+    expect(calls).toHaveLength(9);
+  });
+
+  it('never spends budget on a request skipped for having no API key', async () => {
+    vi.stubEnv('TWELVEDATA_API_KEY', '');
+    const { http, calls } = httpReturning({ extended_price: '668.20', extended_timestamp: 1 });
+    const client = new TwelveDataClient(http, () => 0);
+
+    for (let i = 0; i < 20; i++) {
+      await client.extendedPrice(`SYM${i}`);
+    }
+    expect(calls).toEqual([]);
+  });
+});

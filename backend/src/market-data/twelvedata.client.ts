@@ -3,6 +3,13 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 const BASE_URL = 'https://api.twelvedata.com/quote';
 
 /**
+ * The free/basic plan's own limit — confirmed against a live key's
+ * `/api_usage` response (`plan_limit: 8`), not assumed from docs.
+ */
+const CALLS_PER_MINUTE = 8;
+const WINDOW_MS = 60_000;
+
+/**
  * The only file permitted to talk to Twelve Data, mirroring the rule that
  * keeps yahoo-finance2 inside yahoo.client.ts and Finnhub inside
  * finnhub.client.ts.
@@ -28,16 +35,41 @@ export class TwelveDataClient {
   private readonly logger = new Logger(TwelveDataClient.name);
   private readonly apiKey = process.env.TWELVEDATA_API_KEY;
   private readonly http: typeof fetch;
+  private readonly now: () => number;
+  /** Timestamps (ms) of recent calls, oldest first — a sliding window over WINDOW_MS. */
+  private readonly recentCalls: number[] = [];
 
   // Unregistered with Nest on purpose, matching FinnhubClient — `fetch` is
   // not a provider. Tests pass a stub directly; nothing here may reach the
-  // network in a test.
-  constructor(@Optional() http?: typeof fetch) {
+  // network in a test. `now` is injected the same way, so tests can drive
+  // the rate-limit window without a real clock.
+  constructor(@Optional() http?: typeof fetch, @Optional() now?: () => number) {
     this.http = http ?? globalThis.fetch;
+    this.now = now ?? Date.now;
   }
 
   isConfigured(): boolean {
     return Boolean(this.apiKey);
+  }
+
+  /**
+   * Whether another call fits under the plan's per-minute cap right now.
+   *
+   * Found live: every held symbol plus the whole watchlist asks for an
+   * extended print on the same poll, all at once — 30+ requests against an
+   * 8/minute plan — and every single one came back 429. Firing into a
+   * guaranteed rejection is worse than not asking: it wastes the round trip
+   * AND still leaves the caller with nothing, indistinguishable from a
+   * quiet, well-behaved skip. Checking first turns "flood and mostly fail"
+   * into "take the slots that exist, skip the rest" — the skips fall back
+   * to the regular price exactly as a real null response would.
+   */
+  private hasBudget(): boolean {
+    const cutoff = this.now() - WINDOW_MS;
+    while (this.recentCalls.length > 0 && this.recentCalls[0] <= cutoff) {
+      this.recentCalls.shift();
+    }
+    return this.recentCalls.length < CALLS_PER_MINUTE;
   }
 
   /**
@@ -51,9 +83,14 @@ export class TwelveDataClient {
    * extended-print-freshness.ts. Never throws: this decorates a price Yahoo
    * already answered, and must not be able to take down a quote over a
    * second opinion.
+   *
+   * Also null, silently, when the plan's per-minute budget is already spent
+   * — see `hasBudget`. No network call is made in that case.
    */
   async extendedPrice(symbol: string): Promise<{ price: number; timestamp: Date } | null> {
     if (!this.isConfigured()) return null;
+    if (!this.hasBudget()) return null;
+    this.recentCalls.push(this.now());
 
     const url = `${BASE_URL}?symbol=${encodeURIComponent(symbol)}&prepost=true&apikey=${this.apiKey}`;
     try {

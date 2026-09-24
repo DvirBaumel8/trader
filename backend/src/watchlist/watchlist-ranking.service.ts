@@ -225,8 +225,10 @@ export class WatchlistRankingService {
     // Cheap: `WatchlistService.list()` (inside `this.watchlist.list()` above)
     // just called `getQuotes` for these same symbols, so this is a cache hit
     // within its 60s TTL, not a second round trip. Needed for P/E, which
-    // lives on the quote/fundamentals, not on `IndicatorSet`.
-    const quotes = await this.marketData.getQuotes(symbols);
+    // lives on the quote/fundamentals, not on `IndicatorSet`. `augment:
+    // false` to match that same call — see its doc comment — in case this
+    // ever does miss the cache.
+    const quotes = await this.marketData.getQuotes(symbols, false, false);
 
     const candidates: RankingCandidate[] = rows.map((row) => {
       const instrument = instrumentBySymbol.get(row.symbol.toUpperCase());

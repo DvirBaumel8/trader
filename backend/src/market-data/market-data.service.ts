@@ -198,9 +198,23 @@ export class MarketDataService {
     return cached.quote;
   }
 
+  /**
+   * `augment` gates the Twelve Data second opinion (see `augmentWithExtended`)
+   * for this call's symbols. Twelve Data's free plan allows 8 requests a
+   * minute total, shared across every caller — found live, when the
+   * watchlist's ~20 symbols and the portfolio's held symbols all asked for
+   * an extended print on the same poll, every single request came back
+   * HTTP 429, and the held positions that drive account value and the Stops
+   * page lost that race as often as they won it. The watchlist's live
+   * extended price is a nicety; account value and stop distances are not —
+   * so callers pricing a decorative list (the watchlist, its ranking) pass
+   * `augment: false` and leave the whole budget to the ones that must be
+   * right.
+   */
   async getQuotes(
     symbols: string[],
     force = false,
+    augment = true,
   ): Promise<Map<string, Quote>> {
     const keys = [...new Set(symbols.map((s) => s.toUpperCase()))];
     const out = new Map<string, Quote>();
@@ -218,9 +232,9 @@ export class MarketDataService {
 
     try {
       const rawQuotes = await this.yahoo.quoteMany(missing);
-      const enriched = await Promise.all(
-        rawQuotes.map((raw) => this.augmentWithExtended(raw)),
-      );
+      const enriched = augment
+        ? await Promise.all(rawQuotes.map((raw) => this.augmentWithExtended(raw)))
+        : rawQuotes;
       for (const raw of enriched) {
         const key = raw.symbol.toUpperCase();
         out.set(key, this.store(key, raw));

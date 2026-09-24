@@ -348,5 +348,21 @@ describe('MarketDataService', () => {
       expect(calls).toEqual(['NVDA']);
       expect(map.get('NVDA')).toMatchObject({ price: 218.4, extended: true });
     });
+
+    it('skips Twelve Data entirely when the caller passes augment: false', async () => {
+      // The watchlist's own call — a shared 8-requests-a-minute budget must
+      // not go to a decorative price when account value and Stops need it.
+      const { client, calls } = fakeTwelveData(218.4);
+      const svc = new MarketDataService(
+        fakeClient([noExtendedPrint]),
+        undefined,
+        client,
+      );
+
+      const map = await svc.getQuotes(['NVDA'], false, false);
+
+      expect(calls).toEqual([]);
+      expect(map.get('NVDA')).toMatchObject({ price: 217.55, extended: false });
+    });
   });
 });
