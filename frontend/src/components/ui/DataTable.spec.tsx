@@ -94,6 +94,18 @@ describe('DataTable', () => {
     expect(screen.queryByTestId('active-more-sort')).not.toBeInTheDocument();
   });
 
+  /**
+   * The installed app draws under the status bar (viewport-fit=cover), and
+   * body's safe-area padding scrolls away, so top-0 would pin the header
+   * behind the clock.
+   */
+  it('pins the header below the iPhone safe area, not at the very top', () => {
+    renderTable({ onSortChange: vi.fn() });
+    const headerRow = screen.getByRole('button', { name: /Last/ }).parentElement!;
+    expect(headerRow.className).toContain('top-[env(safe-area-inset-top)]');
+    expect(headerRow.className).not.toMatch(/(^|\s)top-0(\s|$)/);
+  });
+
   it('renders a totals row in the same columns', () => {
     renderTable({ totals: ['Total', 'px3'] });
     const totals = screen.getByTestId('table-totals');

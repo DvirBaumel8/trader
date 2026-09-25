@@ -134,7 +134,7 @@ export function DataTable<Row>({
         <div className="grid items-center gap-x-3" style={{ gridTemplateColumns: template }}>
           {/* One subgrid row, so the sticky background and the divider
               under the header run through the column gaps too. */}
-          <div className="sticky top-0 z-10 col-span-full grid grid-cols-subgrid border-b border-border bg-surface-0">
+          <div className="sticky top-[env(safe-area-inset-top)] z-10 col-span-full grid grid-cols-subgrid border-b border-border bg-surface-0">
             {columns.map((c) => {
               const active = c.sortKey !== undefined && sort?.key === c.sortKey;
               const arrow = active ? (sort!.dir === 'asc' ? ' ▲' : ' ▼') : '';

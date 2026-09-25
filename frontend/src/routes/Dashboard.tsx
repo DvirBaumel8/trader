@@ -11,6 +11,7 @@ import {
 } from '../components/HoldingsTable';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { AiSummary } from '../components/AiSummary';
+import { SessionBadge } from '../components/SessionBadge';
 import { RefreshButton } from '../components/RefreshButton';
 import { BenchmarkChart } from '../components/BenchmarkChart';
 import { MinimizableSection } from '../components/ui/MinimizableSection';
@@ -108,6 +109,11 @@ export function Dashboard() {
             <span className="text-xs uppercase tracking-wide text-text/70">
                 Account value
               </span>
+              {/* Priced from the same extended-hours prints as the holdings. */}
+              <SessionBadge
+                session={data.marketSession}
+                extended={data.pricesAreExtended}
+              />
             </div>
             <div className="mt-1 text-4xl font-semibold">
               <Money value={data.accountValue} />

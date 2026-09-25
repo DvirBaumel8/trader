@@ -233,8 +233,21 @@ describe('Holdings table', () => {
       pricesAreExtended: true,
     });
     await screen.findByTestId('holding-NVDA');
-    expect(screen.getAllByText('AFTER HOURS')).toHaveLength(1);
     expect(screen.getByTestId('holding-NVDA')).not.toHaveTextContent('AFTER HOURS');
+    expect(screen.getByText('Holdings').parentElement).toHaveTextContent('AFTER HOURS');
+  });
+
+  /**
+   * Account value is priced from the same after-hours prints, and it sits
+   * screens above the Holdings title. AGENTS.md: extended prices are labeled,
+   * never passed off as a regular close.
+   */
+  it('also labels the account value when prices are extended', async () => {
+    renderDashboard([position('NVDA', 1, { session: 'POST', extended: true })], '/', {}, {
+      marketSession: 'POST',
+      pricesAreExtended: true,
+    });
+    expect((await screen.findByText('Account value')).parentElement).toHaveTextContent('AFTER HOURS');
   });
 
   it('sorts by tapping a header: P&L first tap is biggest first, second tap flips', async () => {
