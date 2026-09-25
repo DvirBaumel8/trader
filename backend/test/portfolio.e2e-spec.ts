@@ -42,6 +42,7 @@ describe('Portfolio (e2e)', () => {
     expect(res.body.positions).toEqual([]);
     expect(res.body.cash).toBe(0);
     expect(res.body.accountValue).toBe(0);
+    expect(res.body.totals).toEqual({ marketValue: null, dayPnl: null, unrealizedPnl: null });
   });
 
   it('prices seeded positions and computes account value', async () => {
@@ -64,6 +65,16 @@ describe('Portfolio (e2e)', () => {
     expect(typeof p.price).toBe('number');
     expect(p.marketValue).toBeCloseTo(p.price * 10, 2);
     expect(p.unrealizedPnl).toBeCloseTo(p.price * 10 - 1000, 2);
+    // The Yahoo stub quotes previousClose = price / 1.02, so every holding
+    // is up exactly 2% on the day.
+    expect(p.dayChangePct).toBeCloseTo(0.02, 6);
+    expect(p.dayChange).toBeCloseTo(p.price - p.price / 1.02, 6);
+    expect(p.dayPnl).toBeCloseTo(p.dayChange * 10, 6);
+    expect(res.body.totals).toEqual({
+      marketValue: expect.closeTo(p.marketValue, 6),
+      dayPnl: expect.closeTo(p.dayPnl, 6),
+      unrealizedPnl: expect.closeTo(p.unrealizedPnl, 6),
+    });
 
     // The seed deposit is startingCash + holdings cost, and the opening BUYs
     // then spend the holdings cost — so the balance lands exactly on what the
@@ -89,6 +100,8 @@ describe('Portfolio (e2e)', () => {
     expect(p.costBasis).toBe(-3000);
     expect(p.avgCost).toBe(300);
     expect(res.body.cash).toBe(5000);
+    // Price up 2% on the day: a short position loses on it.
+    expect(p.dayPnl).toBeLessThan(0);
   });
 
   it('supports a negative starting cash balance (margin)', async () => {

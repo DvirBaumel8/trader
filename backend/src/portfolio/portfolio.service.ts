@@ -30,6 +30,7 @@ import {
 import { tradeId } from './trade-window.js';
 import { computeAtRisk } from './risk.js';
 import { computeStopDistances } from './stop-distance.js';
+import { computeDayChange, sumNullable } from './day-change.js';
 import { bucketFees, computeInterestCost, totalFees, type FeePeriod } from './fee-buckets.js';
 
 @Injectable()
@@ -227,6 +228,7 @@ export class PortfolioService {
       const quote = quotes.get(p.symbol);
       const price = quote?.price ?? null;
       const marketValue = price === null ? null : price * p.quantity;
+      const day = computeDayChange(price, quote?.previousClose ?? null, p.quantity);
       return {
         symbol: p.symbol,
         name: nameBySymbol.get(p.symbol) ?? null,
@@ -254,6 +256,11 @@ export class PortfolioService {
           marketValue === null || p.costBasis === 0
             ? null
             : (marketValue - p.costBasis) / Math.abs(p.costBasis),
+        // Handy Trader's Change column: the selected price (extended hours
+        // included) against the previous regular close. See day-change.ts.
+        dayChange: day.dayChange,
+        dayChangePct: day.dayChangePct,
+        dayPnl: day.dayPnl,
         tradeId: openTradeBySymbol.get(p.symbol) ?? null,
       };
     });
@@ -309,6 +316,13 @@ export class PortfolioService {
       cash,
       positionsValue,
       accountValue: cash + positionsValue,
+      // The Holdings table's totals row. The backend computes it, so the
+      // screen never sums money itself. Null, not 0, when nothing is priced.
+      totals: {
+        marketValue: sumNullable(positions.map((p) => p.marketValue)),
+        dayPnl: sumNullable(positions.map((p) => p.dayPnl)),
+        unrealizedPnl: sumNullable(positions.map((p) => p.unrealizedPnl)),
+      },
       hasStalePrices: positions.some((p) => p.stale),
       // Capital the owner actually put in. Dividends raise cash but are
       // earned, not contributed — see dividend.entity.ts.
