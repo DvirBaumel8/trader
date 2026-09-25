@@ -35,6 +35,7 @@ interface Position {
   marketValue: number | null;
   unrealizedPnl: number | null;
   unrealizedPct: number | null;
+  dayPnl: number | null;
   tradeId: string | null;
   daysUntilEarnings: number | null;
 }

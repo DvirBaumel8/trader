@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sortPositions, type SortablePosition } from './sortPositions';
+import { sanitizeSort, sortPositions, type SortablePosition } from './sortPositions';
 
 function p(
   symbol: string,
@@ -8,7 +8,7 @@ function p(
   unrealizedPnl: number | null,
   daysUntilEarnings: number | null = null,
 ): SortablePosition {
-  return { symbol, marketValue, unrealizedPct, unrealizedPnl, daysUntilEarnings };
+  return { symbol, marketValue, unrealizedPct, unrealizedPnl, daysUntilEarnings, dayPnl: null };
 }
 
 const book: SortablePosition[] = [
@@ -135,5 +135,37 @@ describe('sortPositions', () => {
       'SOON',
       'ETF',
     ]);
+  });
+});
+
+describe('dayPnl sort', () => {
+  const row = (symbol: string, dayPnl: number | null) => ({
+    symbol,
+    marketValue: 1,
+    unrealizedPct: 0,
+    unrealizedPnl: 0,
+    daysUntilEarnings: null,
+    dayPnl,
+  });
+
+  it('sorts by day P&L, sinking an unpriced row in both directions', () => {
+    const rows = [row('A', 5), row('B', null), row('C', -3)];
+    expect(sortPositions(rows, 'dayPnl', 'desc').map((r) => r.symbol)).toEqual(['A', 'C', 'B']);
+    expect(sortPositions(rows, 'dayPnl', 'asc').map((r) => r.symbol)).toEqual(['C', 'A', 'B']);
+  });
+});
+
+describe('sanitizeSort', () => {
+  const fallback = { key: 'marketValue', dir: 'desc' } as const;
+
+  it('keeps a valid saved sort', () => {
+    expect(sanitizeSort({ key: 'dayPnl', dir: 'asc' }, fallback)).toEqual({ key: 'dayPnl', dir: 'asc' });
+  });
+
+  /** localStorage outlives code: an old or corrupted value must not sort by `undefined`. */
+  it('falls back on an unknown key or direction', () => {
+    expect(sanitizeSort({ key: 'price', dir: 'asc' }, fallback)).toEqual(fallback);
+    expect(sanitizeSort({ key: 'symbol', dir: 'sideways' }, fallback)).toEqual(fallback);
+    expect(sanitizeSort({ key: undefined, dir: undefined }, fallback)).toEqual(fallback);
   });
 });

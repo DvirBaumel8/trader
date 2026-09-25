@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   formatMoney,
+  formatMoneyCompact,
   formatPercent,
   formatQuantity,
   formatTimestamp,
@@ -99,5 +100,24 @@ describe('signClass', () => {
   });
   it('is muted for a missing value', () => {
     expect(signClass(null)).toContain('muted');
+  });
+});
+
+describe('formatMoneyCompact', () => {
+  it('abbreviates thousands and millions to one or two decimals', () => {
+    expect(formatMoneyCompact(48_612)).toBe('$48.6K');
+    expect(formatMoneyCompact(1_250_000)).toBe('$1.25M');
+  });
+
+  it('keeps cents below a thousand, where abbreviation hides nothing', () => {
+    expect(formatMoneyCompact(950)).toBe('$950.00');
+  });
+
+  it('signs negatives (a short position has negative market value)', () => {
+    expect(formatMoneyCompact(-37_600)).toBe('-$37.6K');
+  });
+
+  it('shows a dash for a missing value, never $0', () => {
+    expect(formatMoneyCompact(null)).toBe('—');
   });
 });

@@ -12,6 +12,21 @@ export function formatMoney(
 }
 
 /**
+ * Money in the fewest characters that still read exactly enough for a
+ * secondary line, such as a position's market value under its price. Below
+ * $1,000 it is plain `formatMoney`, since abbreviating would hide nothing.
+ */
+export function formatMoneyCompact(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  const abs = Math.abs(value);
+  if (abs < 1000) return formatMoney(value);
+  const [n, suffix] = abs >= 1_000_000 ? [abs / 1_000_000, 'M'] : [abs / 1000, 'K'];
+  const digits = suffix === 'M' ? 2 : 1;
+  const body = `$${Number(n.toFixed(digits)).toString()}${suffix}`;
+  return value < 0 ? `-${body}` : body;
+}
+
+/**
  * Share counts, grouped. Ungrouped, 1800 and 18000 look alike at a glance —
  * which is exactly the mistake you do not want to make reading your own book.
  * Fractional shares keep their precision without trailing zero padding.
