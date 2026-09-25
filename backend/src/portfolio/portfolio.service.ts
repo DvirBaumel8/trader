@@ -30,7 +30,7 @@ import {
 import { tradeId } from './trade-window.js';
 import { computeAtRisk } from './risk.js';
 import { computeStopDistances } from './stop-distance.js';
-import { computeDayChange, sumNullable } from './day-change.js';
+import { computeDayChange, dayChangeBase, sumNullable } from './day-change.js';
 import { bucketFees, computeInterestCost, totalFees, type FeePeriod } from './fee-buckets.js';
 
 @Injectable()
@@ -228,7 +228,15 @@ export class PortfolioService {
       const quote = quotes.get(p.symbol);
       const price = quote?.price ?? null;
       const marketValue = price === null ? null : price * p.quantity;
-      const day = computeDayChange(price, quote?.previousClose ?? null, p.quantity);
+      const day = computeDayChange(
+        price,
+        dayChangeBase({
+          session: quote?.session ?? null,
+          regularPrice: quote?.regularPrice ?? null,
+          previousClose: quote?.previousClose ?? null,
+        }),
+        p.quantity,
+      );
       return {
         symbol: p.symbol,
         name: nameBySymbol.get(p.symbol) ?? null,

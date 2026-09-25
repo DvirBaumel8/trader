@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeDayChange, sumNullable } from './day-change.js';
+import { computeDayChange, dayChangeBase, sumNullable } from './day-change.js';
 
 describe('computeDayChange', () => {
   it('measures a long position from the previous regular close', () => {
@@ -49,5 +49,28 @@ describe('sumNullable', () => {
   it('is null when every member is null, or there are none', () => {
     expect(sumNullable([null, null])).toBeNull();
     expect(sumNullable([])).toBeNull();
+  });
+});
+
+describe('dayChangeBase', () => {
+  /**
+   * Before the open, Yahoo's previousClose still points at the session
+   * BEFORE yesterday (probed 2026-09-25 pre-market: TSLA previous 380.12, but
+   * the last regular close was 377.94). Measuring from it re-counts
+   * yesterday's whole move as "today". The last regular close is
+   * regularPrice then.
+   */
+  it('measures pre-market from the last regular close', () => {
+    expect(dayChangeBase({ session: 'PRE', regularPrice: 377.94, previousClose: 380.12 })).toBe(377.94);
+  });
+
+  it('measures every other session from the previous close', () => {
+    for (const session of ['REGULAR', 'POST', 'OVERNIGHT', 'CLOSED', null] as const) {
+      expect(dayChangeBase({ session, regularPrice: 381, previousClose: 377.94 })).toBe(377.94);
+    }
+  });
+
+  it('is null in pre-market without a regular price, rather than falling back to the stale one', () => {
+    expect(dayChangeBase({ session: 'PRE', regularPrice: null, previousClose: 380.12 })).toBeNull();
   });
 });

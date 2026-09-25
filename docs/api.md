@@ -45,7 +45,7 @@ Grouped by module. `:id` is a UUID except on trades, where it is a composite
 
 | Route | Notes |
 |---|---|
-| `GET /portfolio` | Positions, cash, account value, at-risk, stop tiers. Each position carries `dayChange` / `dayChangePct` / `dayPnl` (selected price, extended hours included, vs the previous regular close; `null` without a previous close), and `totals` sums `marketValue`, `dayPnl`, `unrealizedPnl` (`null` when nothing is priced). Polled every 60s by the dashboard; also the seam that keeps `daily_closes` fresh. |
+| `GET /portfolio` | Positions, cash, account value, at-risk, stop tiers. Each position carries `dayChange` / `dayChangePct` / `dayPnl` (selected price, extended hours included, vs the previous regular close — in pre-market that is the last regular close, since Yahoo's previous close still names the session before; `null` without one), and `totals` sums `marketValue`, `dayPnl`, `unrealizedPnl` (`null` when nothing is priced). Polled every 60s by the dashboard; also the seam that keeps `daily_closes` fresh. |
 | `GET /portfolio/stats` | Round-trip trades plus win rate / expectancy. Aggregates are over every trade, deliberately not the filtered subset. |
 | `GET /portfolio/trades/:id` | One trade with its fills, bars, stop levels, `currentPrice` and `highWaterPrice`. |
 | `GET /portfolio/fees` | Fees bucketed by `?period=DAY\|WEEK\|MONTH\|YEAR`. |

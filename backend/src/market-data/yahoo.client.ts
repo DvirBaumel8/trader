@@ -151,12 +151,16 @@ export class YahooClient {
     original: unknown,
   ): Promise<RawQuote | null> {
     let meta: QuoteLike & { regularMarketPrice?: number };
+    let closes: number[];
     try {
       const result = await this.yf.chart(symbol, {
         period1: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
         interval: '1d',
       });
       meta = (result?.meta ?? {}) as QuoteLike;
+      closes = ((result?.quotes ?? []) as { close?: number | null }[])
+        .map((b) => b.close)
+        .filter((c): c is number => typeof c === 'number' && Number.isFinite(c));
     } catch {
       throw original;
     }
@@ -166,8 +170,12 @@ export class YahooClient {
       longName: meta.longName,
       currency: meta.currency,
       regularMarketPrice: meta.regularMarketPrice,
-      previousClose: meta.previousClose,
-      chartPreviousClose: meta.chartPreviousClose,
+      // NOT meta.chartPreviousClose: for this 7-day query that is the close
+      // before the first bar, a week back, which made "today's move" a
+      // weekly one in production. The last bar is the session
+      // regularMarketPrice belongs to, so the one before it is the previous
+      // close. Fewer than two closes: unknown, and null says so.
+      previousClose: meta.previousClose ?? (closes.length >= 2 ? closes[closes.length - 2] : undefined),
     });
   }
 

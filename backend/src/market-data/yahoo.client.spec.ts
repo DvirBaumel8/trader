@@ -312,22 +312,64 @@ describe('quote previousClose mapping', () => {
     expect(q?.previousClose).toBe(315.2);
   });
 
-  it('falls back to chartPreviousClose when previousClose is absent', async () => {
+  /**
+   * A 7-day daily chart's `chartPreviousClose` is the close BEFORE its first
+   * bar — about a week back — not yesterday's. Production prices every quote
+   * through this fallback, so using it turned "Day" into a weekly change
+   * (probed 2026-09-25: TSLA chartPreviousClose 366.20, real previous close
+   * 377.94). The previous session's close is the second-to-last daily bar.
+   */
+  it("takes the previous close from the bar before the last one, never chartPreviousClose", async () => {
     const client = new YahooClient({
       quote: async () => {
         throw new Error('Failed to get crumb, status 429, statusText: Too Many Requests');
       },
       chart: async () => ({
-        meta: {
-          symbol: 'APP',
-          regularMarketPrice: 320.56,
-          chartPreviousClose: 315.2,
-        },
+        meta: { symbol: 'TSLA', regularMarketPrice: 381.2, chartPreviousClose: 366.2 },
+        quotes: [
+          { date: new Date('2026-09-22T13:30:00Z'), close: 378.9 },
+          { date: new Date('2026-09-23T13:30:00Z'), close: 380.12 },
+          { date: new Date('2026-09-24T13:30:00Z'), close: 377.94 },
+          { date: new Date('2026-09-25T13:30:00Z'), close: 381.2 },
+        ],
       }),
     } as never);
 
-    const q = await client.quote('APP');
-    expect(q?.previousClose).toBe(315.2);
+    const q = await client.quote('TSLA');
+    expect(q?.previousClose).toBe(377.94);
+  });
+
+  it('skips a bar with no close when finding the previous session', async () => {
+    const client = new YahooClient({
+      quote: async () => {
+        throw new Error('Failed to get crumb, status 429, statusText: Too Many Requests');
+      },
+      chart: async () => ({
+        meta: { symbol: 'TSLA', regularMarketPrice: 381.2 },
+        quotes: [
+          { date: new Date('2026-09-23T13:30:00Z'), close: 377.94 },
+          { date: new Date('2026-09-24T13:30:00Z'), close: null },
+          { date: new Date('2026-09-25T13:30:00Z'), close: 381.2 },
+        ],
+      }),
+    } as never);
+
+    expect((await client.quote('TSLA'))?.previousClose).toBe(377.94);
+  });
+
+  /** Unknown beats wrong: one bar gives no previous session to measure from. */
+  it('nulls the previous close when the chart has fewer than two closes', async () => {
+    const client = new YahooClient({
+      quote: async () => {
+        throw new Error('Failed to get crumb, status 429, statusText: Too Many Requests');
+      },
+      chart: async () => ({
+        meta: { symbol: 'NEW', regularMarketPrice: 10, chartPreviousClose: 9 },
+        quotes: [{ date: new Date('2026-09-25T13:30:00Z'), close: 10 }],
+      }),
+    } as never);
+
+    expect((await client.quote('NEW'))?.previousClose).toBeNull();
   });
 });
 

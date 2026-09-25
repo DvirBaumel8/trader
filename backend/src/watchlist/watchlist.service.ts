@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { dayChangeBase } from '../portfolio/day-change.js';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { WatchlistItem } from './watchlist-item.entity.js';
@@ -178,7 +179,15 @@ export class WatchlistService {
           : null,
         price,
         regularPrice: quote?.regularPrice ?? null,
-        todayChangePercent: todayChangePercent(price, quote?.previousClose ?? null),
+        // Same base as the Holdings DAY column, so the two never disagree.
+        todayChangePercent: todayChangePercent(
+          price,
+          dayChangeBase({
+            session: quote?.session ?? null,
+            regularPrice: quote?.regularPrice ?? null,
+            previousClose: quote?.previousClose ?? null,
+          }),
+        ),
         stale: quote?.stale ?? true,
         session: quote?.session ?? null,
         extended: quote?.extended ?? false,
