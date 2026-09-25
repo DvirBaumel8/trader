@@ -120,28 +120,31 @@ describe('Watch navigation', () => {
 });
 
 describe('Watch price session', () => {
-  it('labels a pre-market watch price in the phone row', async () => {
-    renderWatchlist([row({ session: 'PRE', extended: true })]);
-    expect(await screen.findByTestId('watch-NVDA')).toHaveTextContent('PRE-MARKET');
+  /** One label for the table, like Holdings: the owner does not want a per-row marker. */
+  it('labels a pre-market price once, in the list title, not in the row', async () => {
+    renderWatchlist([row({ session: 'PRE', extended: true }), row({ id: 'w2', symbol: 'AAPL', session: 'PRE', extended: true })]);
+    expect(await screen.findByTestId('watch-NVDA')).not.toHaveTextContent('PRE-MARKET');
+    expect(screen.getAllByText('PRE-MARKET')).toHaveLength(1);
   });
 });
 
 describe("Watch today's move", () => {
   it("shows today's move as a signed percentage", async () => {
     renderWatchlist([row({ todayChangePercent: 0.023 })]);
-    expect(await screen.findByText('+2.30% today')).toBeInTheDocument();
+    expect(await screen.findByText('+2.30%')).toBeInTheDocument();
   });
 
   it('colors a down move differently from an up move', async () => {
     renderWatchlist([row({ todayChangePercent: -0.015 })]);
-    const pct = await screen.findByText('-1.50% today');
+    const pct = await screen.findByText('-1.50%');
     expect(pct.className).toMatch(/text-down/);
   });
 
   it('says nothing about the move when it is not known', async () => {
-    renderWatchlist([row({ todayChangePercent: null })]);
-    await screen.findByText('NVDA');
-    expect(screen.queryByText(/today$/)).not.toBeInTheDocument();
+    renderWatchlist([row({ todayChangePercent: null, targetPrice: null, distanceToTarget: null })]);
+    const watch = await screen.findByTestId('watch-NVDA');
+    expect(watch).not.toHaveTextContent('%');
+    expect(watch).toHaveTextContent('—');
   });
 });
 
@@ -306,17 +309,40 @@ describe('Watchlist rows', () => {
     }
   });
 
-  it('shows aligned column headers for the watchlist', async () => {
-    renderWatchlist([row()]);
-    expect(await screen.findByText('Symbol')).toBeInTheDocument();
-    expect(screen.getByText('Price')).toBeInTheDocument();
-    expect(screen.getByText('Target')).toBeInTheDocument();
-    expect(screen.getByText('Earnings')).toBeInTheDocument();
+  /** Same table as Holdings: each field named once, never inside a row. */
+  it('shows no empty table header when nothing is watched', async () => {
+    renderWatchlist([]);
+    expect(await screen.findByText(/Nothing watched yet/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Target/ })).not.toBeInTheDocument();
+  });
+
+  it('names each column once, with no labels inside rows', async () => {
+    renderWatchlist([row(), row({ id: 'w2', symbol: 'AAPL', targetPrice: null, distanceToTarget: null })]);
+    await screen.findByTestId('watch-NVDA');
+    for (const h of ['Symbol', 'Last', 'Day', 'Target']) {
+      expect(screen.getAllByText(new RegExp(`^${h}`))).toHaveLength(1);
+    }
+    for (const label of ['Target', 'Earnings', 'Price']) {
+      expect(screen.getByTestId('watch-NVDA')).not.toHaveTextContent(label);
+    }
+  });
+
+  it('sorts by tapping a header: Target puts the closest to its price first', async () => {
+    renderWatchlist([
+      row({ id: 'a', symbol: 'FAR', distanceToTarget: 0.3 }),
+      row({ id: 'b', symbol: 'DIP', distanceToTarget: -0.02 }),
+      row({ id: 'c', symbol: 'NONE', targetPrice: null, distanceToTarget: null }),
+    ]);
+    const user = userEvent.setup();
+    await screen.findByTestId('watch-FAR');
+    await user.click(screen.getByRole('button', { name: /^Target/ }));
+    const order = screen.getAllByTestId(/^watch-/).map((el) => el.getAttribute('data-testid'));
+    expect(order).toEqual(['watch-DIP', 'watch-FAR', 'watch-NONE']);
   });
 
   it('shows days until the next earnings date', async () => {
     renderWatchlist([row({ daysUntilEarnings: 12 })]);
-    expect(await screen.findByText('12d')).toBeInTheDocument();
+    expect(await screen.findByText('E·12d')).toBeInTheDocument();
   });
   /**
    * A ticker with no target rendered as a bare symbol and a price, which

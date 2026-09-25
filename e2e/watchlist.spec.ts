@@ -85,10 +85,22 @@ test.describe('the watchlist', () => {
     await expect(row).toContainText('NVDA');
     await expect(row).toContainText('$200.00');
     await expect(row).toContainText('no target set');
-    await expect(row).toContainText(/Earnings (—|today|\d+d)/);
+    // One header for the table; no field labels inside the row.
+    await expect(row).not.toContainText('Earnings');
+    await expect(page.getByRole('button', { name: /^Target/ })).toHaveCount(1);
+    // The row is `display: contents`, so measure its cells and every line.
     const fitsScreen = await row.evaluate((el) => {
-      const { left, right } = el.getBoundingClientRect();
-      return left >= 0 && right <= window.innerWidth && el.scrollWidth <= el.clientWidth;
+      const cells = Array.from(el.children) as HTMLElement[];
+      const lines = cells.flatMap((c) => Array.from(c.children) as HTMLElement[]);
+      return (
+        cells.length === 4 &&
+        cells.every((c) => {
+          const { left, right } = c.getBoundingClientRect();
+          return left >= 0 && right <= window.innerWidth;
+        }) &&
+        lines.every((l) => l.scrollWidth <= l.clientWidth) &&
+        document.documentElement.scrollWidth <= window.innerWidth
+      );
     });
     expect(fitsScreen).toBe(true);
   });

@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { formatMoney, formatPercent, signClass } from '../components/format';
+import { formatMoney, formatPercent } from '../components/format';
 import { Button } from '../components/ui/Button';
 import { inputClasses } from '../components/ui/inputClasses';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
@@ -11,6 +11,10 @@ import { WatchlistRanking } from '../components/WatchlistRanking';
 import { SessionBadge } from '../components/SessionBadge';
 import { usePersistentState } from '../lib/persistentState';
 import { shortDay } from '../lib/chartDates';
+import { sortWatchRows, type WatchSort } from '../lib/sortWatchRows';
+import { DataTable, type Column } from '../components/ui/DataTable';
+import { EarningsBadge } from '../components/EarningsBadge';
+import { Percent } from '../components/Percent';
 
 const inputClass = inputClasses('md');
 const WATCHLIST_KEY = ['watchlist'];
@@ -37,6 +41,59 @@ interface WatchRow {
   daysUntilEarnings: number | null;
 }
 
+const BADGE = 'rounded px-1 py-px text-[9px] font-medium tracking-wide';
+
+/**
+ * Same table as Holdings. Tags sit under the symbol rather than the company
+ * name, which the owner chose to leave out; the session is labeled once, in
+ * the title, not per row.
+ */
+const WATCH_COLUMNS: Column<WatchRow>[] = [
+  {
+    id: 'symbol',
+    header: 'Symbol',
+    align: 'left',
+    sortKey: 'symbol',
+    firstDir: 'asc',
+    primary: (r) => (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="font-semibold">{r.symbol}</span>
+        {r.reached && <span className={`${BADGE} bg-accent/15 text-accent uppercase`}>target hit</span>}
+        {r.stale && <span className={`${BADGE} text-muted`}>STALE</span>}
+        {r.daysUntilEarnings !== null && <EarningsBadge days={r.daysUntilEarnings} />}
+      </span>
+    ),
+    secondary: (r) => r.tags.map((t) => t.label).join(' · '),
+  },
+  {
+    id: 'last',
+    header: 'Last',
+    align: 'right',
+    primary: (r) => (r.price === null ? '—' : formatMoney(r.price)),
+  },
+  {
+    id: 'day',
+    header: 'Day',
+    align: 'right',
+    sortKey: 'day',
+    primary: (r) => <Percent value={r.todayChangePercent} />,
+  },
+  {
+    id: 'target',
+    header: 'Target',
+    align: 'right',
+    sortKey: 'target',
+    firstDir: 'asc',
+    primary: (r) => (r.targetPrice === null ? '—' : formatMoney(r.targetPrice)),
+    secondary: (r) =>
+      r.targetPrice === null
+        ? 'no target set'
+        : r.distanceToTarget === null
+          ? ''
+          : `${formatPercent(r.distanceToTarget)} away`,
+  },
+];
+
 /**
  * Tickers the owner is considering but does not own.
  *
@@ -47,7 +104,9 @@ interface WatchRow {
 export function Watchlist() {
   const [searchParams] = useSearchParams();
   const focusedSymbol = searchParams.get('symbol')?.toUpperCase() ?? null;
-  const focusedRowRef = useRef<HTMLDivElement>(null);
+  const focusedRowRef = useRef<HTMLSpanElement>(null);
+  // No sort until a header is tapped: the list keeps its own order.
+  const [sort, setSort] = usePersistentState<WatchSort | null>('trader.watchlist.sort', null);
   const scrolledTo = useRef<string | null>(null);
   const queryClient = useQueryClient();
   const [symbolText, setSymbolText] = useState('');
@@ -279,81 +338,35 @@ export function Watchlist() {
           </p>
         )}
 
-        <div className="min-w-0 md:grid md:grid-cols-[minmax(7.5rem,1fr)_auto_auto_auto] md:items-start md:gap-x-3">
-            <span className="hidden whitespace-nowrap text-[10px] uppercase tracking-wide text-text/70 md:block">Symbol</span>
-            <span className="hidden whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70 md:block">Price</span>
-            <span className="hidden whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70 md:block">Target</span>
-            <span className="hidden whitespace-nowrap text-right text-[10px] uppercase tracking-wide text-text/70 md:block">Earnings</span>
-            {shown.map((r, i) => (
-              <Fragment key={r.id}>
-                <div
-                  ref={r.symbol === focusedSymbol ? focusedRowRef : undefined}
-                  data-testid={`watch-${r.symbol}`}
-                  data-focused={r.symbol === focusedSymbol || undefined}
-                  className={`grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 rounded-lg border px-3 py-3 transition-colors md:col-span-full md:grid-cols-subgrid md:border-0 md:px-0 md:py-3 ${
-                    r.symbol === focusedSymbol
-                      ? 'border-accent/50 bg-accent/10 md:rounded-md md:px-2'
-                      : 'border-border/60 hover:bg-surface-1 active:bg-surface-2 md:border-transparent'
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold">{r.symbol}</span>
-                      {r.reached && (
-                        <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-accent">
-                          target hit
-                        </span>
-                      )}
-                      {r.stale && (
-                        <span className="text-[9px] uppercase tracking-wide text-muted">
-                          stale
-                        </span>
-                      )}
-                    </div>
-                    {r.tags.length > 0 && (
-                      <div className="mt-0.5 flex flex-wrap gap-1">
-                        {r.tags.map((t) => (
-                          <span
-                            key={t.id}
-                            className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted"
-                          >
-                            {t.label}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end gap-1 text-right text-sm tabular-nums">
-                    <span>{r.price === null ? '—' : formatMoney(r.price)}</span>
-                    {r.todayChangePercent !== null && (
-                      <span className={`text-[11px] ${signClass(r.todayChangePercent)}`}>
-                        {formatPercent(r.todayChangePercent)} today
-                      </span>
-                    )}
-                    <SessionBadge session={r.session} extended={r.extended} />
-                  </div>
-                  <div className="col-span-2 mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted md:contents">
-                    <div className="whitespace-nowrap md:text-right">
-                      <span className="md:hidden">Target </span>
-                      {r.targetPrice !== null ? <><span>{formatMoney(r.targetPrice)}</span>{r.distanceToTarget !== null && <span className="ml-1 md:ml-0 md:block">{formatPercent(r.distanceToTarget)} away</span>}</> : 'no target set'}
-                    </div>
-                    <div className="whitespace-nowrap md:text-right">
-                      <span className="md:hidden">Earnings </span>
-                      <span>{r.daysUntilEarnings === null ? '—' : r.daysUntilEarnings === 0 ? 'today' : `${r.daysUntilEarnings}d`}</span>
-                    </div>
-                  </div>
-                </div>
-                {editMode && (
-                  <div className="md:col-span-full"><RowEditor
-                    row={r}
-                    onDelete={() => removeMutation.mutate(r.id)}
-                    onSaved={invalidate}
-                  /></div>
-                )}
-                {i < shown.length - 1 && <div className="my-1 border-b border-border md:col-span-full" />}
-              </Fragment>
-            ))}
-        </div>
+        {shown.length > 0 && (
+          <DataTable<WatchRow>
+            title={
+              <SessionBadge
+                session={shown.find((r) => r.session !== null)?.session ?? null}
+                extended={shown.some((r) => r.extended)}
+              />
+            }
+            columns={WATCH_COLUMNS}
+            rows={sortWatchRows(shown, sort)}
+            rowKey={(r) => r.symbol}
+            rowTestId={(r) => `watch-${r.symbol}`}
+            sort={sort ?? undefined}
+            onSortChange={setSort}
+            focusedKey={focusedSymbol}
+            focusedRef={focusedRowRef}
+            renderBelowRow={
+              editMode
+                ? (r) => (
+                    <RowEditor
+                      row={r}
+                      onDelete={() => removeMutation.mutate(r.id)}
+                      onSaved={invalidate}
+                    />
+                  )
+                : undefined
+            }
+          />
+        )}
       </section>
 
       <button
