@@ -63,14 +63,24 @@ test.describe('navigation', () => {
 
     const holding = page.getByTestId('holding-NVDA');
     await expect(holding).toBeVisible();
-    await expect(holding).toContainText('Qty');
-    await expect(holding).toContainText('Value');
-    await expect(holding).toContainText('Earnings');
+    // One header for the whole table, not a label per row.
+    await expect(holding).not.toContainText('Qty');
+    await expect(holding).toContainText('@');
+    await expect(page.getByRole('button', { name: /^Last/ })).toHaveCount(1);
+    // The row is `display: contents` (no box of its own), so measure its
+    // cells, and every line inside them: a truncated line is a hidden fact.
     const geometry = await holding.evaluate((el) => {
-      const { left, right } = el.getBoundingClientRect();
+      const cells = Array.from(el.children) as HTMLElement[];
+      const lines = cells.flatMap((c) => Array.from(c.children) as HTMLElement[]);
       return {
         viewport: window.innerWidth,
-        fits: left >= 0 && right <= window.innerWidth && el.scrollWidth <= el.clientWidth,
+        fits:
+          cells.length === 4 &&
+          cells.every((c) => {
+            const { left, right } = c.getBoundingClientRect();
+            return left >= 0 && right <= window.innerWidth;
+          }) &&
+          lines.every((l) => l.scrollWidth <= l.clientWidth),
         noPageOverflow: document.documentElement.scrollWidth <= window.innerWidth,
       };
     });

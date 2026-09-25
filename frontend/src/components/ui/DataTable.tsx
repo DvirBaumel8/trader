@@ -64,31 +64,40 @@ export function DataTable<Row>({
   renderBelowRow?: (row: Row) => ReactNode;
   empty?: ReactNode;
 }) {
-  const template = columns
-    .map((_, i) => (i === 0 ? 'minmax(0,1fr)' : 'auto'))
-    .join(' ');
+  const template = columns.map((_, i) => (i === 0 ? 'minmax(0,1fr)' : 'auto')).join(' ');
   const alignClass = (c: Column<Row>) => (c.align === 'right' ? 'text-right' : 'text-left');
 
   function tapHeader(c: Column<Row>) {
     if (!c.sortKey || !onSortChange) return;
     const active = sort?.key === c.sortKey;
-    const dir = active
-      ? sort!.dir === 'asc'
-        ? 'desc'
-        : 'asc'
-      : (c.firstDir ?? 'desc');
+    const dir = active ? (sort!.dir === 'asc' ? 'desc' : 'asc') : (c.firstDir ?? 'desc');
     onSortChange({ key: c.sortKey, dir });
   }
+
+  // A sort no header marks (earnings, say) is named beside the ⋯, or the
+  // row order would have no visible explanation.
+  const hiddenSort =
+    sort && !columns.some((c) => c.sortKey === sort.key)
+      ? moreSorts?.find((m) => encode(m) === encode(sort))
+      : undefined;
 
   return (
     <section>
       {(title || (moreSorts && moreSorts.length > 0)) && (
         <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">{title}</div>
+          <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">{title}</div>
+          {hiddenSort && (
+            <span
+              data-testid="active-more-sort"
+              className="ml-auto min-w-0 truncate text-[11px] text-muted"
+            >
+              {hiddenSort.label}
+            </span>
+          )}
           {moreSorts && moreSorts.length > 0 && (
             // A native select under a ⋯ glyph: iOS shows its picker wheel,
             // and the header row stays one line.
-            <label className="relative flex h-7 w-8 shrink-0 items-center justify-center rounded-md text-muted active:bg-surface-2">
+            <label className="relative flex h-7 w-8 shrink-0 overflow-hidden items-center justify-center rounded-md text-muted active:bg-surface-2">
               <span aria-hidden="true" className="text-base leading-none">
                 ⋯
               </span>
@@ -101,7 +110,9 @@ export function DataTable<Row>({
                   const found = moreSorts.find((m) => encode(m) === e.target.value);
                   if (found && onSortChange) onSortChange({ key: found.key, dir: found.dir });
                 }}
-                className="absolute inset-0 appearance-none opacity-0"
+                // WebKit sizes a select to its longest option even when
+                // absolutely positioned; pin it to the ⋯ box explicitly.
+                className="absolute inset-0 h-full w-full appearance-none opacity-0"
               >
                 <option value="" disabled>
                   Sort by…
@@ -121,26 +132,30 @@ export function DataTable<Row>({
         empty
       ) : (
         <div className="grid items-center gap-x-3" style={{ gridTemplateColumns: template }}>
-          {columns.map((c) => {
-            const active = c.sortKey !== undefined && sort?.key === c.sortKey;
-            const arrow = active ? (sort!.dir === 'asc' ? ' ▲' : ' ▼') : '';
-            const cls = `sticky top-0 z-10 border-b border-border bg-surface-0 py-1.5 whitespace-nowrap ${HEADER} ${alignClass(c)}`;
-            return c.sortKey && onSortChange ? (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => tapHeader(c)}
-                className={`${cls} ${active ? 'text-text' : ''}`}
-              >
-                {c.header}
-                {arrow}
-              </button>
-            ) : (
-              <span key={c.id} className={cls}>
-                {c.header}
-              </span>
-            );
-          })}
+          {/* One subgrid row, so the sticky background and the divider
+              under the header run through the column gaps too. */}
+          <div className="sticky top-0 z-10 col-span-full grid grid-cols-subgrid border-b border-border bg-surface-0">
+            {columns.map((c) => {
+              const active = c.sortKey !== undefined && sort?.key === c.sortKey;
+              const arrow = active ? (sort!.dir === 'asc' ? ' ▲' : ' ▼') : '';
+              const cls = `py-1.5 whitespace-nowrap ${HEADER} ${alignClass(c)}`;
+              return c.sortKey && onSortChange ? (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => tapHeader(c)}
+                  className={`${cls} ${active ? 'text-text' : ''}`}
+                >
+                  {c.header}
+                  {arrow}
+                </button>
+              ) : (
+                <span key={c.id} className={cls}>
+                  {c.header}
+                </span>
+              );
+            })}
+          </div>
 
           {rows.map((row, i) => {
             const key = rowKey(row);

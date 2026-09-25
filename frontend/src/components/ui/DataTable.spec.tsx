@@ -81,6 +81,19 @@ describe('DataTable', () => {
     expect(onSortChange).toHaveBeenLastCalledWith({ key: 'earn', dir: 'asc' });
   });
 
+  /** A sort no column shows would otherwise leave the row order unexplained. */
+  it('names the active ⋯ sort when no header shows it', () => {
+    const moreSorts = [{ key: 'earn', dir: 'asc' as const, label: 'Earnings — soonest' }];
+    renderTable({ onSortChange: vi.fn(), moreSorts, sort: { key: 'earn', dir: 'asc' } });
+    expect(screen.getByTestId('active-more-sort')).toHaveTextContent('Earnings — soonest');
+  });
+
+  it('does not name a ⋯ sort that a header already marks', () => {
+    const moreSorts = [{ key: 'px', dir: 'desc' as const, label: 'Last — high first' }];
+    renderTable({ onSortChange: vi.fn(), moreSorts, sort: { key: 'px', dir: 'desc' } });
+    expect(screen.queryByTestId('active-more-sort')).not.toBeInTheDocument();
+  });
+
   it('renders a totals row in the same columns', () => {
     renderTable({ totals: ['Total', 'px3'] });
     const totals = screen.getByTestId('table-totals');

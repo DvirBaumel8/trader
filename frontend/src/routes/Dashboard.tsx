@@ -1,44 +1,20 @@
-import { Fragment, useEffect, useRef, useState, type Ref } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Money } from '../components/Money';
-import { Percent } from '../components/Percent';
-import { Select } from '../components/ui/Select';
-import { formatQuantity, signClass } from '../components/format';
+import { signClass } from '../components/format';
 import {
-  sortPositions,
-  type SortDir,
-  type SortKey,
-} from '../lib/sortPositions';
+  HoldingsTable,
+  type Position,
+  type PortfolioTotals,
+} from '../components/HoldingsTable';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
 import { AiSummary } from '../components/AiSummary';
-import { SessionBadge } from '../components/SessionBadge';
 import { RefreshButton } from '../components/RefreshButton';
 import { BenchmarkChart } from '../components/BenchmarkChart';
 import { MinimizableSection } from '../components/ui/MinimizableSection';
 import { RANGES, type Point, type Range } from '../lib/benchmarkRange';
-
-interface Position {
-  symbol: string;
-  name: string | null;
-  quantity: number;
-  avgCost: number;
-  costBasis: number;
-  feesPaid: number;
-  realizedPnl: number;
-  price: number | null;
-  stale: boolean;
-  session: 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
-  extended: boolean;
-  regularPrice: number | null;
-  marketValue: number | null;
-  unrealizedPnl: number | null;
-  unrealizedPct: number | null;
-  dayPnl: number | null;
-  tradeId: string | null;
-  daysUntilEarnings: number | null;
-}
 
 interface AtRisk {
   amount: number;
@@ -58,6 +34,7 @@ interface Portfolio {
   marketSession: 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
   pricesAreExtended: boolean;
   atRisk: AtRisk;
+  totals: PortfolioTotals;
 }
 
 const RANGE_KEY = 'trader.benchmarkRange.v1';
@@ -77,141 +54,11 @@ interface Performance {
   unpricedSymbols: string[];
 }
 
-const SORT_KEY = 'trader.holdingsSort.v1';
-
-interface SortPref {
-  key: SortKey;
-  dir: SortDir;
-}
-
-/** Biggest position first — the most useful default for a working trader. */
-const defaultSort: SortPref = { key: 'marketValue', dir: 'desc' };
-
-const SORT_OPTIONS: { key: SortKey; dir: SortDir; label: string }[] = [
-  { key: 'marketValue', dir: 'desc', label: 'Value — largest first' },
-  { key: 'marketValue', dir: 'asc', label: 'Value — smallest first' },
-  { key: 'unrealizedPct', dir: 'desc', label: '% — best first' },
-  { key: 'unrealizedPct', dir: 'asc', label: '% — worst first' },
-  { key: 'unrealizedPnl', dir: 'desc', label: 'P&L — most profit' },
-  { key: 'unrealizedPnl', dir: 'asc', label: 'P&L — biggest loss' },
-  { key: 'symbol', dir: 'asc', label: 'Symbol — A to Z' },
-  { key: 'symbol', dir: 'desc', label: 'Symbol — Z to A' },
-  { key: 'daysUntilEarnings', dir: 'asc', label: 'Earnings — soonest first' },
-];
-
-const encode = (s: SortPref) => `${s.key}:${s.dir}`;
-
-/**
- * A native <select> rather than a custom menu: iOS renders its own picker
- * wheel, which is a better control than anything hand-built, and it keeps the
- * header to one compact element instead of a row of chips that grows every
- * time a sort option is added. The shell itself is `ui/Select`; only the
- * encode/decode between a composite sort key and a plain option string is
- * specific to this screen.
- */
-function SortPicker({
-  sort,
-  onChange,
-}: {
-  sort: SortPref;
-  onChange: (s: SortPref) => void;
-}) {
-  return (
-    <Select
-      value={encode(sort)}
-      onChange={(v) => {
-        const found = SORT_OPTIONS.find((o) => encode(o) === v);
-        if (found) onChange({ key: found.key, dir: found.dir });
-      }}
-      options={SORT_OPTIONS.map((o) => ({ value: encode(o), label: o.label }))}
-      srLabel="Sort holdings"
-    />
-  );
-}
-
-/**
- * Deliberate three-tier hierarchy, because every row was previously reading as
- * two equally-loud facts:
- *   1. symbol and market value  — what you scan for
- *   2. percent return           — how it is doing
- *   3. cost basis and $ P&L     — supporting detail, quiet on purpose
- */
-function PositionRow({
-  p,
-  focused,
-  focusRef,
-}: {
-  p: Position;
-  focused: boolean;
-  focusRef?: Ref<HTMLAnchorElement>;
-}) {
-  return (
-    <Link
-      ref={focusRef}
-      to={p.tradeId !== null ? `/trades/${encodeURIComponent(p.tradeId)}` : '#'}
-      onClick={p.tradeId === null ? (e) => e.preventDefault() : undefined}
-      data-testid={`holding-${p.symbol}`}
-      data-focused={focused || undefined}
-      className={`group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 rounded-lg border px-3 py-3 transition-colors md:col-span-full md:grid-cols-subgrid md:items-center md:border-0 md:px-0 md:py-3 ${
-        focused
-          ? 'border-accent/50 bg-accent/10 md:rounded-md md:px-2'
-          : 'border-border/60 hover:bg-surface-1 active:bg-surface-2 md:border-transparent'
-      }`}
-    >
-      <div className="min-w-0 text-[15px] font-semibold">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span>{p.symbol}</span>
-          {p.quantity < 0 && (
-            <span className="rounded bg-down/15 px-1 py-px text-[9px] font-medium tracking-wide text-down">
-              SHORT
-            </span>
-          )}
-          {p.stale && (
-            <span className="text-[9px] tracking-wide text-down">STALE</span>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-col items-end gap-1 text-right text-sm tabular-nums md:hidden">
-        <span>
-          <span className="mr-1 text-[10px] text-muted">Price</span>
-          <Money value={p.price} />
-        </span>
-        <SessionBadge session={p.session} extended={p.extended} />
-      </div>
-      <div className="col-span-2 mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted md:contents">
-        <span className="whitespace-nowrap md:text-right md:text-[12px]">
-          <span className="md:hidden">Qty </span>
-          {formatQuantity(p.quantity)} @ <Money value={p.avgCost} />
-        </span>
-        <span className="whitespace-nowrap md:text-right md:text-[13px] md:text-text">
-          <span className="md:hidden">Value </span>
-          <Money value={p.marketValue} />
-        </span>
-        <span className="whitespace-nowrap md:text-right">
-          <Percent value={p.unrealizedPct} />{' '}
-          <span className={signClass(p.unrealizedPnl)}>
-            <Money value={p.unrealizedPnl} signed />
-          </span>
-        </span>
-        <span className="whitespace-nowrap md:text-right">
-          <span className="md:hidden">Earnings </span>
-          {p.daysUntilEarnings === null ? '—' : p.daysUntilEarnings === 0 ? 'today' : `${p.daysUntilEarnings}d`}
-        </span>
-      </div>
-    </Link>
-  );
-}
-
-const HEADER_CELL = 'text-[10px] tracking-wide text-muted uppercase';
-
 export function Dashboard() {
   const [searchParams] = useSearchParams();
   const focusedSymbol = searchParams.get('symbol')?.toUpperCase() ?? null;
-  const focusedRowRef = useRef<HTMLAnchorElement>(null);
+  const focusedRowRef = useRef<HTMLSpanElement>(null);
   const scrolledTo = useRef<string | null>(null);
-  const [sort, setSort] = useState<SortPref>(() =>
-    loadDraft(SORT_KEY, defaultSort),
-  );
   const [range, setRange] = useState<Range>(() =>
     sanitizeRange(loadDraft(RANGE_KEY, { range: DEFAULT_RANGE }).range),
   );
@@ -241,11 +88,6 @@ export function Dashboard() {
     }
   }, [data, focusedSymbol]);
 
-  const changeSort = (s: SortPref) => {
-    setSort(s);
-    saveDraft(SORT_KEY, s);
-  };
-
   if (isLoading) {
     return <p className="text-sm text-muted">Loading…</p>;
   }
@@ -255,11 +97,6 @@ export function Dashboard() {
   if (!data) {
     return <p className="text-sm text-muted">No portfolio data available.</p>;
   }
-
-  const totalUnrealized = data.positions.reduce(
-    (sum, p) => sum + (p.unrealizedPnl ?? 0),
-    0,
-  );
 
   return (
     <div className="space-y-4">
@@ -271,17 +108,13 @@ export function Dashboard() {
             <span className="text-xs uppercase tracking-wide text-text/70">
                 Account value
               </span>
-              <SessionBadge
-                session={data.marketSession}
-                extended={data.pricesAreExtended}
-              />
             </div>
             <div className="mt-1 text-4xl font-semibold">
               <Money value={data.accountValue} />
             </div>
             <div className="mt-1 text-sm">
-              <span className={signClass(totalUnrealized)}>
-                <Money value={totalUnrealized} signed /> unrealized
+              <span className={signClass(data.totals.unrealizedPnl)}>
+                <Money value={data.totals.unrealizedPnl} signed /> unrealized
               </span>
             </div>
           </div>
@@ -354,37 +187,14 @@ export function Dashboard() {
         />
       </MinimizableSection>
 
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-xs uppercase tracking-wide text-text/70">
-              Holdings
-            </span>
-            {/* `GET /portfolio` already filters to open positions; shorts count too. */}
-            <span className="text-xs text-muted">
-              {data.positions.length} {data.positions.length === 1 ? 'position' : 'positions'}
-            </span>
-          </div>
-          <SortPicker sort={sort} onChange={changeSort} />
-        </div>
-        <div className="min-w-0 md:grid md:grid-cols-[minmax(7rem,1fr)_auto_auto_auto_auto] md:items-center md:gap-x-3">
-            <span className={`${HEADER_CELL} hidden whitespace-nowrap text-text/70 md:block`}>Symbol</span>
-            <span className={`hidden whitespace-nowrap text-right ${HEADER_CELL} text-text/70 md:block`}>Qty / Avg</span>
-            <span className={`hidden whitespace-nowrap text-right ${HEADER_CELL} text-text/70 md:block`}>Market value</span>
-            <span className={`hidden whitespace-nowrap text-right ${HEADER_CELL} text-text/70 md:block`}>P&amp;L</span>
-            <span className={`hidden whitespace-nowrap text-right ${HEADER_CELL} text-text/70 md:block`}>Earnings</span>
-            {sortPositions(data.positions, sort.key, sort.dir).map((p, i) => (
-              <Fragment key={p.symbol}>
-                <PositionRow
-                  p={p}
-                  focused={p.symbol === focusedSymbol}
-                  focusRef={p.symbol === focusedSymbol ? focusedRowRef : undefined}
-                />
-                {i < data.positions.length - 1 && <div className="my-1 border-b border-border md:col-span-full" />}
-              </Fragment>
-            ))}
-        </div>
-      </section>
+      <HoldingsTable
+        positions={data.positions}
+        totals={data.totals}
+        marketSession={data.marketSession}
+        pricesAreExtended={data.pricesAreExtended}
+        focusedSymbol={focusedSymbol}
+        focusedRef={focusedRowRef}
+      />
     </div>
   );
 }

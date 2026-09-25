@@ -33,8 +33,11 @@ const basePosition = (symbol: string, quantity: number) => ({
   marketValue: 11 * quantity,
   unrealizedPnl: 1 * quantity,
   unrealizedPct: 10,
-  tradeId: null,
-  daysUntilEarnings: null,
+  dayChange: 0.5 as number | null,
+  dayChangePct: 0.05 as number | null,
+  dayPnl: (0.5 * quantity) as number | null,
+  tradeId: null as string | null,
+  daysUntilEarnings: null as number | null,
 });
 const position = (
   symbol: string,
@@ -42,36 +45,8 @@ const position = (
   overrides: Partial<ReturnType<typeof basePosition>> = {},
 ) => ({ ...basePosition(symbol, quantity), ...overrides });
 
-describe('Dashboard earnings column', () => {
-  it('shows days until earnings for a holding', async () => {
-    renderDashboard([{ ...position('NVDA', 100), daysUntilEarnings: 7 }]);
-    expect(await screen.findByText('7d')).toBeInTheDocument();
-  });
-});
 
 describe('Dashboard holdings table', () => {
-  it('labels an after-hours holding price in the phone row', async () => {
-    renderDashboard([position('NVDA', 1, { session: 'POST', extended: true })]);
-    expect(await screen.findByTestId('holding-NVDA')).toHaveTextContent('AFTER HOURS');
-  });
-
-  it('renders market value, return, and earnings together in a phone holding row', async () => {
-    renderDashboard([
-      position('AAPL', 1, {
-        price: 332.47,
-        marketValue: 332.47,
-        unrealizedPnl: 132.47,
-        unrealizedPct: 0.6624,
-        daysUntilEarnings: 43,
-      }),
-    ]);
-
-    const holding = await screen.findByTestId('holding-AAPL');
-    expect(holding).toHaveTextContent('$332.47');
-    expect(holding).toHaveTextContent('+66.24%');
-    expect(holding).toHaveTextContent('+$132.47');
-    expect(holding).toHaveTextContent('43d');
-  });
 
   it('focuses and scrolls to a holding linked from Brief', async () => {
     const scrollIntoView = vi.fn();
@@ -91,35 +66,6 @@ describe('Dashboard holdings table', () => {
     renderDashboard([position('NVDA', 100)]);
     expect(await screen.findByText('Holdings')).toBeInTheDocument();
     expect(screen.queryByText('Daily brief')).not.toBeInTheDocument();
-  });
-
-  it('shows aligned column headers for holdings', async () => {
-    renderDashboard([position('NVDA', 100)]);
-    expect(await screen.findByText('Symbol')).toBeInTheDocument();
-    expect(screen.getByText('Qty / Avg')).toBeInTheDocument();
-    expect(screen.getByText('Market value')).toBeInTheDocument();
-    expect(screen.getByText('P&L')).toBeInTheDocument();
-    expect(screen.getByText('Earnings', { selector: 'span.hidden' })).toBeInTheDocument();
-  });
-
-  it('sorts by soonest earnings, sinking a ticker with none (an ETF) to the end', async () => {
-    renderDashboard([
-      position('LATE', 1, { daysUntilEarnings: 30 }),
-      position('ETF', 1, { daysUntilEarnings: null }),
-      position('SOON', 1, { daysUntilEarnings: 2 }),
-    ]);
-    const user = userEvent.setup();
-
-    await screen.findByText('SOON');
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Sort holdings' }),
-      'daysUntilEarnings:asc',
-    );
-
-    const rows = screen
-      .getAllByTestId(/^holding-/)
-      .map((el) => el.getAttribute('data-testid'));
-    expect(rows).toEqual(['holding-SOON', 'holding-LATE', 'holding-ETF']);
   });
 
   it('flags positions with only a partial stop, alongside those with none', async () => {
@@ -162,6 +108,7 @@ function renderDashboard(
       positions: { symbol: string; coveredQuantity: number; heldQuantity: number }[];
     };
   }> = {},
+  portfolioOverrides: Record<string, unknown> = {},
 ) {
   (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
     if (path.startsWith('/performance'))
@@ -182,6 +129,8 @@ function renderDashboard(
           positionsWithPartialStop: { count: 0, positions: [] },
           ...atRiskOverrides,
         },
+        totals: { marketValue: 1000, dayPnl: 12.34, unrealizedPnl: 56.78 },
+        ...portfolioOverrides,
       });
     return Promise.resolve({});
   });
@@ -213,10 +162,130 @@ describe('Dashboard position count', () => {
   });
 
   it('shows the empty holdings count without a seed prompt', async () => {
-    renderDashboard([]);
+    renderDashboard([], '/', {}, {
+      totals: { marketValue: null, dayPnl: null, unrealizedPnl: null },
+    });
     expect(await screen.findByText('0 positions')).toBeInTheDocument();
     expect(screen.getByText('Account value')).toBeInTheDocument();
     expect(screen.queryByText('Seed your portfolio')).not.toBeInTheDocument();
     expect(screen.queryByText('Reset & re-seed portfolio')).not.toBeInTheDocument();
+  });
+});
+
+describe('Holdings table', () => {
+  /** The owner's complaint: "Qty" repeated once per ticker. */
+  it('shows each column name once, and no labels inside rows', async () => {
+    renderDashboard([position('NVDA', 100), position('AAPL', 5), position('TSLA', -3)]);
+    await screen.findByTestId('holding-NVDA');
+    for (const h of ['Symbol', 'Last', 'Day', 'P&L']) {
+      expect(screen.getAllByRole('button', { name: new RegExp(`^${h}`) })).toHaveLength(1);
+    }
+    for (const label of ['Qty', 'Value', 'Price', 'Earnings']) {
+      expect(screen.getByTestId('holding-NVDA')).not.toHaveTextContent(label);
+    }
+  });
+
+  it('puts price, market value, day move and P&L in one two-line row', async () => {
+    renderDashboard([
+      position('AAPL', 200, {
+        avgCost: 238,
+        price: 243.17,
+        marketValue: 48_634,
+        dayChange: 0.13,
+        dayChangePct: 0.0005,
+        dayPnl: 26,
+        unrealizedPnl: 1026,
+        unrealizedPct: 0.021,
+      }),
+    ]);
+    const row = await screen.findByTestId('holding-AAPL');
+    expect(row).toHaveTextContent('200 @ $238.00');
+    expect(row).toHaveTextContent('$243.17');
+    expect(row).toHaveTextContent('$48.6K');
+    expect(row).toHaveTextContent('+$0.13');
+    expect(row).toHaveTextContent('+0.05%');
+    expect(row).toHaveTextContent('+$1,026.00');
+    expect(row).toHaveTextContent('+2.10%');
+  });
+
+  it('shows a dash, not zero, when there is no previous close', async () => {
+    renderDashboard([position('NEW', 1, { dayChange: null, dayChangePct: null, dayPnl: null })]);
+    const row = await screen.findByTestId('holding-NEW');
+    expect(row).toHaveTextContent('—');
+    expect(row).not.toHaveTextContent('+$0.00');
+  });
+
+  it('badges earnings only when they are within a week', async () => {
+    renderDashboard([
+      position('SOON', 1, { daysUntilEarnings: 3 }),
+      position('TODAY', 1, { daysUntilEarnings: 0 }),
+      position('LATE', 1, { daysUntilEarnings: 30 }),
+    ]);
+    expect(await screen.findByTestId('holding-SOON')).toHaveTextContent('E·3d');
+    expect(screen.getByTestId('holding-TODAY')).toHaveTextContent('E·today');
+    expect(screen.getByTestId('holding-LATE')).not.toHaveTextContent('E·');
+  });
+
+  /** One label for the whole table: the owner does not want a per-row marker. */
+  it('labels an after-hours session once, in the holdings title', async () => {
+    renderDashboard([position('NVDA', 1, { session: 'POST', extended: true })], '/', {}, {
+      marketSession: 'POST',
+      pricesAreExtended: true,
+    });
+    await screen.findByTestId('holding-NVDA');
+    expect(screen.getAllByText('AFTER HOURS')).toHaveLength(1);
+    expect(screen.getByTestId('holding-NVDA')).not.toHaveTextContent('AFTER HOURS');
+  });
+
+  it('sorts by tapping a header: P&L first tap is biggest first, second tap flips', async () => {
+    renderDashboard([
+      position('LOW', 1, { unrealizedPnl: -5 }),
+      position('HIGH', 1, { unrealizedPnl: 50 }),
+    ]);
+    const user = userEvent.setup();
+    await screen.findByTestId('holding-LOW');
+    const order = () => screen.getAllByTestId(/^holding-/).map((el) => el.getAttribute('data-testid'));
+
+    await user.click(screen.getByRole('button', { name: /^P&L/ }));
+    expect(order()).toEqual(['holding-HIGH', 'holding-LOW']);
+    await user.click(screen.getByRole('button', { name: /^P&L/ }));
+    expect(order()).toEqual(['holding-LOW', 'holding-HIGH']);
+  });
+
+  it('sorts by soonest earnings from the ⋯ menu, sinking an ETF with none to the end', async () => {
+    renderDashboard([
+      position('LATE', 1, { daysUntilEarnings: 30 }),
+      position('ETF', 1, { daysUntilEarnings: null }),
+      position('SOON', 1, { daysUntilEarnings: 2 }),
+    ]);
+    const user = userEvent.setup();
+    await screen.findByTestId('holding-SOON');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'More sorts' }), 'daysUntilEarnings:asc');
+    const order = screen.getAllByTestId(/^holding-/).map((el) => el.getAttribute('data-testid'));
+    expect(order).toEqual(['holding-SOON', 'holding-LATE', 'holding-ETF']);
+  });
+
+  it('falls back to the default sort when the saved one is from an older version', async () => {
+    window.localStorage.setItem('trader.holdingsSort.v1', JSON.stringify({ key: 'price', dir: 'asc' }));
+    renderDashboard([
+      // Alphabetical order (what a broken sort key degrades to) is the reverse of value order.
+      position('AAA', 1, { marketValue: 10 }),
+      position('ZZZ', 1, { marketValue: 1000 }),
+    ]);
+    await screen.findByTestId('holding-ZZZ');
+    const order = screen.getAllByTestId(/^holding-/).map((el) => el.getAttribute('data-testid'));
+    expect(order).toEqual(['holding-ZZZ', 'holding-AAA']);
+  });
+
+  it('shows backend totals in the totals row', async () => {
+    renderDashboard([position('NVDA', 1)]);
+    const totals = await screen.findByTestId('table-totals');
+    expect(totals).toHaveTextContent('+$12.34');
+    expect(totals).toHaveTextContent('+$56.78');
+  });
+
+  it('does not link a holding that has no trade', async () => {
+    renderDashboard([position('NVDA', 1, { tradeId: null })]);
+    expect((await screen.findByTestId('holding-NVDA')).tagName).toBe('DIV');
   });
 });
