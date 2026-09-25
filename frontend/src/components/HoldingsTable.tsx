@@ -3,6 +3,7 @@ import { DataTable, type Column, type TableSort } from './ui/DataTable';
 import { Money } from './Money';
 import { Percent } from './Percent';
 import { SessionBadge } from './SessionBadge';
+import { EarningsBadge } from './EarningsBadge';
 import { formatMoney, formatMoneyCompact, formatQuantity } from './format';
 import { sanitizeSort, sortPositions, type SortDir, type SortKey } from '../lib/sortPositions';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
@@ -52,9 +53,6 @@ const MORE_SORTS: (TableSort & { label: string })[] = [
 ];
 
 const BADGE = 'rounded px-1 py-px text-[9px] font-medium tracking-wide';
-/** Earnings are a badge only when close enough to act on; the detail page has the rest. */
-const EARNINGS_BADGE_DAYS = 7;
-
 function SymbolCell({ p }: { p: Position }) {
   const e = p.daysUntilEarnings;
   return (
@@ -62,9 +60,7 @@ function SymbolCell({ p }: { p: Position }) {
       <span className="font-semibold">{p.symbol}</span>
       {p.quantity < 0 && <span className={`${BADGE} bg-down/15 text-down`}>SHORT</span>}
       {p.stale && <span className={`${BADGE} text-down`}>STALE</span>}
-      {e !== null && e <= EARNINGS_BADGE_DAYS && (
-        <span className={`${BADGE} bg-accent/15 text-accent`}>E·{e === 0 ? 'today' : `${e}d`}</span>
-      )}
+      {e !== null && <EarningsBadge days={e} />}
     </span>
   );
 }

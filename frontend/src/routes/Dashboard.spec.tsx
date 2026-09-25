@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -215,15 +215,22 @@ describe('Holdings table', () => {
     expect(row).not.toHaveTextContent('+$0.00');
   });
 
-  it('badges earnings only when they are within a week', async () => {
+  /** The countdown is always visible; only the close ones are highlighted. */
+  it('badges days to earnings on every row that has a date, highlighting the next week', async () => {
     renderDashboard([
       position('SOON', 1, { daysUntilEarnings: 3 }),
       position('TODAY', 1, { daysUntilEarnings: 0 }),
-      position('LATE', 1, { daysUntilEarnings: 30 }),
+      position('LATE', 1, { daysUntilEarnings: 43 }),
+      position('ETF', 1, { daysUntilEarnings: null }),
     ]);
-    expect(await screen.findByTestId('holding-SOON')).toHaveTextContent('E·3d');
-    expect(screen.getByTestId('holding-TODAY')).toHaveTextContent('E·today');
-    expect(screen.getByTestId('holding-LATE')).not.toHaveTextContent('E·');
+    const badge = async (sym: string) =>
+      within(await screen.findByTestId(`holding-${sym}`)).getByTestId('earnings-badge');
+    expect(await badge('SOON')).toHaveTextContent('E·3d');
+    expect(await badge('SOON')).toHaveAttribute('data-soon', 'true');
+    expect(await badge('TODAY')).toHaveTextContent('E·today');
+    expect(await badge('LATE')).toHaveTextContent('E·43d');
+    expect(await badge('LATE')).not.toHaveAttribute('data-soon');
+    expect(screen.getByTestId('holding-ETF')).not.toHaveTextContent('E·');
   });
 
   /** One label for the whole table: the owner does not want a per-row marker. */
