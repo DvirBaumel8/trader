@@ -1,4 +1,6 @@
 # Trader
 
-The canonical project instructions are in [`AGENTS.md`](AGENTS.md).
-Read that file before acting; it routes task-specific references.
+The canonical project instructions are in `AGENTS.md`, imported here so they
+load automatically along with the documents it imports:
+
+@AGENTS.md

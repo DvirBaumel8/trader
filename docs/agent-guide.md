@@ -15,12 +15,13 @@
 
 ## Choose the development agent model
 
-- Use stronger reasoning for architecture, real-data safety, debugging,
-  migrations, and final review.
-- Use a lower-cost model for a narrow task whose files, acceptance criteria, and
-  test command are already explicit.
-- Set model and reasoning level deliberately for delegated work when the host
-  supports them.
+- Default effort is fine for routine slices. Raise effort for architecture,
+  real-data safety, debugging, migrations, and final review.
+- For a narrow delegated task whose files, acceptance criteria, and test
+  command are already explicit, lower effort before switching to a cheaper
+  model.
+- If work comes back shallow, raise effort rather than adding "be thorough"
+  instructions.
 - Keep a task handoff self-contained enough that a different model can continue
   without replaying a long conversation.
 

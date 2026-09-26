@@ -54,6 +54,10 @@ diary maintains it. There is no separate transaction-entry workflow.
 Prefer small vertical slices. Resist features that do not earn their complexity
 for the owner, and use no paid service while this remains a one-user product.
 
+Use the superpowers process skills (brainstorming, writing-plans) for
+multi-slice features. Bug fixes and single-slice changes go straight to
+implementation with the verification rules below.
+
 ## Safe local workflow
 
 The local `trader` database contains real portfolio data. Never reset, seed,
@@ -121,7 +125,9 @@ old test coverage missed it, and sweep for the same shape elsewhere. Keep the
 pure portfolio derivation logic pure and fixture-tested.
 
 Any UI change must be opened and inspected in a real browser before handoff.
-Check the actual flow at phone width; the owner also verifies on the iPhone.
+Check the actual flow at iPhone 16 Pro width (402px, Playwright's
+`devices['iPhone 16 Pro']`, which the `mobile` project already uses); the
+owner also verifies on that phone.
 When no data-backed screen exists, make a temporary Vite probe, inspect it,
 then remove the probe in the same change.
 

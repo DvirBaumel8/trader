@@ -5,19 +5,18 @@ instructions, plus lessons that cost real time to learn.
 
 ## Build in small, testable slices
 
-The owner's instruction, close to verbatim: build it **step by step, super
-slowly**, letting him test every small thing and getting it right before moving to
-the next part — otherwise it becomes a mess and hard to test.
+Build in small steps, each one right before the next begins, so problems stay
+small and easy to test.
 
-In practice this means:
-
-- **Vertical slices, never horizontal layers.** Each step ends with something
-  running that he can open on his phone and poke at. Never "the database is done"
-  or "the API is done" — those cannot be tested and they pile up.
-- **Explicit test checkpoints.** Work stops at a checkpoint, states exactly what
-  to test and what to look for, and does not continue until he responds.
-- **One phase at a time.** The plan for the next phase is written *after* the
-  previous one has been used, so it is informed by real usage rather than guesses.
+- **Vertical slices, never horizontal layers.** Each slice ends with something
+  running that the owner can open on the phone and poke at. Never "the database
+  is done" or "the API is done" — those cannot be tested and they pile up.
+- **Say what to check.** When a slice is done and verified, state exactly what
+  to test on the phone and what to look for, then keep going. Stop and wait only
+  when the owner asked to review first, or when the next step needs a decision
+  from the owner.
+- **Plan from real usage.** Plan a later phase once the earlier one has been
+  used, so the plan reflects real usage rather than guesses.
 
 ## Process that produced this project
 
@@ -65,18 +64,9 @@ flow in [docs/api.md](api.md).
 
 ## Environment
 
-- Current local commands and operating facts live in [AGENTS.md](../AGENTS.md)
-  and [docs/current-state.md](current-state.md). For normal iteration, run these
-  in separate terminals:
-
-  ```bash
-  npm run start:dev --prefix backend
-  npm run dev --prefix frontend
-  ```
-
-  Root `npm run dev` is production-shaped, not hot reload.
-- Postgres 18 via Homebrew, already running; no Docker
-- He reaches the app from his iPhone at the Mac's LAN address on the same Wi-Fi
-- **Remote access is not set up yet.** Tailscale was chosen for this and needs
-  physical access to the Mac (sudo password, VPN approval dialog) — it cannot be
-  done from the phone. Pending.
+- Local commands and operating facts live in [AGENTS.md](../AGENTS.md) and
+  [docs/current-state.md](current-state.md).
+- Postgres 18 via Homebrew, already running; no Docker.
+- The owner reaches the dev app from the iPhone at the Mac's LAN address on the
+  same Wi-Fi, and the deployed app from anywhere (see
+  [DEPLOYMENT.md](DEPLOYMENT.md)).
