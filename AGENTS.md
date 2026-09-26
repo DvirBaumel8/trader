@@ -36,6 +36,10 @@ diary maintains it. There is no separate transaction-entry workflow.
 - Every service resolves the request identity through
   `usersService.currentUser()`, not `ensureDefaultUser()`. The latter risks
   serving the owner's data to another user.
+- Instruments and market data are shared across users; transactions, stops
+  and journal rows are not. A query on a per-user table must filter by
+  `userId` even when it is keyed on an instrument, including inside
+  write-path validation. `docs/trader-profile.md` is the owner's alone.
 - Price selection follows the market session. Surface `stale` quotes as stale,
   and label pre-market or after-hours prices rather than presenting them as a
   regular close.

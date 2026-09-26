@@ -80,17 +80,22 @@ alerts, screeners, multi-currency, dividend tracking, multi-user accounts.
 
 **On AI specifically:** the owner wants "more AI" and then chose *no AI in v1* —
 because a coach reading an empty journal has nothing useful to say. The schema is
-designed so AI is cheap to add once real history exists. The first AI feature will
-be auto-enrichment of trade entries, because it works from day one and builds the
-dataset every later feature needs.
+designed so AI is cheap to add once real history exists.
+
+**Since v1, the owner has deliberately brought in** AI features (grounded in
+app-computed facts, never model arithmetic), a watchlist, dividend and
+margin-interest entries, and hosting with accounts. The rest of the list is
+still out of scope. [Current state](current-state.md) is the source for what
+ships today.
 
 ## Roadmap
 
 | Phase | What it delivers | Status |
 |---|---|---|
 | 1 | Portfolio, live — seed, positions, cash, live pricing | Complete |
-| 2 | The diary — trade entries, notes, cash entries, tags | Not started |
-| 3 | Vs the market — price history and the benchmark chart | Not started |
-| Later | AI enrichment, hosting with accounts, options, broker import | Future |
+| 2 | The diary — trade entries, notes, cash entries, tags | Complete |
+| 3 | Vs the market — price history and the benchmark chart | Complete |
+| Since | AI reads, watchlist, hosting with accounts | Shipped |
+| Later | Broker import (read-only), options | Future |
 
 Full detail: `superpowers/specs/2026-08-28-trader-design.md`

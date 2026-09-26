@@ -2,7 +2,8 @@
 
 > Read this when you need to know what is true now before planning, resuming, deploying, or testing work.
 
-**Last verified:** 2026-09-19 against `package.json`, `backend/package.json`,
+**Last verified:** 2026-09-27 against `backend/src/users/users.service.ts`,
+`backend/src/llm/trader-profile.ts`, `.github/workflows/`, `package.json`, `backend/package.json`,
 `render.yaml`, `docs/DEPLOYMENT.md`, `docs/backlog.md`,
 `backend/src/auth/auth.module.ts`, `backend/src/main.ts`, and
 `backend/src/journal/journal.service.ts`.
@@ -23,7 +24,9 @@ documents for decisions, implementation detail, and history.
   including fees and history.
 - AI features include streamed portfolio summaries, trade reviews, trade ideas,
   and per-symbol pattern reads. They use app-computed facts; model prose is not
-  the source of portfolio numbers.
+  the source of portfolio numbers. `docs/trader-profile.md` goes, whole and
+  framed as dated background, into the owner's own AI requests only; other
+  accounts get the no-profile path.
 - The watchlist supports targets and a cached AI ranking of the whole list.
 - A trade entry can carry the broker's own reported net cash and resulting
   balance for that fill. When given, price is derived from it (full
@@ -50,8 +53,12 @@ documents for decisions, implementation detail, and history.
   `main` is production; there is deliberately no staging environment, while
   pushed branches receive Cloudflare previews.
 - The API uses a global JWT bearer-token guard. The owner can use the shared
-  app-password path; email/password accounts are supported; Google sign-in is
-  optional and remains absent until its client ID is configured.
+  app-password path; email/password accounts are supported and signup is
+  open; Google sign-in is optional and remains absent until its client ID is
+  configured. A token whose user no longer exists is rejected, and production
+  refuses app-password sign-in when `APP_PASSWORD_HASH` is unset.
+- Nothing gates production on tests: a push to `main` deploys the API and the
+  frontend without a CI test run, so run the suites before pushing.
 - Treat the local `trader` database as real data: never run destructive test or
   reset work against it. Use `trader_test` for backend verification and the
   disposable `trader_e2e` database for browser runs; production data is kept in

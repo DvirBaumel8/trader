@@ -14,6 +14,24 @@ this file says what remains.
   candle. On a phone, confirm a tightly clustered stop and exit level does not
   crowd the axis and per-fill side selection reads on a tall candle.
 
+## Safety and operations
+
+- [ ] **Gate production on tests.** Pushing `main` deploys Render and
+  Cloudflare with no test run. Proposed, free: a GitHub Actions workflow
+  running `npm test` (and backend e2e against a service Postgres) on every
+  push, plus Render's "auto-deploy after CI checks pass". Needs the owner's
+  decision because it changes how production deploys.
+- [ ] **Decide who may sign up.** `POST /auth/signup` is open to anyone who
+  finds the API. Cross-user isolation was re-audited 2026-09-27 (journal
+  position checks, stale tokens, trader profile fixed), but whether strangers
+  may create accounts — versus an invite code or allowlist — is the owner's
+  call.
+- [ ] **Remove the `/probe` route.** `routes/TickerProbe.tsx` is dev-only
+  scaffolding that ships to production behind login.
+- [ ] **Scope the journal list's join reads.** `JournalService.list` loads
+  every user's entry tags, stop levels and stop executions and filters in
+  memory. Not a leak, but it grows with every account.
+
 ## UI
 
 - [ ] **Review the UI as a whole.** Study comparable products and decide which
