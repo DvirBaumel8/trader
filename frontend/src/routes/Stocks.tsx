@@ -151,6 +151,12 @@ export function Stocks() {
     'trader.stocks.selectedSymbols',
     [],
   );
+  // Narrows to tickers that lost money overall in the period — the review
+  // lens for "where did it go wrong", on top of whatever tickers are picked.
+  const [lossesOnly, setLossesOnly] = usePersistentState<boolean>(
+    'trader.stocks.lossesOnly',
+    false,
+  );
 
   const { data, isLoading } = useQuery({
     queryKey: ['symbols', range],
@@ -163,7 +169,10 @@ export function Stocks() {
     selected.length === 0
       ? bySymbol
       : bySymbol.filter((r) => selected.includes(r.symbol));
-  const rows = sortSymbols(bySelection, sort);
+  const byOutcome = lossesOnly
+    ? bySelection.filter((r) => (r.totalPnl ?? 0) < 0)
+    : bySelection;
+  const rows = sortSymbols(byOutcome, sort);
 
   const totalPnl = rows.reduce((sum, r) => sum + (r.totalPnl ?? 0), 0);
   const totalFees = rows.reduce((sum, r) => sum + r.feesPaid, 0);
@@ -212,6 +221,18 @@ export function Stocks() {
                 ▼
               </span>
             </button>
+            <button
+              type="button"
+              aria-pressed={lossesOnly}
+              onClick={() => setLossesOnly((prev) => !prev)}
+              className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-xs ${
+                lossesOnly
+                  ? 'border-down bg-down/10 font-medium text-down'
+                  : 'border-border bg-surface-1 text-muted'
+              }`}
+            >
+              Losses only
+            </button>
             <Select value={sort} onChange={setSort} options={SORTS} srLabel="Sort" />
           </div>
 
@@ -224,7 +245,9 @@ export function Stocks() {
             onClearAll={() => setSelected([])}
           />
 
-          {rows.length === 0 ? (
+          {rows.length === 0 && lossesOnly && bySelection.length > 0 ? (
+            <p className="text-sm text-muted">No losing tickers in this period.</p>
+          ) : rows.length === 0 ? (
             <p className="text-sm text-muted">
               No trades for the picked ticker{selected.length === 1 ? '' : 's'} in this
               period.

@@ -315,6 +315,44 @@ describe('Stocks', () => {
     });
   });
 
+  describe('losses only', () => {
+    it('keeps only tickers whose total P&L is negative, and totals follow', async () => {
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue([
+        row({ symbol: 'NVDA', totalPnl: 450, feesPaid: 12 }),
+        row({ symbol: 'LMND', totalPnl: -20, feesPaid: 4 }),
+        row({ symbol: 'AMD', totalPnl: -80, feesPaid: 6 }),
+      ]);
+      const user = userEvent.setup();
+      renderStocks();
+      await screen.findByText('NVDA', { selector: 'span' });
+
+      const toggle = screen.getByRole('button', { name: 'Losses only' });
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      await user.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.queryByText('NVDA', { selector: 'span' })).not.toBeInTheDocument();
+      expect(screen.getByText('LMND', { selector: 'span' })).toBeInTheDocument();
+      expect(screen.getByText('AMD', { selector: 'span' })).toBeInTheDocument();
+      expect(screen.getByText('-$100.00', { selector: '.total-pnl' })).toBeInTheDocument();
+      expect(screen.getByText('$10.00', { selector: '.total-fees' })).toBeInTheDocument();
+
+      await user.click(toggle);
+      expect(screen.getByText('NVDA', { selector: 'span' })).toBeInTheDocument();
+    });
+
+    it('says so when no ticker in view lost money', async () => {
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue([row({ symbol: 'NVDA', totalPnl: 450 })]);
+      const user = userEvent.setup();
+      renderStocks();
+      await screen.findByText('NVDA', { selector: 'span' });
+
+      await user.click(screen.getByRole('button', { name: 'Losses only' }));
+
+      expect(screen.getByText('No losing tickers in this period.')).toBeInTheDocument();
+    });
+  });
+
   describe('total P&L and fees tiles', () => {
     it('sums P&L and fees across every symbol shown', async () => {
       (api as ReturnType<typeof vi.fn>).mockResolvedValue([
