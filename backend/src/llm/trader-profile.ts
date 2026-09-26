@@ -49,9 +49,21 @@ export async function readTraderProfile(
     users.ensureDefaultUser(),
   ]);
   if (me.id !== owner.id) return null;
+  let text: string;
   try {
-    return await readFile(PROFILE_PATH, 'utf-8');
+    text = await readFile(PROFILE_PATH, 'utf-8');
   } catch {
     return null;
   }
+  if (text.trim().length === 0) return null;
+  return `${PROFILE_FRAMING}\n\n${text.trim()}`;
 }
+
+/**
+ * Every prompt tells the model to quote only figures it was given, and the
+ * profile quotes snapshot figures from its interview ("29% of the account",
+ * "no shorts in the history"). Unframed, a months-old holding reads as
+ * today's book. This puts the profile's figures in their place once, for
+ * every feature.
+ */
+const PROFILE_FRAMING = `Background from an interview with the trader (dated in the text below): his method, rules, known weaknesses and how he wants to be spoken to. Any holding, percentage or count in it is a dated example of a habit, not the current book — only the facts you are given describe his positions now, so never present one as current.`;

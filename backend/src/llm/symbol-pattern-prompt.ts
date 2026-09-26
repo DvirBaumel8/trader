@@ -87,7 +87,7 @@ Follow with a short, punchy read for a phone screen (3-5 short paragraphs, no he
   }
 
   if (profileText) {
-    userLines.push('', '---', 'MY STATED TRADING PROFILE:', profileText.slice(0, 1200));
+    userLines.push('', '---', 'MY STATED TRADING PROFILE:', profileText);
   }
 
   return { system, user: userLines.join('\n') };

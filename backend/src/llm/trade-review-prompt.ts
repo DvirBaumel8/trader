@@ -101,7 +101,7 @@ Follow immediately with a concise, punchy post-mortem written for a phone screen
   }
 
   if (profileText) {
-    userLines.push('', '---', 'TRADER BACKGROUND CONTEXT:', profileText.slice(0, 1200));
+    userLines.push('', '---', 'TRADER BACKGROUND CONTEXT:', profileText);
   }
 
   return { system, user: userLines.join('\n') };

@@ -37,4 +37,13 @@ describe('buildSymbolPatternPrompt', () => {
     const { system } = buildSymbolPatternPrompt(FACTS);
     expect(system).toMatch(/do not give a buy\/sell opinion|not.*buy\/sell/i);
   });
+
+  it('passes the whole profile, not a prefix that stops before his rules', () => {
+    // A 1200-character cut used to end inside the profile's second section,
+    // so the read never saw his exits, sizing or known weaknesses — the very
+    // things it is asked to compare his behavior against.
+    const profile = `# Trader Profile\n${'x'.repeat(5000)}\n## Known weaknesses\nShorts go badly.`;
+    const { user } = buildSymbolPatternPrompt(FACTS, profile);
+    expect(user).toContain('Shorts go badly.');
+  });
 });
