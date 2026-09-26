@@ -7,6 +7,7 @@ import { readTraderProfile } from './trader-profile.js';
 import { PortfolioService } from '../portfolio/portfolio.service.js';
 import { TradesService } from '../portfolio/trades.service.js';
 import { PerformanceService } from '../performance/performance.service.js';
+import { UsersService } from '../users/users.service.js';
 
 export interface PortfolioSummaryResult {
   configured: boolean;
@@ -50,6 +51,8 @@ export class LlmService {
     private readonly trades: TradesService,
     private readonly performance: PerformanceService,
     private readonly summaries: AiSummaryService,
+    // Optional so unit tests may omit it; without it no profile is sent.
+    private readonly users?: UsersService,
   ) {}
 
   isConfigured(): boolean {
@@ -100,7 +103,7 @@ export class LlmService {
           : null,
     });
 
-    const profile = await readTraderProfile();
+    const profile = await readTraderProfile(this.users);
     const system = buildSystemPrompt(profile);
     const previous = await this.summaries.findLatest();
     const user = buildUserPrompt(facts, previous);

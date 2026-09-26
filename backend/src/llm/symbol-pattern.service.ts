@@ -177,7 +177,7 @@ export class SymbolPatternService {
       };
     }
 
-    const profileText = await readTraderProfile();
+    const profileText = await readTraderProfile(this.users);
     const { system, user: userPrompt } = buildSymbolPatternPrompt(facts, profileText);
 
     try {
@@ -272,7 +272,7 @@ export class SymbolPatternService {
       return;
     }
 
-    const profileText = await readTraderProfile();
+    const profileText = await readTraderProfile(this.users);
     const { system, user: userPrompt } = buildSymbolPatternPrompt(facts, profileText);
 
     try {

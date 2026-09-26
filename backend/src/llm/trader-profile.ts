@@ -20,6 +20,12 @@ const PROFILE_PATH = join(
   '../../../docs/trader-profile.md',
 );
 
+/** Just what the owner check needs, so tests need no Nest wiring. */
+export interface ProfileUsers {
+  currentUser(): Promise<{ id: string }>;
+  ensureDefaultUser(): Promise<{ id: string }>;
+}
+
 /**
  * The owner's trading profile — his setups, his rules, his stated
  * weaknesses — read fresh on every call (a small file; re-reading it costs
@@ -28,12 +34,21 @@ const PROFILE_PATH = join(
  * without `docs/`, or before he has been interviewed, is a normal state, not
  * a failure — every caller renders an honest fallback rather than breaking.
  *
- * One copy shared by `llm.service.ts`, `trade-review.service.ts`,
- * `trade-idea.service.ts` and `watchlist-ranking.service.ts`, which used to
- * each resolve this path themselves in two silently-incompatible ways. See
- * `PROFILE_PATH` above for which one this keeps and why.
+ * The file describes ONE person, so it is returned only when the request
+ * belongs to the owner. Any other account gets null — the same honest
+ * "no profile recorded" path — rather than advice framed around the owner's
+ * positions, and rather than the model quoting his history to a stranger.
+ * A caller that cannot say who is asking (`users` undefined) also gets null.
  */
-export async function readTraderProfile(): Promise<string | null> {
+export async function readTraderProfile(
+  users: ProfileUsers | undefined,
+): Promise<string | null> {
+  if (!users) return null;
+  const [me, owner] = await Promise.all([
+    users.currentUser(),
+    users.ensureDefaultUser(),
+  ]);
+  if (me.id !== owner.id) return null;
   try {
     return await readFile(PROFILE_PATH, 'utf-8');
   } catch {

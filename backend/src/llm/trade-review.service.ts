@@ -151,7 +151,7 @@ export class TradeReviewService {
       };
     }
 
-    const profileText = await readTraderProfile();
+    const profileText = await readTraderProfile(this.users);
     const { system, user: userPrompt } = buildTradeReviewPrompt(
       facts,
       profileText,
@@ -250,7 +250,7 @@ export class TradeReviewService {
       return;
     }
 
-    const profileText = await readTraderProfile();
+    const profileText = await readTraderProfile(this.users);
     const { system, user: userPrompt } = buildTradeReviewPrompt(facts, profileText);
 
     try {

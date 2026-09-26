@@ -96,7 +96,7 @@ export class TradeIdeaService {
         this.tickerFacts.get(upper),
         this.trades.getStats(),
         this.portfolio.getPortfolio(),
-        readTraderProfile(),
+        readTraderProfile(this.users),
       ]);
 
     // Checked in the order they used to run, so which failure a caller sees

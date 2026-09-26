@@ -82,6 +82,7 @@ function makeService(opts: {
 
   const users = {
     currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+    ensureDefaultUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
   } as unknown as UsersService;
 
   const reads = {

@@ -160,7 +160,7 @@ export class WatchlistRankingService {
         this.instruments.find({ where: { symbol: In(symbols) } }),
         this.trades.getStats(),
         this.portfolio.getPortfolio(),
-        readTraderProfile(),
+        readTraderProfile(this.users),
       ]);
 
     if (instrumentsResult.status === 'rejected') throw instrumentsResult.reason;

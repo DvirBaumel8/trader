@@ -128,6 +128,7 @@ describe('TradeIdeaService.analyse — gathering', () => {
     } as unknown as TradesService;
     const users = {
       currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+      ensureDefaultUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
     } as unknown as UsersService;
     const service = new TradeIdeaService(
       llm, tickerFacts, portfolio, trades,
@@ -165,6 +166,7 @@ describe('TradeIdeaService.analyse — gathering', () => {
     } as unknown as TradesService;
     const users = {
       currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+      ensureDefaultUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
     } as unknown as UsersService;
     const service = new TradeIdeaService(
       llm, tickerFacts, portfolio, trades,
@@ -204,6 +206,7 @@ describe('TradeIdeaService.analyse — gathering', () => {
     } as unknown as TradesService;
     const users = {
       currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+      ensureDefaultUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
     } as unknown as UsersService;
     const service = new TradeIdeaService(
       llm, tickerFacts, portfolio, trades,
@@ -312,7 +315,7 @@ describe('TradeIdeaService.analyse — book placeholders', () => {
     const tickerFacts = { get: vi.fn() } as unknown as TickerFactsService;
     const portfolio = { getPortfolio: vi.fn() } as unknown as PortfolioService;
     const trades = { getStats: vi.fn() } as unknown as TradesService;
-    const users = { currentUser: vi.fn() } as unknown as UsersService;
+    const users = { currentUser: vi.fn(), ensureDefaultUser: vi.fn() } as unknown as UsersService;
     const service = new TradeIdeaService(
       llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
       { recordOutcome: vi.fn() } as unknown as AiOutcomeService,
@@ -403,7 +406,7 @@ describe('TradeIdeaService.analyseStream', () => {
     const tickerFacts = { get: vi.fn() } as unknown as TickerFactsService;
     const portfolio = { getPortfolio: vi.fn() } as unknown as PortfolioService;
     const trades = { getStats: vi.fn() } as unknown as TradesService;
-    const users = { currentUser: vi.fn() } as unknown as UsersService;
+    const users = { currentUser: vi.fn(), ensureDefaultUser: vi.fn() } as unknown as UsersService;
     const service = new TradeIdeaService(
       llm, tickerFacts, portfolio, trades, { create: vi.fn(), save: vi.fn() } as never, users,
       { recordOutcome: vi.fn() } as unknown as AiOutcomeService,
@@ -510,6 +513,7 @@ describe('TradeIdeaService.analyseStream', () => {
     } as unknown as TradesService;
     const users = {
       currentUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
+      ensureDefaultUser: vi.fn().mockResolvedValue({ id: 'user-1' }),
     } as unknown as UsersService;
     const service = new TradeIdeaService(
       llm, tickerFacts, portfolio, trades,

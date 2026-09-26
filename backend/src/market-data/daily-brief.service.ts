@@ -14,6 +14,7 @@ import { buildDailyBriefContext } from '../llm/daily-brief-context.js';
 import { buildDailyBriefUserPrompt } from '../llm/daily-brief-prompt.js';
 import { buildSystemPrompt } from '../llm/prompts.js';
 import { readTraderProfile } from '../llm/trader-profile.js';
+import { UsersService } from '../users/users.service.js';
 
 export interface DailyBriefResponse {
   generatedAt: string;
@@ -89,6 +90,8 @@ export class DailyBriefService {
     // keeps working unchanged, reading as "unconfigured" — the same
     // first-class state a missing API key already produces.
     private readonly llm?: LlmClient,
+    // Optional for the same reason; without it no profile is sent.
+    private readonly users?: UsersService,
   ) {}
 
   async get(options: { refresh?: boolean; now?: Date } = {}): Promise<DailyBriefResponse> {
@@ -216,7 +219,7 @@ export class DailyBriefService {
         notes: notes.map((note) => ({ source: note.source, title: note.title, detail: note.detail })),
         coverage,
       });
-      const profile = await readTraderProfile();
+      const profile = await readTraderProfile(this.users);
       const system = buildSystemPrompt(profile);
       const user = buildDailyBriefUserPrompt(facts);
       return await this.llm.complete({ system, user, grounded: false });
