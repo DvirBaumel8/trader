@@ -198,6 +198,75 @@ describe('Accounts (e2e)', () => {
       expect(theirJournal.body).toEqual([]);
     });
 
+    /**
+     * Instruments are shared across users, so any query keyed only on an
+     * instrument sees everyone's fills. The journal's position checks must
+     * read the writer's own fills: user two's opening short must not be
+     * recorded as executing user one's stop at the same price.
+     */
+    it("never treats one user's fill as closing the other's position", async () => {
+      const one = await post('/auth/signup', {
+        email: 's1@b.com',
+        password: 'longenough1',
+      }).expect(201);
+      const two = await post('/auth/signup', {
+        email: 's2@b.com',
+        password: 'longenough1',
+      }).expect(201);
+
+      await http(app, one.body.accessToken)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'long with a stop',
+          occurredAt: '2026-01-05T12:00:00.000Z',
+          trade: {
+            symbol: 'NVDA',
+            quantity: 100,
+            price: 200,
+            fee: 0,
+            stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
+          },
+        })
+        .expect(201);
+
+      // User two holds no NVDA, so an exit attribution has nothing to close.
+      await http(app, two.body.accessToken)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'not an exit',
+          occurredAt: '2026-01-07T12:00:00.000Z',
+          trade: {
+            symbol: 'NVDA',
+            quantity: -10,
+            price: 190,
+            fee: 0,
+            exitKind: 'DISCRETIONARY',
+          },
+        })
+        .expect(400);
+
+      // This sell opens a short for user two, at user one's stop price.
+      await http(app, two.body.accessToken)
+        .post('/journal')
+        .send({
+          kind: 'TRADE',
+          body: 'opening short',
+          occurredAt: '2026-01-08T12:00:00.000Z',
+          trade: { symbol: 'NVDA', quantity: -100, price: 180, fee: 0 },
+        })
+        .expect(201);
+
+      const executions = (await dataSource.query(
+        `SELECT se.id FROM stop_executions se
+         JOIN transactions t ON t.id = se."transactionId"
+         JOIN users u ON u.id = t."userId"
+         WHERE u.email IN ('s1@b.com', 's2@b.com')`,
+      )) as unknown[];
+      expect(executions).toEqual([]);
+    });
+
     /** A second user's portfolio starts empty rather than showing the owner's. */
     it("does not show one user the other's positions", async () => {
       const two = await post('/auth/signup', {

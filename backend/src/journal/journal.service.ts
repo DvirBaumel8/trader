@@ -651,9 +651,14 @@ export class JournalService {
    */
   private async currentNetQuantity(
     manager: EntityManager,
+    userId: string,
     instrumentId: string,
   ): Promise<number> {
-    const txns = await manager.find(Transaction, { where: { instrumentId } });
+    // Instruments are shared across users; only the writer's own fills
+    // make up their position.
+    const txns = await manager.find(Transaction, {
+      where: { userId, instrumentId },
+    });
     return txns.reduce(
       (sum, t) => sum + (t.side === 'BUY' ? t.quantity : -t.quantity),
       0,
@@ -695,12 +700,17 @@ export class JournalService {
    */
   private async validateExitAttribution(
     manager: EntityManager,
+    userId: string,
     trade: NonNullable<CreateEntryInput['trade']>,
     instrumentId: string,
     side: 'BUY' | 'SELL',
     quantity: number,
   ): Promise<void> {
-    const netQty = await this.currentNetQuantity(manager, instrumentId);
+    const netQty = await this.currentNetQuantity(
+      manager,
+      userId,
+      instrumentId,
+    );
     const isReducing =
       (side === 'SELL' && netQty > REVISION_EPSILON) ||
       (side === 'BUY' && netQty < -REVISION_EPSILON);
@@ -733,7 +743,11 @@ export class JournalService {
       const owningTxn = await manager.findOne(Transaction, {
         where: { id: level.transactionId },
       });
-      if (!owningTxn || owningTxn.instrumentId !== instrumentId) {
+      if (
+        !owningTxn ||
+        owningTxn.userId !== userId ||
+        owningTxn.instrumentId !== instrumentId
+      ) {
         throw new BadRequestException(
           `Stop level ${exec.stopLevelId} does not belong to this instrument`,
         );
@@ -834,6 +848,7 @@ export class JournalService {
         // instrument's position as it stood before this fill.
         await this.validateExitAttribution(
           manager,
+          userId,
           input.trade,
           resolved.instrumentId,
           resolved.side,
@@ -930,7 +945,12 @@ export class JournalService {
       // needs the high-water mark, which lives in the portfolio derivation and
       // not here. Such an exit is left unrecorded rather than guessed at.
       if (!input.trade.exitKind && (input.trade.stopExecutions ?? []).length === 0) {
-        await this.autoRecordStopExecution(manager, txn, resolved.instrumentId);
+        await this.autoRecordStopExecution(
+          manager,
+          userId,
+          txn,
+          resolved.instrumentId,
+        );
       }
     }
 
@@ -1096,10 +1116,15 @@ export class JournalService {
    */
   private async autoRecordStopExecution(
     manager: EntityManager,
+    userId: string,
     txn: Transaction,
     instrumentId: string,
   ): Promise<void> {
-    const all = await manager.find(Transaction, { where: { instrumentId } });
+    // Scoped to the writer: another user's stop on the same instrument must
+    // never be credited with this fill.
+    const all = await manager.find(Transaction, {
+      where: { userId, instrumentId },
+    });
     const netBefore = all
       .filter((t) => t.id !== txn.id)
       .reduce((sum, t) => sum + (t.side === 'BUY' ? t.quantity : -t.quantity), 0);
