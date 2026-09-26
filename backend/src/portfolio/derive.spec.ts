@@ -185,15 +185,15 @@ describe('derivePositions', () => {
 
 describe('deriveCash', () => {
   it('is zero with no activity', () => {
-    expect(deriveCash([], [])).toBe(0);
+    expect(deriveCash([], [], [], [])).toBe(0);
   });
 
   it('adds deposits and subtracts withdrawals', () => {
-    expect(deriveCash([], [deposit(10000), withdraw(2500)])).toBe(7500);
+    expect(deriveCash([], [deposit(10000), withdraw(2500)], [], [])).toBe(7500);
   });
 
   it('subtracts buy cost and fee', () => {
-    expect(deriveCash([buy('NVDA', 10, 100, 4)], [deposit(10000)])).toBe(
+    expect(deriveCash([buy('NVDA', 10, 100, 4)], [deposit(10000)], [], [])).toBe(
       10000 - 1000 - 4,
     );
   });
@@ -202,6 +202,8 @@ describe('deriveCash', () => {
     const cash = deriveCash(
       [buy('NVDA', 10, 100, 4, 1), sell('NVDA', 10, 130, 4, 2)],
       [deposit(10000)],
+      [],
+      [],
     );
     expect(cash).toBe(10000 - 1000 - 4 + 1300 - 4);
   });
@@ -212,12 +214,12 @@ describe('deriveCash', () => {
       amount: 120,
       occurredAt: new Date(2026, 0, 3),
     };
-    expect(deriveCash([], [deposit(1000)], [dividend])).toBe(1120);
+    expect(deriveCash([], [deposit(1000)], [dividend], [])).toBe(1120);
   });
 
   it('goes negative on margin without complaint', () => {
     // Buying more than the cash on hand is a legitimate margin state.
-    expect(deriveCash([buy('NVDA', 100, 100, 4)], [deposit(1000)])).toBe(
+    expect(deriveCash([buy('NVDA', 100, 100, 4)], [deposit(1000)], [], [])).toBe(
       1000 - 10000 - 4,
     );
   });
@@ -245,7 +247,7 @@ describe('deriveContributedCapital', () => {
     expect(deriveContributedCapital(flows)).toBe(10000);
     expect(deriveCash([], flows, [
       { symbol: 'NVDA', amount: 500, occurredAt: new Date(2026, 0, 2) },
-    ])).toBe(10500);
+    ], [])).toBe(10500);
   });
 
   it('excludes an interest charge too, the mirror image of a dividend', () => {

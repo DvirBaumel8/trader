@@ -5,6 +5,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
+import { InterestCharge } from '../transactions/interest-charge.entity.js';
 import { PerformanceService } from './performance.service.js';
 import { PerformanceController } from './performance.controller.js';
 import { UsersModule } from '../users/users.module.js';
@@ -18,6 +19,7 @@ import { MarketDataModule } from '../market-data/market-data.module.js';
       Transaction,
       CashFlow,
       Dividend,
+      InterestCharge,
     ]),
     UsersModule,
     MarketDataModule,

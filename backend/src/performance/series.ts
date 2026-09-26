@@ -4,6 +4,7 @@ import {
   type DerivedTxn,
   type DerivedFlow,
   type DerivedDividend,
+  type DerivedInterestCharge,
 } from '../portfolio/derive.js';
 
 export interface DayInput {
@@ -27,6 +28,7 @@ export interface SeriesInput {
   txns: DerivedTxn[];
   flows: DerivedFlow[];
   dividends: DerivedDividend[];
+  interestCharges: DerivedInterestCharge[];
 }
 
 const dayOf = (d: Date): string => d.toISOString().slice(0, 10);
@@ -60,8 +62,11 @@ export function buildValuationSeries(input: SeriesInput): ValuationSeries {
     const txns = input.txns.filter((t) => upTo(t.executedAt));
     const flows = input.flows.filter((f) => upTo(f.occurredAt));
     const dividends = input.dividends.filter((d) => upTo(d.occurredAt));
+    const interestCharges = input.interestCharges.filter((i) =>
+      upTo(i.occurredAt),
+    );
 
-    const cash = deriveCash(txns, flows, dividends);
+    const cash = deriveCash(txns, flows, dividends, interestCharges);
 
     let positionsValue = 0;
     for (const p of derivePositions(txns)) {

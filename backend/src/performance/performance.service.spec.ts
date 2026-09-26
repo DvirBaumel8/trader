@@ -20,6 +20,7 @@ function makeService(history: HistoryService) {
     emptyRepo(),
     emptyRepo(),
     emptyRepo(),
+    emptyRepo(),
     users,
     history,
   );

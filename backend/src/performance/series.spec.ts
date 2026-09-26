@@ -176,6 +176,7 @@ describe('buildValuationSeries', () => {
       txns: [buy('NVDA', 10, 100, '2026-08-28T12:00:00Z')],
       flows: [deposit(1000, '2026-08-28T12:00:00Z')],
       dividends: [],
+      interestCharges: [],
     });
 
     // Day 1: bought 10 @ 100 with 1000 deposited => cash 0, positions 1000.
@@ -201,6 +202,7 @@ describe('buildValuationSeries', () => {
       txns: [buy('NVDA', 10, 100, '2026-08-28T12:00:00Z')],
       flows: [deposit(1000, '2026-08-28T12:00:00Z')],
       dividends: [],
+      interestCharges: [],
     });
     // Held at the last known 100 rather than valued at zero.
     expect(s.days[0].value).toBe(1000);
@@ -223,9 +225,30 @@ describe('buildValuationSeries', () => {
           occurredAt: new Date('2026-08-28T12:00:00Z'),
         },
       ],
+      interestCharges: [],
     });
     expect(s.days[0].value).toBe(1050);
     expect(s.days[0].externalFlow).toBe(1000);
+  });
+
+  it('lowers value by an interest charge from its day on, without making it a flow', () => {
+    // The live dashboard subtracts margin interest from cash; the chart must
+    // too, or the series and the live account value disagree from the day
+    // of the charge onward. Like a dividend, it is not an external flow — a
+    // cost the account paid is a real loss of performance.
+    const s = buildValuationSeries({
+      dates: ['2026-08-28', '2026-08-31'],
+      closes: new Map(),
+      txns: [],
+      flows: [deposit(1000, '2026-08-28T12:00:00Z')],
+      dividends: [],
+      interestCharges: [
+        { amount: 45.5, occurredAt: new Date('2026-08-31T12:00:00Z') },
+      ],
+    });
+    expect(s.days[0].value).toBe(1000);
+    expect(s.days[1].value).toBe(954.5);
+    expect(s.days[1].externalFlow).toBe(0);
   });
 
   it('excludes a trade that has not happened yet', () => {
@@ -235,6 +258,7 @@ describe('buildValuationSeries', () => {
       txns: [buy('NVDA', 10, 100, '2026-08-31T12:00:00Z')],
       flows: [],
       dividends: [],
+      interestCharges: [],
     });
     expect(s.days[0].value).toBe(0);
     expect(s.days[1].value).toBe(1100 - 1000);
@@ -256,6 +280,7 @@ describe('buildValuationSeries', () => {
       ],
       flows: [],
       dividends: [],
+      interestCharges: [],
     });
     // Short proceeds raise cash by 1000; the position is worth -1000.
     expect(s.days[0].value).toBe(0);
@@ -271,6 +296,7 @@ describe('buildValuationSeries', () => {
       txns: [buy('CRWV', 100, 163.88, '2026-09-01T12:00:00Z')],
       flows: [deposit(16388, '2026-09-01T12:00:00Z')],
       dividends: [],
+      interestCharges: [],
     });
     // 100 shares @ 163.88 cost basis = 16388, matching the cash spent, so the
     // account value holds flat rather than reading as a loss.
@@ -286,6 +312,7 @@ describe('buildValuationSeries', () => {
       txns: [buy('NVDA', 10, 100, '2026-08-28T12:00:00Z')],
       flows: [deposit(1000, '2026-08-28T12:00:00Z')],
       dividends: [],
+      interestCharges: [],
     });
     expect(s.unpricedSymbols).toEqual([]);
   });

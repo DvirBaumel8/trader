@@ -170,12 +170,16 @@ export function derivePositions(txns: DerivedTxn[]): DerivedPosition[] {
 
 /**
  * Cash may legitimately be negative — that is margin, not an error.
+ *
+ * Every input is required on purpose: when these were optional, the
+ * performance series silently omitted interest charges and valued the
+ * account above the live dashboard. An omission must fail to compile.
  */
 export function deriveCash(
   txns: DerivedTxn[],
   flows: DerivedFlow[],
-  dividends: DerivedDividend[] = [],
-  interestCharges: DerivedInterestCharge[] = [],
+  dividends: DerivedDividend[],
+  interestCharges: DerivedInterestCharge[],
 ): number {
   let cash = 0;
   for (const f of flows) {

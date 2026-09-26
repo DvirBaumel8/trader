@@ -6,6 +6,7 @@ import { Instrument } from '../instruments/instrument.entity.js';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { CashFlow } from '../transactions/cash-flow.entity.js';
 import { Dividend } from '../transactions/dividend.entity.js';
+import { InterestCharge } from '../transactions/interest-charge.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { HistoryService } from '../market-data/history.service.js';
 import {
@@ -31,6 +32,8 @@ export class PerformanceService {
     private readonly flows: Repository<CashFlow>,
     @InjectRepository(Dividend)
     private readonly dividends: Repository<Dividend>,
+    @InjectRepository(InterestCharge)
+    private readonly interestCharges: Repository<InterestCharge>,
     private readonly users: UsersService,
     private readonly history: HistoryService,
   ) {}
@@ -45,12 +48,14 @@ export class PerformanceService {
     // still behind the Nasdaq".
     await this.history.ensureFresh();
     const user = await this.users.currentUser();
-    const [txnRows, flowRows, divRows, instrumentRows] = await Promise.all([
-      this.txns.find({ where: { userId: user.id } }),
-      this.flows.find({ where: { userId: user.id } }),
-      this.dividends.find({ where: { userId: user.id } }),
-      this.instruments.find(),
-    ]);
+    const [txnRows, flowRows, divRows, interestRows, instrumentRows] =
+      await Promise.all([
+        this.txns.find({ where: { userId: user.id } }),
+        this.flows.find({ where: { userId: user.id } }),
+        this.dividends.find({ where: { userId: user.id } }),
+        this.interestCharges.find({ where: { userId: user.id } }),
+        this.instruments.find(),
+      ]);
 
     if (txnRows.length === 0 && flowRows.length === 0) {
       return { range, points: [], deltas: null, unpricedSymbols: [] };
@@ -120,6 +125,10 @@ export class PerformanceService {
         symbol: symbolById.get(d.instrumentId) ?? 'UNKNOWN',
         amount: d.amount,
         occurredAt: d.occurredAt,
+      })),
+      interestCharges: interestRows.map((i) => ({
+        amount: i.amount,
+        occurredAt: i.occurredAt,
       })),
     });
 
