@@ -84,7 +84,7 @@ test.describe('navigation', () => {
         noPageOverflow: document.documentElement.scrollWidth <= window.innerWidth,
       };
     });
-    expect(geometry.viewport).toBe(390);
+    expect(geometry.viewport).toBe(402);
     expect(geometry.fits).toBe(true);
     expect(geometry.noPageOverflow).toBe(true);
   });

@@ -54,13 +54,30 @@ const MORE_SORTS: (TableSort & { label: string })[] = [
 
 const BADGE = 'rounded px-1 py-px text-[9px] font-medium tracking-wide';
 function SymbolCell({ p }: { p: Position }) {
-  const e = p.daysUntilEarnings;
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       <span className="font-semibold">{p.symbol}</span>
       {p.quantity < 0 && <span className={`${BADGE} bg-down/15 text-down`}>SHORT</span>}
       {p.stale && <span className={`${BADGE} text-down`}>STALE</span>}
-      {e !== null && <EarningsBadge days={e} />}
+    </span>
+  );
+}
+
+/**
+ * The earnings countdown leads the second line and never shrinks: beside
+ * the symbol, the narrow first column on a phone clipped it out of sight.
+ * The quantity text truncates instead.
+ */
+function PositionLine({ p }: { p: Position }) {
+  const e = p.daysUntilEarnings;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {e !== null && (
+        <span className="flex shrink-0">
+          <EarningsBadge days={e} />
+        </span>
+      )}
+      <span className="min-w-0 truncate">{`${formatQuantity(p.quantity)} @ ${formatMoney(p.avgCost)}`}</span>
     </span>
   );
 }
@@ -73,7 +90,7 @@ const COLUMNS: Column<Position>[] = [
     sortKey: 'symbol',
     firstDir: 'asc',
     primary: (p) => <SymbolCell p={p} />,
-    secondary: (p) => `${formatQuantity(p.quantity)} @ ${formatMoney(p.avgCost)}`,
+    secondary: (p) => <PositionLine p={p} />,
   },
   {
     id: 'last',

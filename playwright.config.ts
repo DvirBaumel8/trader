@@ -35,7 +35,7 @@ export default defineConfig({
   },
   projects: [
     // The owner's device is a phone, and that is where the bugs have been.
-    { name: 'mobile', use: { ...devices['iPhone 13'] } },
+    { name: 'mobile', use: { ...devices['iPhone 16 Pro'] } },
   ],
   webServer: {
     // From `backend/`, because the server resolves the built frontend
