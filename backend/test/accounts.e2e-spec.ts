@@ -267,6 +267,20 @@ describe('Accounts (e2e)', () => {
       expect(executions).toEqual([]);
     });
 
+    /**
+     * A signed token for a user who no longer exists used to resolve to the
+     * owner — handing the owner's portfolio to whoever held it.
+     */
+    it("rejects a deleted user's token instead of serving the owner", async () => {
+      const gone = await post('/auth/signup', {
+        email: 'gone@b.com',
+        password: 'longenough1',
+      }).expect(201);
+      await dataSource.query(`DELETE FROM users WHERE email = 'gone@b.com'`);
+
+      await http(app, gone.body.accessToken).get('/portfolio').expect(401);
+    });
+
     /** A second user's portfolio starts empty rather than showing the owner's. */
     it("does not show one user the other's positions", async () => {
       const two = await post('/auth/signup', {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity.js';
@@ -44,16 +44,14 @@ export class UsersService {
     if (id) {
       const found = await this.users.findOne({ where: { id } });
       if (found) return found;
+      // A signed token for a user who no longer exists. Falling back to the
+      // owner here would hand his portfolio to whoever holds that token.
+      throw new UnauthorizedException('Account no longer exists');
     }
     /**
-     * No identity on the request, or an id that no longer exists: fall back
-     * to the single owner.
-     *
-     * This is what keeps the pre-multi-user password login working, and it
-     * fails in the safe direction — the owner can never be locked out of his
-     * own portfolio by a stale token. It does mean a deleted user's token
-     * quietly becomes the owner, which is acceptable while this serves one
-     * person and must be revisited before anyone else has an account.
+     * No identity on the request: fall back to the single owner. This is
+     * what keeps the pre-multi-user password login working — its legacy
+     * tokens carry `sub: 'owner'`, which the middleware maps to no id.
      */
     return this.ensureDefaultUser();
   }

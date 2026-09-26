@@ -51,6 +51,10 @@ export class AuthService {
       if (!(await compare(password, stored))) {
         throw new UnauthorizedException('Wrong password');
       }
+    } else if (process.env.NODE_ENV === 'production') {
+      // Fail closed: a production deploy missing its hash must not fall
+      // through to the well-known dev passwords below.
+      throw new UnauthorizedException('App password is not configured');
     } else if (
       password !== 'aaaa' &&
       password !== 'trader' &&
