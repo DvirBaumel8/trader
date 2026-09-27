@@ -6,6 +6,7 @@ import { formatTimestamp } from './format';
 import { Markdown } from './Markdown';
 import { CollapsibleCard } from './ui/CollapsibleCard';
 import type { Range } from '../lib/benchmarkRange';
+import { aiUnavailable } from './aiUnavailable';
 
 interface SymbolPatternResponse {
   configured: boolean;
@@ -123,8 +124,7 @@ export function SymbolPatternCard({ symbol, range }: { symbol: string; range: Ra
           AI Pattern Read
         </span>
         <p className="text-xs text-muted">
-          AI features are not configured yet. Add your Gemini API key in
-          settings to enable this.
+          {aiUnavailable('Pattern read')}
         </p>
       </div>
     );

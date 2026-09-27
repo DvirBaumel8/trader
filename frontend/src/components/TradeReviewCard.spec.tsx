@@ -133,7 +133,7 @@ describe('TradeReviewCard generation', () => {
     );
 
     expect(
-      await screen.findByText(/AI features are not configured yet/),
+      await screen.findByText(/Trade review uses AI, which isn't turned on/),
     ).toBeInTheDocument();
   });
 });

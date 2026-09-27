@@ -5,6 +5,7 @@ import { Button } from './ui/Button';
 import { CollapsibleCard } from './ui/CollapsibleCard';
 import { Markdown } from './Markdown';
 import { isSameLocalDay } from '../lib/dayHeading';
+import { aiUnavailable } from './aiUnavailable';
 
 const RANKING_KEY = ['watchlist', 'ranking'];
 
@@ -149,7 +150,7 @@ export function WatchlistRanking({ hasTickers }: { hasTickers: boolean }) {
               <p className="text-xs text-muted">
                 {ranking.configured
                   ? 'No ranking yet — rank the watchlist to see the strongest candidate first.'
-                  : "Watchlist ranking isn't set up — set GEMINI_API_KEY (or LLM_API_KEY) in the backend's environment to enable it."}
+                  : aiUnavailable('Watchlist ranking')}
               </p>
               {ranking.configured && (
                 <Button

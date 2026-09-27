@@ -119,3 +119,16 @@ describe('WatchlistRanking auto-refresh', () => {
     expect(refreshCalls).toBe(0);
   });
 });
+
+describe('WatchlistRanking when AI is off', () => {
+  it('says so plainly, without naming server configuration', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...ranking({ rankedAt: null }),
+      configured: false,
+    });
+    renderRanking();
+
+    expect(await screen.findByText(/isn't turned on for this app yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/API_KEY/)).not.toBeInTheDocument();
+  });
+});

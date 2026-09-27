@@ -9,6 +9,7 @@ import { SessionBadge } from '../components/SessionBadge';
 import { usePersistentState } from '../lib/persistentState';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
 import { CollapsibleCard } from '../components/ui/CollapsibleCard';
+import { aiUnavailable } from '../components/aiUnavailable';
 
 /** Mirrors `LlmFailureKind` in `backend/src/llm/llm.client.ts`. */
 type ErrorKind = 'busy' | 'quota_exceeded' | 'setup_problem' | 'unknown';
@@ -283,7 +284,7 @@ function ResultCard({
   if (!result.configured) {
     return (
       <p className="text-xs text-muted">
-        Trade ideas aren't set up yet. Ask the developer to add an LLM API key.
+        {aiUnavailable('Asking for a trade idea')}
       </p>
     );
   }

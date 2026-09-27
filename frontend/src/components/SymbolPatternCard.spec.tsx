@@ -194,7 +194,7 @@ describe('SymbolPatternCard', () => {
     renderCard();
 
     expect(
-      await screen.findByText(/AI features are not configured yet/),
+      await screen.findByText(/isn't turned on for this app yet/),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Read My Pattern' }),

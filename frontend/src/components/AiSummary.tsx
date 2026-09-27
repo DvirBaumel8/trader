@@ -6,6 +6,7 @@ import { formatTimestamp } from './format';
 import { Markdown } from './Markdown';
 import { EditModeToggle } from './ui/EditModeToggle';
 import { CollapsibleCard } from './ui/CollapsibleCard';
+import { aiUnavailable } from './aiUnavailable';
 
 /** Mirrors `LlmFailureKind` in `backend/src/llm/llm.client.ts`. */
 type ErrorKind = 'busy' | 'quota_exceeded' | 'setup_problem' | 'unknown';
@@ -67,8 +68,7 @@ function ResultCard({ result }: { result: PortfolioSummaryResult }) {
   if (!result.configured) {
     return (
       <p className="text-xs text-muted">
-        AI summaries aren't set up yet. Ask the developer to add an LLM API
-        key.
+        {aiUnavailable('Portfolio analysis')}
       </p>
     );
   }

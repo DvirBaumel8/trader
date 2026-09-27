@@ -124,7 +124,7 @@ describe('AI summary generation', () => {
     await user.click(screen.getByRole('button', { name: 'Analyse my portfolio' }));
 
     expect(
-      await screen.findByText(/AI summaries aren't set up yet/),
+      await screen.findByText(/Portfolio analysis uses AI, which isn't turned on/),
     ).toBeInTheDocument();
   });
 

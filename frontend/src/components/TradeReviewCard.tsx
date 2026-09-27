@@ -5,6 +5,7 @@ import { streamNdjson } from '../api/streamNdjson';
 import { formatTimestamp } from './format';
 import { Markdown } from './Markdown';
 import { CollapsibleCard } from './ui/CollapsibleCard';
+import { aiUnavailable } from './aiUnavailable';
 
 interface TradeReviewFacts {
   symbol: string;
@@ -179,7 +180,7 @@ export function TradeReviewCard({ tradeId }: { tradeId: string }) {
           </span>
         </div>
         <p className="text-xs text-muted">
-          AI features are not configured yet. Add your Gemini API key in settings to enable automated post-mortems.
+          {aiUnavailable('Trade review')}
         </p>
       </div>
     );

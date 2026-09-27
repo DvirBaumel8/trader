@@ -262,7 +262,7 @@ describe('Ideas — asking for an opinion', () => {
     await user.click(screen.getByRole('button', { name: 'Ask' }));
 
     expect(
-      await screen.findByText(/Trade ideas aren't set up yet/),
+      await screen.findByText(/Asking for a trade idea uses AI, which isn't turned on/),
     ).toBeInTheDocument();
   });
 });
