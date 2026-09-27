@@ -35,6 +35,8 @@ type BriefResponse = {
   notes: BriefNote[];
   /** Null whenever there is nothing to show — no AI configured, or the call failed. Silent by design. */
   narrative: string | null;
+  /** When the narrative was written; earlier than generatedAt when the server reused it. */
+  narrativeAt?: string | null;
 };
 
 const QUERY_KEY = DAILY_BRIEF_QUERY_KEY;
@@ -188,6 +190,11 @@ export function Brief() {
             aria-label="AI take"
             className="rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm leading-relaxed"
           >
+            {brief.narrativeAt && brief.narrativeAt !== brief.generatedAt && (
+              <p className="mb-1 text-[10px] tracking-wide text-muted uppercase">
+                AI take as of {formatTimestamp(brief.narrativeAt)}
+              </p>
+            )}
             <Markdown text={brief.narrative} />
           </section>
         )}

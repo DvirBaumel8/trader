@@ -69,6 +69,31 @@ describe('Brief', () => {
     expect(events.compareDocumentPosition(coverage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  /** A reused take's figures are older than the notes under it; say so. */
+  it('labels an AI take older than the brief with its own time', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief,
+      narrative: 'IONQ is the one to watch.',
+      narrativeAt: '2026-09-17T07:40:00.000Z',
+    });
+    renderBrief();
+
+    const take = await screen.findByRole('region', { name: 'AI take' });
+    expect(within(take).getByText(/^AI take as of /)).toBeInTheDocument();
+  });
+
+  it('does not label a take written with this brief', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief,
+      narrative: 'IONQ is the one to watch.',
+      narrativeAt: initialBrief.generatedAt,
+    });
+    renderBrief();
+
+    const take = await screen.findByRole('region', { name: 'AI take' });
+    expect(within(take).queryByText(/as of/)).not.toBeInTheDocument();
+  });
+
   it('shows the AI take above notable events when one was given', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...initialBrief,

@@ -48,9 +48,14 @@ export interface DailyBriefResponse {
    * Twelve Data key, since the notes and coverage below stand on their own.
    */
   narrative: string | null;
+  /** When the narrative was written — earlier than generatedAt when reused. */
+  narrativeAt: string | null;
 }
 
 /** Read first, gets the reader's attention first — a loud move or an event risk outranks a slow-moving trend. */
+/** How long a narrative is reused while the same events stand. */
+const NARRATIVE_MAX_AGE_MS = 30 * 60 * 1000;
+
 const NOTE_KIND_PRIORITY: Record<string, number> = {
   EARNINGS: 0,
   ATR_MOVE: 1,
@@ -93,6 +98,22 @@ export class DailyBriefService {
     // Optional for the same reason; without it no profile is sent.
     private readonly users?: UsersService,
   ) {}
+
+  /**
+   * Last narrative per user, with the events it was written from and when.
+   * The brief is prefetched on every app open and refetched every five
+   * minutes; asking the model each time spent the free tier's ~20 requests
+   * a day on repeats, and the features the owner asks for on purpose then
+   * failed on quota. A narrative is reused while the same events stand, for
+   * at most NARRATIVE_MAX_AGE_MS — note details carry live percentages that
+   * change every refresh in session, so matching on them would never hit.
+   * Its own timestamp goes out with it, so the screen can say how old its
+   * figures are. One entry per user, so it cannot grow unbounded.
+   */
+  private readonly narratives = new Map<
+    string,
+    { signature: string; text: string; at: Date }
+  >();
 
   async get(options: { refresh?: boolean; now?: Date } = {}): Promise<DailyBriefResponse> {
     const now = options.now ?? new Date();
@@ -199,7 +220,7 @@ export class DailyBriefService {
     const coverage = [...coverageBySymbol.values()];
     const narrative = await this.buildNarrative(now, notes, coverage);
 
-    return { generatedAt: now.toISOString(), refreshAfterSeconds: 300, marketDataAvailable: calendar.available, coverage, notes, narrative };
+    return { generatedAt: now.toISOString(), refreshAfterSeconds: 300, marketDataAvailable: calendar.available, coverage, notes, narrative: narrative?.text ?? null, narrativeAt: narrative?.at.toISOString() ?? null };
   }
 
   /**
@@ -211,8 +232,20 @@ export class DailyBriefService {
     now: Date,
     notes: DailyBriefResponse['notes'],
     coverage: DailyBriefResponse['coverage'],
-  ): Promise<string | null> {
+  ): Promise<{ text: string; at: Date } | null> {
     if (!this.llm || !this.llm.isConfigured()) return null;
+    const userKey = this.users ? (await this.users.currentUser()).id : 'default';
+    const signature = JSON.stringify({
+      day: now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
+      events: notes.map((n) => [n.kind, n.source, n.symbol]),
+    });
+    const cached = this.narratives.get(userKey);
+    if (
+      cached?.signature === signature &&
+      now.getTime() - cached.at.getTime() < NARRATIVE_MAX_AGE_MS
+    ) {
+      return { text: cached.text, at: cached.at };
+    }
     try {
       const facts = buildDailyBriefContext({
         generatedAt: now.toISOString(),
@@ -222,7 +255,9 @@ export class DailyBriefService {
       const profile = await readTraderProfile(this.users);
       const system = buildSystemPrompt(profile);
       const user = buildDailyBriefUserPrompt(facts);
-      return await this.llm.complete({ system, user, grounded: false });
+      const text = await this.llm.complete({ system, user, grounded: false });
+      this.narratives.set(userKey, { signature, text, at: now });
+      return { text, at: now };
     } catch (err) {
       this.logger.warn(
         `daily brief narrative failed: ${err instanceof Error ? err.message : String(err)}`,

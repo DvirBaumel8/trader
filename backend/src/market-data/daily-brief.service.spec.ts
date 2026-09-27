@@ -319,6 +319,62 @@ describe('DailyBriefService', () => {
       expect(result.narrative).toBe('Nothing urgent today.');
     });
 
+    /**
+     * The app prefetches the brief on every open and the Brief screen
+     * refetches it every five minutes. Asking the model each time spent the
+     * free tier's ~20 requests a day on repeats of the same paragraph, and
+     * then the features the owner asks for on purpose failed on quota.
+     */
+    it('reuses the narrative while the notes it describes are unchanged', async () => {
+      const complete = vi.fn().mockResolvedValue('Nothing urgent today.');
+      const llm = { isConfigured: () => true, complete } as any;
+      const service = new DailyBriefService(...baseDeps(), llm);
+      const now = new Date('2026-09-28T14:00:00Z');
+
+      await service.get({ now });
+      const again = await service.get({ now: new Date('2026-09-28T14:05:00Z') });
+
+      expect(again.narrative).toBe('Nothing urgent today.');
+      // Its own time, so the screen can say how old its figures are.
+      expect(again.narrativeAt).toBe('2026-09-28T14:00:00.000Z');
+      expect(complete).toHaveBeenCalledTimes(1);
+
+      // Past the age limit it is written afresh even with the same events.
+      await service.get({ now: new Date('2026-09-28T14:31:00Z') });
+      expect(complete).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks again on a new day, and for a different user', async () => {
+      const complete = vi.fn().mockResolvedValue('Nothing urgent today.');
+      const llm = { isConfigured: () => true, complete } as any;
+      let userId = 'u1';
+      const users = {
+        currentUser: async () => ({ id: userId }),
+        ensureDefaultUser: async () => ({ id: 'u1' }),
+      } as any;
+      const service = new DailyBriefService(...baseDeps(), llm, users);
+
+      await service.get({ now: new Date('2026-09-28T14:00:00Z') });
+      await service.get({ now: new Date('2026-09-29T14:00:00Z') });
+      userId = 'u2';
+      await service.get({ now: new Date('2026-09-29T14:00:00Z') });
+
+      expect(complete).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not keep a failure: the next request asks again', async () => {
+      const complete = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('provider down'))
+        .mockResolvedValueOnce('Back.');
+      const llm = { isConfigured: () => true, complete } as any;
+      const service = new DailyBriefService(...baseDeps(), llm);
+      const now = new Date('2026-09-28T14:00:00Z');
+
+      expect((await service.get({ now })).narrative).toBeNull();
+      expect((await service.get({ now })).narrative).toBe('Back.');
+    });
+
     it('is null rather than throwing when the model call fails', async () => {
       const llm = {
         isConfigured: () => true,
