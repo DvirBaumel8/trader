@@ -117,6 +117,23 @@ describe('Watchlist ranking (e2e)', () => {
     expect(res.body.model).toBe('stub-ranking-model');
   });
 
+  /**
+   * The ranking reuses trade idea's book section, which tells the model to
+   * write {{GROSS_EXPOSURE}}-style placeholders for figures the app fills
+   * in. Only trade idea substituted them, so the ranking showed the owner
+   * raw template syntax. Seen on a live Gemini run on 2026-09-27.
+   */
+  it('fills in book placeholders the model wrote, never showing raw syntax', async () => {
+    await add({ symbol: 'NVDA' }).expect(201);
+    llmStub.complete.mockImplementationOnce(async () =>
+      '[RANK]\nSYMBOL: NVDA\nVERDICT: Adds to {{GROSS_EXPOSURE_MULTIPLE}} leverage.\nCOVERAGE: full\n[/RANK]\n\nExposure is {{GROSS_EXPOSURE}} ({{GROSS_EXPOSURE_MULTIPLE}}).',
+    );
+    const res = await http(app, token).post('/watchlist/ranking/refresh').expect(201);
+
+    expect(JSON.stringify(res.body)).not.toContain('{{');
+    expect(res.body.reasoning).toMatch(/^Exposure is (\$[\d,.]+|—) \((\d+\.\d\dx|—)\)\.$/);
+  });
+
   it('serves the stored ranking without calling the model again', async () => {
     await add({ symbol: 'NVDA' }).expect(201);
     await http(app, token).post('/watchlist/ranking/refresh').expect(201);

@@ -15,7 +15,11 @@ import {
   type RankingCandidate,
 } from '../llm/watchlist-ranking-prompt.js';
 import { parseRanking, type RankedTicker } from '../llm/watchlist-ranking-parse.js';
-import { buildBookSection, buildRecordSection } from '../llm/trade-idea-context.js';
+import {
+  buildBookSection,
+  buildRecordSection,
+  substituteBookPlaceholders,
+} from '../llm/trade-idea-context.js';
 import { readTraderProfile } from '../llm/trader-profile.js';
 import { settleInChunks } from '../common/settle-in-chunks.js';
 import { PortfolioService } from '../portfolio/portfolio.service.js';
@@ -330,9 +334,13 @@ export class WatchlistRankingService {
 
     const owner = await this.users.currentUser();
     const rankedAt = new Date();
+    // The book section asks the model to write {{GROSS_EXPOSURE}}-style
+    // placeholders for figures the app computes; fill them before storing,
+    // exactly as trade idea does, so raw syntax never reaches the screen.
+    const fill = (text: string) => substituteBookPlaceholders(text, bookResult.value);
     const payload: StoredPayload = {
-      order: parsed.order,
-      reasoning: parsed.reasoning,
+      order: parsed.order.map((t) => ({ ...t, verdict: fill(t.verdict) })),
+      reasoning: fill(parsed.reasoning),
       missing: parsed.missing,
     };
     const saved = await this.rankings.save(
