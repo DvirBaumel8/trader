@@ -161,6 +161,16 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
  * it directly against a mocked `fn` and an instant `sleep`, without needing
  * a real model call or a real clock.
  */
+/** A 400 whose message says the model does not support the thinking level sent. */
+function isThinkingLevelRejected(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 400 &&
+    /thinking level/i.test(err.message) &&
+    /not supported/i.test(err.message)
+  );
+}
+
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}): Promise<T> {
   const maxAttempts = opts.maxAttempts ?? 3;
   const baseDelayMs = opts.baseDelayMs ?? 1000;
@@ -215,7 +225,9 @@ export class GeminiClient extends LlmClient {
   private readonly provider = process.env.LLM_PROVIDER ?? 'gemini';
   // Google retires model ids, and this default is what any environment that
   // does not set LLM_MODEL gets.
-  private readonly model = process.env.LLM_MODEL ?? 'gemini-2.5-flash';
+  // gemini-2.5-flash answered 404 "no longer available to new users" on
+  // 2026-09-27; gemini-3.6-flash is what production runs.
+  private readonly model = process.env.LLM_MODEL ?? 'gemini-3.6-flash';
   /**
    * Unset by default — the exact previous behaviour (the provider's own
    * automatic thinking budget). Measured on a real call: the default spent
@@ -248,11 +260,13 @@ export class GeminiClient extends LlmClient {
     return withRetry(async () => {
       attempt += 1;
       try {
-        const response = await this.ai().models.generateContent({
-          model: model ?? this.model,
-          contents: user,
-          config: this.generateConfig(system, grounded, thinkingLevel),
-        });
+        const response = await this.withThinkingFallback(thinkingLevel, (level) =>
+          this.ai().models.generateContent({
+            model: model ?? this.model,
+            contents: user,
+            config: this.generateConfig(system, grounded, level),
+          }),
+        );
 
         const text = response.text;
         if (!text) {
@@ -282,11 +296,13 @@ export class GeminiClient extends LlmClient {
     const first = await withRetry(async () => {
       attempt += 1;
       try {
-        const stream = await this.ai().models.generateContentStream({
-          model: model ?? this.model,
-          contents: user,
-          config: this.generateConfig(system, grounded, thinkingLevel),
-        });
+        const stream = await this.withThinkingFallback(thinkingLevel, (level) =>
+          this.ai().models.generateContentStream({
+            model: model ?? this.model,
+            contents: user,
+            config: this.generateConfig(system, grounded, level),
+          }),
+        );
         const iterator = stream[Symbol.asyncIterator]();
         const result = await iterator.next();
         const text = result.done ? undefined : result.value.text;
@@ -303,6 +319,27 @@ export class GeminiClient extends LlmClient {
     yield first.text;
     for (let next = await first.iterator.next(); !next.done; next = await first.iterator.next()) {
       if (next.value.text) yield next.value.text;
+    }
+  }
+
+  /**
+   * Runs `call` with the requested thinking level and, if the model rejects
+   * that level, once more with no thinkingConfig at all. Levels are
+   * model-specific — gemini-3.8-flash rejects MINIMAL, which older Flash
+   * models accept — so a pinned level must degrade to the provider's own
+   * budget on a model upgrade rather than fail the feature. Any other error
+   * propagates unchanged to the retry classification.
+   */
+  private async withThinkingFallback<T>(
+    thinkingLevel: ThinkingBudget | undefined,
+    call: (level: ThinkingBudget | undefined) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await call(thinkingLevel);
+    } catch (err) {
+      if (!isThinkingLevelRejected(err)) throw err;
+      this.logger.warn(`Model rejected the thinking level; retrying without one: ${(err as Error).message}`);
+      return call('NONE');
     }
   }
 

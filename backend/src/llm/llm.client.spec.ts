@@ -327,6 +327,42 @@ describe('GeminiClient', () => {
     expect(config.thinkingConfig).toBeUndefined();
   });
 
+  /**
+   * Newer models reject levels older ones accepted — gemini-3.8-flash
+   * answers 400 "Thinking level MINIMAL is not supported for this model",
+   * measured 2026-09-27. Trade idea and symbol pattern pin MINIMAL, so a
+   * model upgrade used to break exactly those two features. The provider's
+   * own default budget is the safe fallback.
+   */
+  it('retries once without thinkingConfig when the model rejects the level', async () => {
+    generateContent
+      .mockRejectedValueOnce(
+        new ApiError({
+          message: 'Thinking level MINIMAL is not supported for this model. Please retry with other thinking level.',
+          status: 400,
+        }),
+      )
+      .mockResolvedValueOnce({ text: 'hello' });
+    const client = new GeminiClient();
+
+    const text = await client.complete({ system: 's', user: 'u', thinkingLevel: 'MINIMAL' });
+
+    expect(text).toBe('hello');
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    expect(generateContent.mock.calls[0][0].config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+    expect(generateContent.mock.calls[1][0].config.thinkingConfig).toBeUndefined();
+  });
+
+  it('still fails at once on any other 400', async () => {
+    generateContent.mockRejectedValueOnce(new ApiError({ message: 'bad request', status: 400 }));
+    const client = new GeminiClient();
+
+    await expect(
+      client.complete({ system: 's', user: 'u', thinkingLevel: 'MINIMAL' }),
+    ).rejects.toMatchObject({ kind: 'setup_problem' });
+    expect(generateContent).toHaveBeenCalledTimes(1);
+  });
+
   it('lets a caller override the model per call, ahead of LLM_MODEL', async () => {
     // A lower-stakes, batch-shaped feature (the watchlist ranking) can be
     // routed to a cheaper model with more free-tier headroom, conserving
@@ -349,13 +385,15 @@ describe('GeminiClient', () => {
 
     await client.complete({ system: 's', user: 'u' });
 
-    expect(generateContent.mock.calls[0][0].model).toBe('gemini-2.5-flash');
+    // gemini-2.5-flash answers 404 "no longer available to new users" as of
+    // 2026-09-27; the default must be a model a fresh deploy can reach.
+    expect(generateContent.mock.calls[0][0].model).toBe('gemini-3.6-flash');
   });
 
   describe('modelName', () => {
     it('returns the configured default with no argument', () => {
       const client = new GeminiClient();
-      expect(client.modelName()).toBe('gemini-2.5-flash');
+      expect(client.modelName()).toBe('gemini-3.6-flash');
     });
 
     it('returns the override when one is given, for recording which model actually ran', () => {
@@ -419,6 +457,20 @@ describe('GeminiClient', () => {
       const chunks = await collect(client.completeStream({ system: 's', user: 'u' }));
 
       expect(chunks).toEqual(['first', 'second']);
+    });
+
+    it('falls back to no thinkingConfig when the model rejects the level, same as complete()', async () => {
+      generateContentStream
+        .mockRejectedValueOnce(
+          new ApiError({ message: 'Thinking level MINIMAL is not supported for this model.', status: 400 }),
+        )
+        .mockResolvedValueOnce(fakeStream(['a', 'b']));
+      const client = new GeminiClient();
+
+      const out = await collect(client.completeStream({ system: 's', user: 'u', thinkingLevel: 'MINIMAL' }));
+
+      expect(out).toEqual(['a', 'b']);
+      expect(generateContentStream.mock.calls[1][0].config.thinkingConfig).toBeUndefined();
     });
 
     it('passes thinkingLevel through the same as complete()', async () => {
