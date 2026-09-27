@@ -65,8 +65,18 @@ otherwise.
   TWS API (a machine that never sleeps), or paid aggregators. The feed must
   never write transactions: it reconciles missing broker activity and prefills
   a journal entry, while the owner retains the reason. It is blocked on the
-  owner confirming Client Portal → Settings → Account Settings → Flex Web
-  Service can issue a token. That token reads full account history and belongs
+  owner confirming Client Portal → Performance & Reports → Flex Queries →
+  Flex Web Service Configuration can issue a token.
+
+  Rechecked 2026-09-27 against IBKR's guides: Handy Trader itself has no
+  public API; the integration is with the underlying IBKR account. IBKR
+  lists "Broker Client Users" among eligible users, which should cover an
+  account introduced through Interactive Israel, but only the owner's own
+  portal can confirm it. Two query types matter: an Activity Flex Query is
+  an end-of-day snapshot (positions, trades, cash, commissions, dividends,
+  interest), and a Trade Confirmation Flex Query returns fills roughly ten
+  minutes after execution — enough to prefill the day's journal entries.
+  The token can be IP-restricted and lasts up to a year. That token reads full account history and belongs
   only in Render's environment, never the repo or chat.
 
 ## Research and working sessions (no code)
