@@ -151,6 +151,29 @@ export class HistoryService {
   }
 
   /**
+   * Creates SPY and QQQ as benchmark instruments and prices them, if that has
+   * never happened. The performance chart's calendar is SPY's trading days,
+   * and only the manual `backfill()` used to create them — so a fresh
+   * database showed "No history yet" for good. A no-op (one count query per
+   * benchmark) once they are priced. Never throws: the caller is on the read
+   * path.
+   */
+  private async ensureBenchmarksPriced(): Promise<void> {
+    for (const symbol of BENCHMARKS) {
+      try {
+        const instrument = await this.instrumentsService.findOrCreate(symbol);
+        if (!instrument.isBenchmark) {
+          instrument.isBenchmark = true;
+          await this.instruments.save(instrument);
+        }
+        await this.ensurePriced(instrument, symbol);
+      } catch (err) {
+        this.log.warn(`could not prepare benchmark ${symbol}: ${String(err)}`);
+      }
+    }
+  }
+
+  /**
    * Tops up daily bars when the stored history has fallen behind the market.
    *
    * Nothing else does this. `backfill()` waits to be called by hand and
@@ -169,6 +192,11 @@ export class HistoryService {
    */
   async ensureFresh(now: Date = new Date()): Promise<void> {
     if (now.getTime() - this.lastFreshenAt < FRESHEN_INTERVAL_MS) return;
+
+    // Before the up-to-date check: a database whose holdings are all current
+    // may still never have priced the benchmarks the performance calendar
+    // is built on.
+    await this.ensureBenchmarksPriced();
 
     try {
       // Read through the entity rather than a raw MAX(): TypeORM maps a

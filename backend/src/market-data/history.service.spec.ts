@@ -141,11 +141,21 @@ function makeFreshService(opts: {
     }),
   } as unknown as YahooClient;
 
+  // Benchmarks already exist and are priced (count 1), so ensureFresh's
+  // benchmark step is a no-op and these tests see only their instruments.
+  const instrumentsService = {
+    findOrCreate: vi.fn().mockImplementation(async (symbol: string) => ({
+      ...CRWV,
+      id: `inst-${symbol.toLowerCase()}`,
+      symbol,
+      isBenchmark: true,
+    })),
+  };
   const service = new HistoryService(
     closes as never,
     instruments as never,
     {} as never,
-    {} as never,
+    instrumentsService as never,
     yahoo,
   );
   return { service, requestedFrom, requestedBySymbol };
@@ -277,5 +287,54 @@ describe('HistoryService.ensureFresh, per instrument', () => {
 
     expect(daysBack(laggard)).toBeGreaterThan(40);
     expect(daysBack(current)).toBeLessThanOrEqual(9);
+  });
+});
+
+describe('HistoryService.ensureFresh, benchmarks', () => {
+  /**
+   * The performance chart's calendar is SPY's trading days. Only the manual
+   * backfill() used to create SPY and QQQ, so a fresh database showed "No
+   * history yet" for good — even on a Sunday holding Friday's bars for every
+   * holding, where the top-up itself correctly has nothing to do.
+   */
+  it('creates and prices a missing benchmark even when every holding is current', async () => {
+    const requested: string[] = [];
+    const closes = {
+      count: vi.fn().mockResolvedValue(0), // benchmarks have never been priced
+      upsert: vi.fn().mockResolvedValue(undefined),
+      find: vi.fn().mockResolvedValue([{ date: '2026-09-18' }]),
+    };
+    const instrumentsService = {
+      findOrCreate: vi.fn().mockImplementation(async (symbol: string) => ({
+        ...CRWV,
+        id: `inst-${symbol.toLowerCase()}`,
+        symbol,
+        isBenchmark: false,
+      })),
+    };
+    const instruments = { save: vi.fn().mockResolvedValue(undefined) };
+    const yahoo = {
+      dailyBars: vi.fn().mockImplementation(async (sym: string) => {
+        requested.push(sym);
+        return [];
+      }),
+    } as unknown as YahooClient;
+    const service = new HistoryService(
+      closes as never,
+      instruments as never,
+      {} as never,
+      instrumentsService as never,
+      yahoo,
+    );
+
+    await service.ensureFresh(new Date('2026-09-20T15:00:00Z')); // a Sunday
+
+    expect(instrumentsService.findOrCreate).toHaveBeenCalledWith('SPY');
+    expect(instrumentsService.findOrCreate).toHaveBeenCalledWith('QQQ');
+    expect(requested).toEqual(expect.arrayContaining(['SPY', 'QQQ']));
+    // Marked so a benchmark never shows up as a holding.
+    expect(instruments.save).toHaveBeenCalledWith(
+      expect.objectContaining({ symbol: 'SPY', isBenchmark: true }),
+    );
   });
 });
