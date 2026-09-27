@@ -172,6 +172,24 @@ describe('Dashboard position count', () => {
   });
 });
 
+describe('Account headline', () => {
+  /** A daily trader's first question is how today went, not since entry. */
+  it("shows today's P&L beside unrealized, as the server computed it", async () => {
+    renderDashboard([position('NVDA', 100)]);
+    const today = await screen.findByTestId('headline-day-pnl');
+    expect(today).toHaveTextContent('+$12.34 today');
+    expect(screen.getByText(/unrealized/)).toBeInTheDocument();
+  });
+
+  it("shows no day figure when the server could not compute one", async () => {
+    renderDashboard([position('NEW', 1)], '/', {}, {
+      totals: { marketValue: 1000, dayPnl: null, unrealizedPnl: 56.78 },
+    });
+    await screen.findByText(/unrealized/);
+    expect(screen.queryByTestId('headline-day-pnl')).not.toBeInTheDocument();
+  });
+});
+
 describe('Holdings table', () => {
   /** The owner's complaint: "Qty" repeated once per ticker. */
   it('shows each column name once, and no labels inside rows', async () => {

@@ -118,7 +118,13 @@ export function Dashboard() {
             <div className="mt-1 text-4xl font-semibold">
               <Money value={data.accountValue} />
             </div>
-            <div className="mt-1 text-sm">
+            <div className="mt-1 flex flex-wrap gap-x-3 text-sm">
+              {/* Today first: a daily trader reads the day before the trade. */}
+              {data.totals.dayPnl !== null && (
+                <span data-testid="headline-day-pnl" className={signClass(data.totals.dayPnl)}>
+                  <Money value={data.totals.dayPnl} signed /> today
+                </span>
+              )}
               <span className={signClass(data.totals.unrealizedPnl)}>
                 <Money value={data.totals.unrealizedPnl} signed /> unrealized
               </span>

@@ -53,32 +53,27 @@ const MORE_SORTS: (TableSort & { label: string })[] = [
 ];
 
 const BADGE = 'rounded px-1 py-px text-[9px] font-medium tracking-wide';
+/**
+ * Symbol, then its badges. The earnings countdown lives here, not on the
+ * second line: beside the quantity it left "300 @ $..." truncated, hiding
+ * the entry price. Badges wrap onto their own line rather than clip, so a
+ * rare long short symbol with earnings costs a taller row, never a value.
+ */
 function SymbolCell({ p }: { p: Position }) {
+  const e = p.daysUntilEarnings;
   return (
-    <span className="flex min-w-0 items-center gap-1.5">
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
       <span className="font-semibold">{p.symbol}</span>
       {p.quantity < 0 && <span className={`${BADGE} bg-down/15 text-down`}>SHORT</span>}
       {p.stale && <span className={`${BADGE} text-down`}>STALE</span>}
+      {e !== null && <EarningsBadge days={e} />}
     </span>
   );
 }
 
-/**
- * The earnings countdown leads the second line and never shrinks: beside
- * the symbol, the narrow first column on a phone clipped it out of sight.
- * The quantity text truncates instead.
- */
 function PositionLine({ p }: { p: Position }) {
-  const e = p.daysUntilEarnings;
   return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      {e !== null && (
-        <span className="flex shrink-0">
-          <EarningsBadge days={e} />
-        </span>
-      )}
-      <span className="min-w-0 truncate">{`${formatQuantity(p.quantity)} @ ${formatMoney(p.avgCost)}`}</span>
-    </span>
+    <span className="block truncate">{`${formatQuantity(p.quantity)} @ ${formatMoney(p.avgCost)}`}</span>
   );
 }
 
