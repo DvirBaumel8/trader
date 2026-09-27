@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import express from 'express';
 import { AppModule } from './app.module.js';
 import { ensureDatabaseReady } from './database/startup.js';
+import { legacyApiPrefix } from './legacy-api-prefix.js';
 
 async function bootstrap() {
   await ensureDatabaseReady();
@@ -14,25 +15,7 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
   const expressApp = app.getHttpAdapter().getInstance();
-  expressApp.use((req: any, _res: any, next: any) => {
-    if (req.url === '/api/health' || req.url.startsWith('/api/health?') || req.url.startsWith('/api/health/')) {
-      req.url = req.url.replace(/^\/api\/health/, '/health');
-    } else if (
-      req.url.startsWith('/portfolio') ||
-      req.url.startsWith('/performance') ||
-      req.url.startsWith('/journal') ||
-      req.url.startsWith('/watchlist') ||
-      req.url.startsWith('/auth') ||
-      req.url.startsWith('/ai') ||
-      req.url.startsWith('/settings') ||
-      req.url.startsWith('/instruments') ||
-      req.url.startsWith('/market-data') ||
-      req.url.startsWith('/history')
-    ) {
-      req.url = '/api' + req.url;
-    }
-    next();
-  });
+  expressApp.use(legacyApiPrefix);
 
   // Expose backend API at /api/* to match frontend client expectations
   app.setGlobalPrefix('api', {
