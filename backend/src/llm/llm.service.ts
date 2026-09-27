@@ -37,8 +37,10 @@ export type PortfolioSummaryStreamDone = Omit<PortfolioSummaryResult, 'summary'>
 export const ERROR_COPY: Record<LlmFailureKind, string> = {
   busy: 'The AI model is busy right now. Worth another tap in a moment.',
   quota_exceeded: "Today's free AI quota is used up. Try again tomorrow.",
-  setup_problem: 'The AI summary is not set up correctly. Ask the developer to check the model and API key.',
-  unknown: 'The AI summary could not be generated right now. Try again shortly.',
+  // Shared by every AI feature and shown to any account: no feature name,
+  // no instructions for the operator.
+  setup_problem: "AI isn't working on this app right now because of a setup problem; trying again won't help.",
+  unknown: "The AI answer couldn't be generated right now. Try again shortly.",
 };
 
 @Injectable()

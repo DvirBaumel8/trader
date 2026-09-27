@@ -232,7 +232,7 @@ describe('LlmService.portfolioSummary', () => {
     ['quota_exceeded', "Today's free AI quota is used up. Try again tomorrow."],
     [
       'setup_problem',
-      'The AI summary is not set up correctly. Ask the developer to check the model and API key.',
+      "AI isn't working on this app right now because of a setup problem; trying again won't help.",
     ],
   ] as const)(
     'maps an LlmFailure of kind %s to its own copy and errorKind',
