@@ -41,6 +41,25 @@ function renderBrief() {
 }
 
 describe('Brief', () => {
+  /**
+   * On a closed day every card carried the same MARKET CLOSED chip — sixteen
+   * copies of one fact. Shared by every quote, it is said once, up top.
+   */
+  it('says a session shared by every quote once, not on each card', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief,
+      coverage: [
+        { source: 'PORTFOLIO', symbol: 'NVDA', price: 102, regularPrice: 101, stale: false, session: 'CLOSED', extended: false },
+        { source: 'WATCHLIST', symbol: 'FSLR', price: 155, regularPrice: 155, stale: false, session: 'CLOSED', extended: false },
+      ],
+    });
+    renderBrief();
+
+    const coverage = await screen.findByRole('region', { name: 'Current coverage' });
+    expect(within(coverage).queryByText('MARKET CLOSED')).not.toBeInTheDocument();
+    expect(screen.getAllByText('MARKET CLOSED')).toHaveLength(1);
+  });
+
   it('keeps notable events ahead of long ticker coverage', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();

@@ -49,7 +49,18 @@ function destination(source: Coverage['source'], symbol: string) {
   return `${list}?symbol=${encodeURIComponent(symbol)}`;
 }
 
-function CoverageCard({ item }: { item: Coverage }) {
+/**
+ * The session every quote shares, or null when they differ. Shared, it is
+ * said once in the header instead of as an identical chip on every card.
+ */
+function sharedSession(coverage: Coverage[]): Pick<Coverage, 'session' | 'extended'> | null {
+  if (coverage.length === 0) return null;
+  const [first] = coverage;
+  const same = coverage.every((c) => c.session === first.session && c.extended === first.extended);
+  return same ? { session: first.session, extended: first.extended } : null;
+}
+
+function CoverageCard({ item, showSession }: { item: Coverage; showSession: boolean }) {
   return (
     <Link
       to={destination(item.source, item.symbol)}
@@ -62,7 +73,7 @@ function CoverageCard({ item }: { item: Coverage }) {
         </span>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted">
-        <SessionBadge session={item.session} extended={item.extended} />
+        {showSession && <SessionBadge session={item.session} extended={item.extended} />}
         {item.stale && <span className="font-medium tracking-wide text-down">STALE</span>}
         {item.extended && item.regularPrice !== null && (
           <span>Regular close <Money value={item.regularPrice} /></span>
@@ -73,14 +84,22 @@ function CoverageCard({ item }: { item: Coverage }) {
   );
 }
 
-function NoteCard({ note, coverage }: { note: BriefNote; coverage?: Coverage }) {
+function NoteCard({
+  note,
+  coverage,
+  showSession,
+}: {
+  note: BriefNote;
+  coverage?: Coverage;
+  showSession: boolean;
+}) {
   const content = (
     <>
       <h4 className="text-sm font-medium">{note.title}</h4>
-      {coverage && (coverage.stale || coverage.extended) && (
+      {coverage && (coverage.stale || (showSession && coverage.extended)) && (
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
           {coverage.stale && <span className="font-medium tracking-wide text-down">STALE QUOTE</span>}
-          {coverage.extended && <SessionBadge session={coverage.session} extended={coverage.extended} />}
+          {showSession && coverage.extended && <SessionBadge session={coverage.session} extended={coverage.extended} />}
         </div>
       )}
       <p className="mt-1 text-xs leading-relaxed text-muted">{note.detail}</p>
@@ -112,6 +131,7 @@ export function Brief() {
     refetchInterval: (current) => (current.state.data?.refreshAfterSeconds ?? 300) * 1000,
   });
   const brief = query.data;
+  const shared = brief ? sharedSession(brief.coverage) : null;
 
   const refresh = async () => {
     setRefreshFailed(false);
@@ -136,8 +156,9 @@ export function Brief() {
         <div>
           <h1 className="text-xl font-semibold">Daily brief</h1>
           {brief && (
-            <p className="mt-1 text-xs text-muted">
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
               Updated {formatTimestamp(brief.generatedAt)}
+              {shared && <SessionBadge session={shared.session} extended={shared.extended} />}
             </p>
           )}
         </div>
@@ -184,6 +205,7 @@ export function Brief() {
                   <div className="space-y-2">
                     {notes.map((note, index) => (
                       <NoteCard
+                        showSession={shared === null}
                         key={`${note.kind}-${note.symbol ?? 'market'}-${index}`}
                         note={note}
                         coverage={brief.coverage.find((item) => item.source === note.source && item.symbol === note.symbol)}
@@ -207,7 +229,9 @@ export function Brief() {
                 <div key={group.source} className="space-y-2">
                   <h3 className="text-[10px] uppercase tracking-wide text-muted">{group.label}</h3>
                   <div className="space-y-2">
-                    {items.map((item) => <CoverageCard key={item.symbol} item={item} />)}
+                    {items.map((item) => (
+                      <CoverageCard key={item.symbol} item={item} showSession={shared === null} />
+                    ))}
                   </div>
                 </div>
               );
