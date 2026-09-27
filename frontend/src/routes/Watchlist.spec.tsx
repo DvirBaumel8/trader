@@ -350,8 +350,19 @@ describe('Watchlist rows', () => {
    * optional; it just says so.
    */
   it('says so when a ticker is watched without a target', async () => {
-    renderWatchlist([row({ targetPrice: null, targetDirection: null, distanceToTarget: null })]);
+    renderWatchlist([
+      row({ targetPrice: null, targetDirection: null, distanceToTarget: null }),
+      row({ symbol: 'AMD', targetPrice: 200, distanceToTarget: 0.1 }),
+    ]);
     expect(await screen.findByText('no target set')).toBeInTheDocument();
+  });
+
+  /** Five rows each saying "no target set" is one fact said five times. */
+  it('says it once when no ticker has a target', async () => {
+    const none = { targetPrice: null, targetDirection: null, distanceToTarget: null };
+    renderWatchlist([row(none), row({ ...none, symbol: 'AMD' })]);
+    expect(await screen.findByText('No targets set')).toBeInTheDocument();
+    expect(screen.queryByText('no target set')).not.toBeInTheDocument();
   });
 
   it('does not show the company name, only the ticker', async () => {

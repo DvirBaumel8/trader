@@ -214,7 +214,9 @@ export function Stocks() {
             <button
               type="button"
               onClick={() => setPickerOpen(true)}
-              className={`${inputClasses('sm', 'flex-1')} flex items-center justify-between text-left`}
+              // Wide enough for "All tickers": squeezed by its neighbours it
+              // truncated to "All tick…".
+              className={`${inputClasses('sm', 'flex-1')} flex min-w-[7rem] items-center justify-between text-left`}
             >
               <div className="truncate">{pickerLabel(selected)}</div>
               <span aria-hidden="true" className="shrink-0 text-[9px] text-muted">
@@ -230,8 +232,9 @@ export function Stocks() {
                   ? 'border-down bg-down/10 font-medium text-down'
                   : 'border-border bg-surface-1 text-muted'
               }`}
+              aria-label="Losses only"
             >
-              Losses only
+              Losses
             </button>
             <Select value={sort} onChange={setSort} options={SORTS} srLabel="Sort" />
           </div>

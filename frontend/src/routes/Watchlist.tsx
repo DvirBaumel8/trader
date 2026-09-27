@@ -48,7 +48,8 @@ const BADGE = 'rounded px-1 py-px text-[9px] font-medium tracking-wide';
  * name, which the owner chose to leave out; the session is labeled once, in
  * the title, not per row.
  */
-const WATCH_COLUMNS: Column<WatchRow>[] = [
+function watchColumns(anyTarget: boolean): Column<WatchRow>[] {
+  return [
   {
     id: 'symbol',
     header: 'Symbol',
@@ -85,14 +86,19 @@ const WATCH_COLUMNS: Column<WatchRow>[] = [
     sortKey: 'target',
     firstDir: 'asc',
     primary: (r) => (r.targetPrice === null ? '—' : formatMoney(r.targetPrice)),
+    // Per row only when some rows do have targets; when none do, the table
+    // says it once underneath instead of on every row.
     secondary: (r) =>
       r.targetPrice === null
-        ? 'no target set'
+        ? anyTarget
+          ? 'no target set'
+          : ''
         : r.distanceToTarget === null
           ? ''
           : `${formatPercent(r.distanceToTarget)} away`,
   },
-];
+  ];
+}
 
 /**
  * Tickers the owner is considering but does not own.
@@ -182,6 +188,7 @@ export function Watchlist() {
   const shown = focusedRow && !filtered.includes(focusedRow)
     ? [...filtered, focusedRow]
     : filtered;
+  const anyTarget = shown.some((r) => r.targetPrice !== null);
 
   useEffect(() => {
     if (!focusedSymbol) {
@@ -346,7 +353,7 @@ export function Watchlist() {
                 extended={shown.some((r) => r.extended)}
               />
             }
-            columns={WATCH_COLUMNS}
+            columns={watchColumns(anyTarget)}
             rows={sortWatchRows(shown, sort)}
             rowKey={(r) => r.symbol}
             rowTestId={(r) => `watch-${r.symbol}`}
@@ -366,6 +373,9 @@ export function Watchlist() {
                 : undefined
             }
           />
+        )}
+        {shown.length > 0 && !anyTarget && (
+          <p className="text-xs text-muted">No targets set</p>
         )}
       </section>
 
