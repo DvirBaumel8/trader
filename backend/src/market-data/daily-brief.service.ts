@@ -7,63 +7,49 @@ import { DailyClose } from './daily-close.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { HistoryService } from './history.service.js';
 import { EconomicCalendarClient } from './economic-calendar.client.js';
-import { buildDailyBriefNotes, type BriefNote } from './daily-brief.js';
-import type { MarketSession } from './select-price.js';
+import { buildDailyBriefNotes, isWatchTrigger } from './daily-brief.js';
+import { MarketDataService } from './market-data.service.js';
+import { computeMarketSession, type MarketSession } from './market-session.js';
+import { buildMood, MOOD_INDICES, MOOD_QUOTE_SYMBOLS, type Mood, type MoodQuote } from './brief-mood.js';
 import { LlmClient } from '../llm/llm.client.js';
-import { buildDailyBriefContext } from '../llm/daily-brief-context.js';
+import { buildDailyBriefContext, type DailyBriefContextInput } from '../llm/daily-brief-context.js';
 import { buildDailyBriefUserPrompt } from '../llm/daily-brief-prompt.js';
 import { buildSystemPrompt } from '../llm/prompts.js';
 import { readTraderProfile } from '../llm/trader-profile.js';
 import { UsersService } from '../users/users.service.js';
 
+export interface BriefEvent { title: string; detail: string; eventAt: string }
+export interface HoldingNote { kind: 'ATR_MOVE' | 'MOMENTUM' | 'BREAKOUT' | 'EARNINGS'; symbol: string; title: string; detail: string }
+export interface WatchTrigger { kind: 'BREAKOUT' | 'MOMENTUM'; symbol: string; title: string; detail: string }
+
 export interface DailyBriefResponse {
   generatedAt: string;
   refreshAfterSeconds: number;
+  session: MarketSession;
   marketDataAvailable: boolean;
-  coverage: {
-    source: 'PORTFOLIO' | 'WATCHLIST';
-    symbol: string;
-    price: number | null;
-    regularPrice: number | null;
-    stale: boolean;
-    session: MarketSession | null;
-    extended: boolean;
-  }[];
-  notes: (BriefNote | {
-    kind: 'EARNINGS' | 'ECONOMIC' | 'QUIET_DAY';
-    source: 'PORTFOLIO' | 'WATCHLIST' | 'MARKET';
-    symbol: string | null;
-    title: string;
-    detail: string;
-    eventAt?: string;
-    actual?: number | null;
-    expected?: number | null;
-  })[];
+  mood: Mood;
+  events: BriefEvent[];
+  /** Interim (Brief redesign slice 1): replaced by the decision queue and movers in slices 2–3. */
+  holdingNotes: HoldingNote[];
+  watchTriggers: WatchTrigger[];
   /**
-   * A short, prioritized read over the notes/coverage above, from the same
+   * A short, prioritized read over the facts above, from the same
    * app-computed facts — never a source of numbers itself, only judgement
    * and prioritization on top of them (see prompts.ts's governing rule).
    * Null whenever there is nothing to show it: no LLM configured, or the
    * call failed — silent by design, the same as an unconfigured Finnhub or
-   * Twelve Data key, since the notes and coverage below stand on their own.
+   * Twelve Data key, since the facts above stand on their own.
    */
   narrative: string | null;
   /** When the narrative was written — earlier than generatedAt when reused. */
   narrativeAt: string | null;
 }
 
-/** Read first, gets the reader's attention first — a loud move or an event risk outranks a slow-moving trend. */
 /** How long a narrative is reused while the same events stand. */
 const NARRATIVE_MAX_AGE_MS = 30 * 60 * 1000;
 
-const NOTE_KIND_PRIORITY: Record<string, number> = {
-  EARNINGS: 0,
-  ATR_MOVE: 1,
-  BREAKOUT: 2,
-  MOMENTUM: 3,
-  ECONOMIC: 4,
-  QUIET_DAY: 5,
-};
+/** Read first, gets the reader's attention first — a loud move or an event risk outranks a slow-moving trend. */
+const HOLDING_NOTE_PRIORITY: Record<HoldingNote['kind'], number> = { EARNINGS: 0, ATR_MOVE: 1, BREAKOUT: 2, MOMENTUM: 3 };
 
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -97,6 +83,9 @@ export class DailyBriefService {
     private readonly llm?: LlmClient,
     // Optional for the same reason; without it no profile is sent.
     private readonly users?: UsersService,
+    // Optional for the same reason: existing positional call sites read as
+    // "no mood" (an empty one), not as a missing dependency.
+    private readonly marketData?: MarketDataService,
   ) {}
 
   /**
@@ -122,25 +111,17 @@ export class DailyBriefService {
     const weekStart = startOfWeek(now);
     const weekEnd = new Date(weekStart);
     weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
-    const [portfolio, watched, calendar] = await Promise.all([
+    const [portfolio, watched, calendar, moodQuotes] = await Promise.all([
       this.portfolio.getPortfolio({ refresh }),
       this.watchlist.list({ refresh }),
       this.calendar.week(isoDate(weekStart), isoDate(weekEnd)),
+      this.moodQuotes(refresh),
     ]);
-    const coverageBySymbol = new Map<string, DailyBriefResponse['coverage'][number]>();
-    for (const position of portfolio.positions) coverageBySymbol.set(position.symbol, {
-      source: 'PORTFOLIO', symbol: position.symbol, price: position.price,
-      regularPrice: position.regularPrice, stale: position.stale,
-      session: position.session, extended: position.extended,
-    });
-    for (const row of watched) if (!coverageBySymbol.has(row.symbol)) coverageBySymbol.set(row.symbol, {
-      source: 'WATCHLIST', symbol: row.symbol, price: row.price,
-      regularPrice: row.regularPrice, stale: row.stale,
-      session: row.session, extended: row.extended,
-    });
+    const held = new Set<string>(portfolio.positions.map((position: { symbol: string }) => position.symbol));
+    const watchOnly = watched.filter((row) => !held.has(row.symbol));
+    const symbols = [...held, ...watchOnly.map((row) => row.symbol)];
 
-    const symbols = [...coverageBySymbol.keys()];
-    const instruments = await this.instruments.find({ where: { symbol: In([...symbols, 'SPY']) } });
+    const instruments = await this.instruments.find({ where: { symbol: In([...symbols, ...MOOD_INDICES]) } });
     const instrumentBySymbol = new Map(instruments.map((instrument) => [instrument.symbol, instrument]));
     const bars = await this.closes.find({
       where: { instrumentId: In(instruments.map((instrument) => instrument.id)) },
@@ -152,7 +133,8 @@ export class DailyBriefService {
       current.push(bar);
       barsByInstrument.set(bar.instrumentId, current);
     }
-    const spyBars = barsByInstrument.get(instrumentBySymbol.get('SPY')?.id ?? '') ?? [];
+    const barsFor = (symbol: string) => barsByInstrument.get(instrumentBySymbol.get(symbol)?.id ?? '') ?? [];
+    const spyBars = barsFor('SPY');
     // Positions with a notable move but nothing protecting them are exactly
     // what a margin trader most needs flagged, not left for the Stops page
     // to surface separately — this is already computed there, just reused.
@@ -171,73 +153,87 @@ export class DailyBriefService {
         ],
       ),
     );
-    const notes: DailyBriefResponse['notes'] = [];
-    for (const symbol of symbols) {
-      const price = coverageBySymbol.get(symbol)?.price;
-      const instrument = instrumentBySymbol.get(symbol);
-      if (price !== undefined && price !== null && instrument) {
-        const symbolNotes = buildDailyBriefNotes({
-          symbol,
-          source: coverageBySymbol.get(symbol)!.source,
-          price,
-          bars: barsByInstrument.get(instrument.id) ?? [],
-          spyBars,
-        });
-        const partialStop = partialStopBySymbol.get(symbol);
-        if (symbolsWithoutStop.has(symbol)) {
-          for (const note of symbolNotes) {
-            note.detail = `${note.detail} No stop is set on this position.`;
-          }
-        } else if (partialStop) {
-          for (const note of symbolNotes) {
-            note.detail = `${note.detail} Partial stop: only ${partialStop.coveredQuantity} of ${partialStop.heldQuantity} shares are covered.`;
-          }
+    const holdingNotes: HoldingNote[] = [];
+    for (const position of portfolio.positions) {
+      if (position.price !== null && position.price !== undefined && instrumentBySymbol.has(position.symbol)) {
+        const notes = buildDailyBriefNotes({ symbol: position.symbol, source: 'PORTFOLIO', price: position.price, bars: barsFor(position.symbol), spyBars });
+        const partialStop = partialStopBySymbol.get(position.symbol);
+        for (const note of notes) {
+          let detail = note.detail;
+          if (symbolsWithoutStop.has(position.symbol)) detail = `${detail} No stop is set on this position.`;
+          else if (partialStop) detail = `${detail} Partial stop: only ${partialStop.coveredQuantity} of ${partialStop.heldQuantity} shares are covered.`;
+          holdingNotes.push({ kind: note.kind, symbol: note.symbol, title: note.title, detail });
         }
-        notes.push(...symbolNotes);
+      }
+      const days = position.daysUntilEarnings;
+      if (days !== null && days !== undefined && days >= 0 && days <= 6) {
+        holdingNotes.push({
+          kind: 'EARNINGS', symbol: position.symbol,
+          title: `${position.symbol} has earnings this week`,
+          detail: days === 0 ? 'Earnings are today.' : `Earnings are in ${days} days.`,
+        });
+      }
+    }
+    holdingNotes.sort((a, b) => HOLDING_NOTE_PRIORITY[a.kind] - HOLDING_NOTE_PRIORITY[b.kind]);
+
+    const watchTriggers: WatchTrigger[] = [];
+    for (const row of watchOnly) {
+      if (row.price === null || row.price === undefined || !instrumentBySymbol.has(row.symbol)) continue;
+      const notes = buildDailyBriefNotes({ symbol: row.symbol, source: 'WATCHLIST', price: row.price, bars: barsFor(row.symbol), spyBars });
+      for (const note of notes) {
+        if (isWatchTrigger(note)) {
+          watchTriggers.push({ kind: note.kind as WatchTrigger['kind'], symbol: note.symbol, title: note.title, detail: note.detail });
+        }
       }
     }
 
-    const weekDays = (days: number | null) => days !== null && days >= 0 && days <= 6;
-    for (const position of portfolio.positions) {
-      if (weekDays(position.daysUntilEarnings)) notes.push({ kind: 'EARNINGS', source: 'PORTFOLIO', symbol: position.symbol, title: `${position.symbol} has earnings this week`, detail: position.daysUntilEarnings === 0 ? 'Earnings are today.' : `Earnings are in ${position.daysUntilEarnings} days.` });
+    const events: BriefEvent[] = calendar.events.map((event) => ({ title: event.title, detail: event.detail, eventAt: event.date }));
+    const mood = buildMood({ quotes: moodQuotes, indexBars: { SPY: barsFor('SPY'), QQQ: barsFor('QQQ') } });
+    const session = computeMarketSession(now);
+    const narrative = await this.buildNarrative(now, { session, mood, events, holdingNotes, watchTriggers });
+
+    return {
+      generatedAt: now.toISOString(), refreshAfterSeconds: 300, session,
+      marketDataAvailable: calendar.available, mood, events, holdingNotes, watchTriggers,
+      narrative: narrative?.text ?? null, narrativeAt: narrative?.at.toISOString() ?? null,
+    };
+  }
+
+  /**
+   * Never throws: the mood is context, not a fact the rest of the brief
+   * depends on. `augment: false` leaves Twelve Data's free budget to the
+   * positions and stops that must be right (see MarketDataService.getQuotes).
+   */
+  private async moodQuotes(refresh: boolean): Promise<Map<string, MoodQuote>> {
+    if (!this.marketData) return new Map();
+    try {
+      const quotes = await this.marketData.getQuotes([...MOOD_QUOTE_SYMBOLS], refresh, false);
+      return new Map([...quotes].map(([symbol, q]) => [symbol, { price: q.price, previousClose: q.previousClose, stale: q.stale, extended: q.extended }]));
+    } catch (err) {
+      this.logger.warn(`daily brief mood quotes failed: ${err instanceof Error ? err.message : String(err)}`);
+      return new Map();
     }
-    for (const row of watched) {
-      if (weekDays(row.daysUntilEarnings) && !portfolio.positions.some((position) => position.symbol === row.symbol)) notes.push({ kind: 'EARNINGS', source: 'WATCHLIST', symbol: row.symbol, title: `${row.symbol} has earnings this week`, detail: row.daysUntilEarnings === 0 ? 'Earnings are today.' : `Earnings are in ${row.daysUntilEarnings} days.` });
-    }
-    for (const event of calendar.events) notes.push({ kind: 'ECONOMIC', source: 'MARKET', symbol: null, title: event.title, detail: event.detail, eventAt: event.date });
-
-    // Never a blank screen on an uneventful day — the whole point of a daily
-    // read is confirming there is nothing to worry about, not wondering
-    // whether the page is broken. Only reached when nothing else fired, and
-    // only says something when there is real bar data to say it from.
-    if (notes.length === 0) {
-      const quietDayNote = biggestMoverNote(symbols, coverageBySymbol, instrumentBySymbol, barsByInstrument);
-      if (quietDayNote) notes.push(quietDayNote);
-    }
-
-    notes.sort((a, b) => (NOTE_KIND_PRIORITY[a.kind] ?? 99) - (NOTE_KIND_PRIORITY[b.kind] ?? 99));
-
-    const coverage = [...coverageBySymbol.values()];
-    const narrative = await this.buildNarrative(now, notes, coverage);
-
-    return { generatedAt: now.toISOString(), refreshAfterSeconds: 300, marketDataAvailable: calendar.available, coverage, notes, narrative: narrative?.text ?? null, narrativeAt: narrative?.at.toISOString() ?? null };
   }
 
   /**
    * Never throws, never blocks the rest of the brief on a model hiccup — the
-   * notes and coverage above are the source of truth and stand on their own
+   * brief's facts are the source of truth and stand on their own
    * whether or not this succeeds.
    */
   private async buildNarrative(
     now: Date,
-    notes: DailyBriefResponse['notes'],
-    coverage: DailyBriefResponse['coverage'],
+    facts: Omit<DailyBriefContextInput, 'generatedAt' | 'events' | 'holdingNotes' | 'watchTriggers'> & {
+      events: BriefEvent[];
+      holdingNotes: HoldingNote[];
+      watchTriggers: WatchTrigger[];
+    },
   ): Promise<{ text: string; at: Date } | null> {
     if (!this.llm || !this.llm.isConfigured()) return null;
     const userKey = this.users ? (await this.users.currentUser()).id : 'default';
     const signature = JSON.stringify({
       day: now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
-      events: notes.map((n) => [n.kind, n.source, n.symbol]),
+      events: [...facts.holdingNotes, ...facts.watchTriggers].map((n) => [n.kind, n.symbol]),
+      macro: facts.events.map((e) => e.title),
     });
     const cached = this.narratives.get(userKey);
     if (
@@ -247,14 +243,10 @@ export class DailyBriefService {
       return { text: cached.text, at: cached.at };
     }
     try {
-      const facts = buildDailyBriefContext({
-        generatedAt: now.toISOString(),
-        notes: notes.map((note) => ({ source: note.source, title: note.title, detail: note.detail })),
-        coverage,
-      });
+      const context = buildDailyBriefContext({ generatedAt: now.toISOString(), ...facts });
       const profile = await readTraderProfile(this.users);
       const system = buildSystemPrompt(profile);
-      const user = buildDailyBriefUserPrompt(facts);
+      const user = buildDailyBriefUserPrompt(context);
       const text = await this.llm.complete({ system, user, grounded: false });
       this.narratives.set(userKey, { signature, text, at: now });
       return { text, at: now };
@@ -265,40 +257,4 @@ export class DailyBriefService {
       return null;
     }
   }
-}
-
-/**
- * The single biggest day-over-day close-to-close mover across everything
- * covered, or null when there isn't enough bar history anywhere to say —
- * never a fabricated "quiet day" when the real answer is "no data yet".
- */
-function biggestMoverNote(
-  symbols: string[],
-  coverageBySymbol: Map<string, DailyBriefResponse['coverage'][number]>,
-  instrumentBySymbol: Map<string, { id: string; symbol: string }>,
-  barsByInstrument: Map<string, { close: number }[]>,
-): DailyBriefResponse['notes'][number] | null {
-  let best: { symbol: string; source: 'PORTFOLIO' | 'WATCHLIST'; changePercent: number } | null = null;
-  for (const symbol of symbols) {
-    const instrument = instrumentBySymbol.get(symbol);
-    if (!instrument) continue;
-    const bars = barsByInstrument.get(instrument.id) ?? [];
-    if (bars.length < 2) continue;
-    const previous = bars.at(-2)!.close;
-    const latest = bars.at(-1)!.close;
-    if (!(previous > 0)) continue;
-    const changePercent = ((latest - previous) / previous) * 100;
-    if (!best || Math.abs(changePercent) > Math.abs(best.changePercent)) {
-      best = { symbol, source: coverageBySymbol.get(symbol)!.source, changePercent };
-    }
-  }
-  if (!best) return null;
-  const sign = best.changePercent >= 0 ? '+' : '';
-  return {
-    kind: 'QUIET_DAY',
-    source: best.source,
-    symbol: best.symbol,
-    title: 'Quiet day across your coverage',
-    detail: `${best.symbol} moved the most today, at ${sign}${best.changePercent.toFixed(1)}%.`,
-  };
 }

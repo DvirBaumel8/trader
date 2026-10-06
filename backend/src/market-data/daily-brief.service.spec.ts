@@ -1,282 +1,207 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DailyBriefService } from './daily-brief.service.js';
+import { EMPTY_MOOD } from './brief-mood.js';
+
+/** 21 flat bars then a close above the range on 3× volume: a confirmed breakout (and an ATR move). */
+function breakoutBars(instrumentId: string) {
+  const flat = Array.from({ length: 21 }, (_, i) => ({
+    instrumentId, date: `2026-08-${String(i + 1).padStart(2, '0')}`,
+    close: 100, adjClose: 100, open: 100, high: 101, low: 99, volume: 1_000_000,
+  }));
+  return [...flat, { instrumentId, date: '2026-08-22', close: 110, adjClose: 110, open: 101, high: 111, low: 100, volume: 3_000_000 }];
+}
+
+function deps(over: {
+  positions?: unknown[];
+  watched?: unknown[];
+  instruments?: { id: string; symbol: string }[];
+  bars?: unknown[];
+  calendar?: { available: boolean; events: unknown[] };
+  atRisk?: unknown;
+} = {}) {
+  return [
+    { getPortfolio: vi.fn().mockResolvedValue({ positions: over.positions ?? [], atRisk: over.atRisk ?? { positionsWithoutStop: { count: 0, symbols: [] } } }) } as any,
+    { list: vi.fn().mockResolvedValue(over.watched ?? []) } as any,
+    { find: vi.fn().mockResolvedValue(over.bars ?? []) } as any,
+    { find: vi.fn().mockResolvedValue(over.instruments ?? []) } as any,
+    { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
+    { week: vi.fn().mockResolvedValue(over.calendar ?? { available: true, events: [] }) } as any,
+  ] as const;
+}
+
+function quote(price: number, previousClose: number) {
+  return { symbol: '', name: null, price, stale: false, session: 'REGULAR', extended: false, regularPrice: price, previousClose, peRatio: null };
+}
+
+/** 19 flat days, then a jump big enough to trip the ATR_MOVE rule. */
+function atrJumpBars() {
+  return Array.from({ length: 20 }, (_, i) => ({
+    instrumentId: 'nvda',
+    date: `2026-08-${String(i + 1).padStart(2, '0')}`,
+    close: i === 19 ? 103 : 100,
+    high: i === 19 ? 104 : 101,
+    low: 99,
+    volume: 1_000_000,
+  }));
+}
+const nvdaPosition = { symbol: 'NVDA', price: 103, regularPrice: 103, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null };
 
 describe('DailyBriefService', () => {
-  it('combines portfolio, watchlist, and market notes while keeping portfolio ownership primary', async () => {
-    const service = new DailyBriefService(
-      {
-        getPortfolio: vi.fn().mockResolvedValue({
-          positions: [{ symbol: 'NVDA', price: 110, regularPrice: 109, stale: false, session: 'POST', extended: true, daysUntilEarnings: 0 }],
-        }),
-      } as any,
-      {
-        list: vi.fn().mockResolvedValue([
-          { symbol: 'NVDA', price: 110, regularPrice: 109, stale: false, session: 'POST', extended: true, daysUntilEarnings: 0 },
-          { symbol: 'PLTR', price: 25, regularPrice: 25, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: 3 },
-        ]),
-      } as any,
-      { find: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue([]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      {
-        week: vi.fn().mockResolvedValue({ available: true, events: [
-          { kind: 'RATE_DECISION', name: 'Federal Reserve rate decision', date: '2026-09-16', title: 'Fed raised rates 25 bp', detail: 'Target range is now 3.75–4.00%.' },
-        ] }),
-      } as any,
-    );
-
-    const result = await service.get({ now: new Date('2026-09-16T09:00:00.000Z') });
-
-    expect(result.refreshAfterSeconds).toBe(300);
-    expect(result.marketDataAvailable).toBe(true);
-    expect(result.coverage).toEqual([
-      { source: 'PORTFOLIO', symbol: 'NVDA', price: 110, regularPrice: 109, stale: false, session: 'POST', extended: true },
-      { source: 'WATCHLIST', symbol: 'PLTR', price: 25, regularPrice: 25, stale: false, session: 'REGULAR', extended: false },
-    ]);
-    expect(result.notes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'EARNINGS', symbol: 'NVDA', source: 'PORTFOLIO' }),
-      expect.objectContaining({ kind: 'EARNINGS', symbol: 'PLTR', source: 'WATCHLIST' }),
-      expect.objectContaining({ kind: 'ECONOMIC', source: 'MARKET', title: 'Fed raised rates 25 bp', detail: 'Target range is now 3.75–4.00%.', eventAt: '2026-09-16' }),
+  it('serves the mood from the market-data quotes, without spending the Twelve Data budget', async () => {
+    const getQuotes = vi.fn().mockResolvedValue(new Map([
+      ['SPY', quote(502, 500)],
+      ['^VIX', quote(17.8, 16.7)],
+      ['XLE', quote(101.2, 100)],
+      ['XLK', quote(99.1, 100)],
     ]));
-    expect(result.notes.filter((note) => note.kind === 'EARNINGS' && note.symbol === 'NVDA')).toHaveLength(1);
+    const service = new DailyBriefService(...deps(), undefined, undefined, { getQuotes } as any);
+
+    const result = await service.get({ refresh: true, now: new Date('2026-09-16T15:00:00Z') });
+
+    expect(getQuotes).toHaveBeenCalledWith(expect.arrayContaining(['SPY', 'QQQ', '^VIX', 'XLK']), true, false);
+    expect(result.mood.indices).toEqual([expect.objectContaining({ symbol: 'SPY', changePct: 0.004 })]);
+    expect(result.mood.vix?.level).toBe(17.8);
+    expect(result.mood.leader?.symbol).toBe('XLE');
+    expect(result.mood.laggard?.symbol).toBe('XLK');
+    expect(result.session).toBe('REGULAR');
   });
 
-  it('forces quotes and includes a newly watched ticker even without technical bars', async () => {
-    const portfolio = { getPortfolio: vi.fn().mockResolvedValue({ positions: [] }) };
-    const watchlist = { list: vi.fn().mockResolvedValue([
-      { symbol: 'FSLR', price: 235, regularPrice: 232, stale: false, session: 'PRE', extended: true, daysUntilEarnings: null },
-    ]) };
-    const service = new DailyBriefService(
-      portfolio as any, watchlist as any,
-      { find: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue([]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
-    );
-
-    const result = await service.get({ refresh: true, now: new Date('2026-09-16T16:00:00Z') });
-
-    expect(portfolio.getPortfolio).toHaveBeenCalledWith({ refresh: true });
-    expect(watchlist.list).toHaveBeenCalledWith({ refresh: true });
-    expect(result.coverage).toEqual([
-      { source: 'WATCHLIST', symbol: 'FSLR', price: 235, regularPrice: 232, stale: false, session: 'PRE', extended: true },
-    ]);
-    expect(result.notes).toEqual([]);
-  });
-
-  it('reports an unavailable macro source rather than a quiet market day', async () => {
-    const service = new DailyBriefService(
-      { getPortfolio: vi.fn().mockResolvedValue({ positions: [] }) } as any,
-      { list: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue([]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      { week: vi.fn().mockResolvedValue({ available: false, events: [] }) } as any,
-    );
-
-    await expect(service.get()).resolves.toMatchObject({
-      marketDataAvailable: false,
-      notes: [],
-    });
-  });
-
-  it('uses the portfolio quote for a ticker that is also watched', async () => {
-    const dates = Array.from({ length: 55 }, (_, i) => new Date(Date.UTC(2026, 6, i + 1)).toISOString().slice(0, 10));
-    const bars = dates.flatMap((date, i) => [
-      { instrumentId: 'nvda', date, close: i === 54 ? 110 : 100, high: null, low: null, volume: null },
-      { instrumentId: 'spy', date, close: 100, high: null, low: null, volume: null },
-    ]);
-    const service = new DailyBriefService(
-      { getPortfolio: vi.fn().mockResolvedValue({ positions: [
-        { symbol: 'NVDA', price: 110, regularPrice: 110, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null },
-      ] }) } as any,
-      { list: vi.fn().mockResolvedValue([
-        { symbol: 'NVDA', price: 5, regularPrice: 5, stale: true, session: 'CLOSED', extended: false, daysUntilEarnings: null },
-      ]) } as any,
-      { find: vi.fn().mockResolvedValue(bars) } as any,
-      { find: vi.fn().mockResolvedValue([{ id: 'nvda', symbol: 'NVDA' }, { id: 'spy', symbol: 'SPY' }]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
-    );
-
-    const result = await service.get({ now: new Date('2026-09-16T16:00:00Z') });
-
-    expect(result.coverage).toEqual([{ source: 'PORTFOLIO', symbol: 'NVDA', price: 110, regularPrice: 110, stale: false, session: 'REGULAR', extended: false }]);
-    expect(result.notes).toContainEqual(expect.objectContaining({ kind: 'MOMENTUM', source: 'PORTFOLIO', symbol: 'NVDA' }));
-  });
-
-  it('mentions a missing stop on a portfolio position with a notable move', async () => {
-    // 19 flat days, then a jump big enough to trip the ATR_MOVE rule.
-    const dates = Array.from({ length: 20 }, (_, i) => `2026-08-${String(i + 1).padStart(2, '0')}`);
-    const bars = dates.map((date, i) => ({
-      instrumentId: 'nvda',
-      date,
-      close: i === 19 ? 103 : 100,
-      high: i === 19 ? 104 : 101,
-      low: i === 19 ? 99 : 99,
-      volume: 1_000_000,
-    }));
-    const service = new DailyBriefService(
-      {
-        getPortfolio: vi.fn().mockResolvedValue({
-          positions: [{ symbol: 'NVDA', price: 103, regularPrice: 103, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null }],
-          atRisk: { positionsWithoutStop: { count: 1, symbols: ['NVDA'] } },
-        }),
-      } as any,
-      { list: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue(bars) } as any,
-      { find: vi.fn().mockResolvedValue([{ id: 'nvda', symbol: 'NVDA' }]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
-    );
-
-    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
-
-    const move = result.notes.find((note) => note.kind === 'ATR_MOVE');
-    expect(move?.detail).toMatch(/no stop/i);
-  });
-
-  it('does not mention a missing stop when the position has one', async () => {
-    const dates = Array.from({ length: 20 }, (_, i) => `2026-08-${String(i + 1).padStart(2, '0')}`);
-    const bars = dates.map((date, i) => ({
-      instrumentId: 'nvda',
-      date,
-      close: i === 19 ? 103 : 100,
-      high: i === 19 ? 104 : 101,
-      low: i === 19 ? 99 : 99,
-      volume: 1_000_000,
-    }));
-    const service = new DailyBriefService(
-      {
-        getPortfolio: vi.fn().mockResolvedValue({
-          positions: [{ symbol: 'NVDA', price: 103, regularPrice: 103, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null }],
-          atRisk: { positionsWithoutStop: { count: 0, symbols: [] } },
-        }),
-      } as any,
-      { list: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue(bars) } as any,
-      { find: vi.fn().mockResolvedValue([{ id: 'nvda', symbol: 'NVDA' }]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
-    );
-
-    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
-
-    const move = result.notes.find((note) => note.kind === 'ATR_MOVE');
-    expect(move?.detail).not.toMatch(/no stop/i);
-  });
-
-  it('mentions a partial stop on a portfolio position with a notable move', async () => {
-    const dates = Array.from({ length: 20 }, (_, i) => `2026-08-${String(i + 1).padStart(2, '0')}`);
-    const bars = dates.map((date, i) => ({
-      instrumentId: 'nvda',
-      date,
-      close: i === 19 ? 103 : 100,
-      high: i === 19 ? 104 : 101,
-      low: i === 19 ? 99 : 99,
-      volume: 1_000_000,
-    }));
-    const service = new DailyBriefService(
-      {
-        getPortfolio: vi.fn().mockResolvedValue({
-          positions: [{ symbol: 'NVDA', price: 103, regularPrice: 103, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null }],
-          atRisk: {
-            positionsWithoutStop: { count: 0, symbols: [] },
-            positionsWithPartialStop: {
-              count: 1,
-              positions: [{ symbol: 'NVDA', coveredQuantity: 40, heldQuantity: 100 }],
-            },
-          },
-        }),
-      } as any,
-      { list: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue(bars) } as any,
-      { find: vi.fn().mockResolvedValue([{ id: 'nvda', symbol: 'NVDA' }]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
-    );
-
-    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
-
-    const move = result.notes.find((note) => note.kind === 'ATR_MOVE');
-    expect(move?.detail).toMatch(/partial stop/i);
-    expect(move?.detail).not.toMatch(/no stop/i);
-  });
-
-  it('names the day\'s biggest mover when nothing else earns a note', async () => {
-    const dates = Array.from({ length: 20 }, (_, i) => `2026-08-${String(i + 1).padStart(2, '0')}`);
-    // A move clearly smaller than the ATR (~1.0 from the flat prior days),
-    // so nothing else fires — the point is an uneventful day, not a rule
-    // that almost triggered.
-    const bars = dates.map((date, i) => ({
-      instrumentId: 'nvda',
-      date,
-      close: i === 19 ? 100.3 : 100,
-      high: i === 19 ? 100.8 : 100.5,
-      low: i === 19 ? 99.8 : 99.5,
-      volume: 1_000_000,
-    }));
-    const service = new DailyBriefService(
-      { getPortfolio: vi.fn().mockResolvedValue({ positions: [
-        { symbol: 'NVDA', price: 100.3, regularPrice: 100.3, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null },
-      ], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } } }) } as any,
-      { list: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue(bars) } as any,
-      { find: vi.fn().mockResolvedValue([{ id: 'nvda', symbol: 'NVDA' }]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
-    );
-
-    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
-
-    expect(result.notes).toHaveLength(1);
-    expect(result.notes[0]).toMatchObject({ kind: 'QUIET_DAY', symbol: 'NVDA' });
-    expect(result.notes[0].detail).toContain('0.3%');
-  });
-
-  it('never fabricates a quiet-day note when there are no bars to compute one from', async () => {
-    const service = new DailyBriefService(
-      { getPortfolio: vi.fn().mockResolvedValue({ positions: [], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } } }) } as any,
-      { list: vi.fn().mockResolvedValue([
-        { symbol: 'FSLR', price: 235, regularPrice: 232, stale: false, session: 'PRE', extended: true, daysUntilEarnings: null },
-      ]) } as any,
-      { find: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue([]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
-    );
+  it('still serves the brief with an empty mood when the quote fetch throws', async () => {
+    const getQuotes = vi.fn().mockRejectedValue(new Error('provider down'));
+    const service = new DailyBriefService(...deps(), undefined, undefined, { getQuotes } as any);
 
     const result = await service.get();
 
-    expect(result.notes).toEqual([]);
+    expect(result.mood).toEqual(EMPTY_MOOD);
   });
 
-  it('orders an earnings note ahead of a momentum note for the same kind of urgency', async () => {
-    const realDates = Array.from({ length: 60 }, (_, i) => new Date(Date.UTC(2026, 5, i + 1)).toISOString().slice(0, 10));
-    const nvdaBars = realDates.map((date, i) => ({
-      instrumentId: 'nvda',
-      date,
-      close: 100 + i * 0.2,
-      high: null,
-      low: null,
-      volume: 1_000_000,
+  it('leaves VIX null when the provider returned no VIX quote', async () => {
+    const getQuotes = vi.fn().mockResolvedValue(new Map([['SPY', quote(502, 500)]]));
+    const service = new DailyBriefService(...deps(), undefined, undefined, { getQuotes } as any);
+
+    expect((await service.get()).mood.vix).toBeNull();
+  });
+
+  it('serves no coverage or grouped notes any more', async () => {
+    const result = await new DailyBriefService(...deps()).get();
+    expect(result).not.toHaveProperty('coverage');
+    expect(result).not.toHaveProperty('notes');
+  });
+
+  it('lists this week\'s economic events on their own', async () => {
+    const service = new DailyBriefService(...deps({ calendar: { available: true, events: [
+      { kind: 'RATE_DECISION', name: 'Federal Reserve rate decision', date: '2026-09-16', title: 'Fed raised rates 25 bp', detail: 'Target range is now 3.75–4.00%.' },
+    ] } }));
+
+    const result = await service.get({ now: new Date('2026-09-16T09:00:00Z') });
+
+    expect(result.events).toEqual([{ title: 'Fed raised rates 25 bp', detail: 'Target range is now 3.75–4.00%.', eventAt: '2026-09-16' }]);
+    expect(result.marketDataAvailable).toBe(true);
+  });
+
+  it('reports an unavailable macro source', async () => {
+    const service = new DailyBriefService(...deps({ calendar: { available: false, events: [] } }));
+    await expect(service.get()).resolves.toMatchObject({ marketDataAvailable: false, events: [] });
+  });
+
+  it('turns a watch row\'s breakout into a trigger, and drops its plain big move', async () => {
+    const service = new DailyBriefService(...deps({
+      watched: [{ symbol: 'FSLR', price: 110, regularPrice: 110, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null }],
+      instruments: [{ id: 'i-fslr', symbol: 'FSLR' }],
+      bars: breakoutBars('i-fslr'),
     }));
+
+    const result = await service.get();
+
+    expect(result.watchTriggers).toEqual([expect.objectContaining({ kind: 'BREAKOUT', symbol: 'FSLR' })]);
+    expect(result.watchTriggers.some((t) => (t.kind as string) === 'ATR_MOVE')).toBe(false);
+  });
+
+  it('never lists a held ticker as a watch trigger, even when it is also watched', async () => {
+    const row = { symbol: 'FSLR', price: 110, regularPrice: 110, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null };
+    const service = new DailyBriefService(...deps({
+      positions: [row],
+      watched: [row],
+      instruments: [{ id: 'i-fslr', symbol: 'FSLR' }],
+      bars: breakoutBars('i-fslr'),
+    }));
+
+    const result = await service.get();
+
+    expect(result.watchTriggers).toEqual([]);
+    expect(result.holdingNotes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'BREAKOUT', symbol: 'FSLR' })]));
+  });
+
+  it('drops earnings on a watch row, which is no longer a Brief item', async () => {
+    const service = new DailyBriefService(...deps({
+      watched: [{ symbol: 'PLTR', price: 25, regularPrice: 25, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: 1 }],
+    }));
+    const result = await service.get();
+    expect(result.watchTriggers).toEqual([]);
+    expect(result.holdingNotes).toEqual([]);
+  });
+
+  it('mentions a missing stop on a held position with a notable move', async () => {
+    const service = new DailyBriefService(...deps({
+      positions: [nvdaPosition],
+      atRisk: { positionsWithoutStop: { count: 1, symbols: ['NVDA'] } },
+      instruments: [{ id: 'nvda', symbol: 'NVDA' }],
+      bars: atrJumpBars(),
+    }));
+
+    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
+
+    const move = result.holdingNotes.find((note) => note.kind === 'ATR_MOVE' && note.symbol === 'NVDA');
+    expect(move?.detail.endsWith(' No stop is set on this position.')).toBe(true);
+  });
+
+  it('does not mention a missing stop when the position has one', async () => {
+    const service = new DailyBriefService(...deps({
+      positions: [nvdaPosition],
+      instruments: [{ id: 'nvda', symbol: 'NVDA' }],
+      bars: atrJumpBars(),
+    }));
+
+    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
+
+    const move = result.holdingNotes.find((note) => note.kind === 'ATR_MOVE' && note.symbol === 'NVDA');
+    expect(move).toBeDefined();
+    expect(move?.detail).not.toContain('No stop is set on this position.');
+  });
+
+  it('mentions a partial stop on a held position with a notable move', async () => {
+    const service = new DailyBriefService(...deps({
+      positions: [nvdaPosition],
+      atRisk: {
+        positionsWithoutStop: { count: 0, symbols: [] },
+        positionsWithPartialStop: { count: 1, positions: [{ symbol: 'NVDA', coveredQuantity: 40, heldQuantity: 100 }] },
+      },
+      instruments: [{ id: 'nvda', symbol: 'NVDA' }],
+      bars: atrJumpBars(),
+    }));
+
+    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
+
+    const move = result.holdingNotes.find((note) => note.kind === 'ATR_MOVE' && note.symbol === 'NVDA');
+    expect(move?.detail).toContain('Partial stop: only 40 of 100 shares are covered.');
+    expect(move?.detail).not.toContain('No stop is set');
+  });
+
+  it('orders an earnings note ahead of a momentum note', async () => {
+    const realDates = Array.from({ length: 60 }, (_, i) => new Date(Date.UTC(2026, 5, i + 1)).toISOString().slice(0, 10));
+    const nvdaBars = realDates.map((date, i) => ({ instrumentId: 'nvda', date, close: 100 + i * 0.2, high: null, low: null, volume: 1_000_000 }));
     const spyBars = realDates.map((date) => ({ instrumentId: 'spy', date, close: 100, high: null, low: null, volume: 1_000_000 }));
-    const service = new DailyBriefService(
-      { getPortfolio: vi.fn().mockResolvedValue({
-        positions: [{ symbol: 'NVDA', price: 100 + 59 * 0.2, regularPrice: 100 + 59 * 0.2, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: 0 }],
-        atRisk: { positionsWithoutStop: { count: 0, symbols: [] } },
-      }) } as any,
-      { list: vi.fn().mockResolvedValue([]) } as any,
-      { find: vi.fn().mockResolvedValue([...nvdaBars, ...spyBars]) } as any,
-      { find: vi.fn().mockResolvedValue([{ id: 'nvda', symbol: 'NVDA' }, { id: 'spy', symbol: 'SPY' }]) } as any,
-      { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
-      { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
-    );
+    const price = 100 + 59 * 0.2;
+    const service = new DailyBriefService(...deps({
+      positions: [{ symbol: 'NVDA', price, regularPrice: price, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: 0 }],
+      instruments: [{ id: 'nvda', symbol: 'NVDA' }, { id: 'spy', symbol: 'SPY' }],
+      bars: [...nvdaBars, ...spyBars],
+    }));
 
     const result = await service.get({ now: new Date(Date.UTC(2026, 5, 60)) });
 
-    const kinds = result.notes.map((note) => note.kind);
+    const kinds = result.holdingNotes.map((note) => note.kind);
+    expect(kinds).toContain('MOMENTUM');
     expect(kinds.indexOf('EARNINGS')).toBeLessThan(kinds.indexOf('MOMENTUM'));
   });
 
