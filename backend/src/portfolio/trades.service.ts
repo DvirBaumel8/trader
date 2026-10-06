@@ -376,11 +376,18 @@ export class TradesService {
     direction: 'LONG' | 'SHORT',
     barsSinceEntry: Array<{ high: number | null; low: number | null; close: number }>,
     currentPrice: number | null,
+    // Pre-fetched by a caller that started the lookup early (getTrade runs
+    // it concurrently with the quote), or `null` for a closed trade, whose
+    // high-water mark must come from bars within its life only.
+    extendedExtremes?: Promise<{ high: number | null; low: number | null }> | null,
   ): Promise<number | null> {
     // Cached in MarketDataService, and it falls back to null (i.e. bars
     // alone) if the provider fails — the behaviour that existed before this
     // lookup was added.
-    const extended = await this.marketData.getExtendedExtremes(symbol, enteredAt);
+    const extended =
+      extendedExtremes === null
+        ? { high: null, low: null }
+        : await (extendedExtremes ?? this.marketData.getExtendedExtremes(symbol, enteredAt));
     return computeFavorablePrice(
       // high/low are null on bars written before that migration — close is
       // never null, and a fallback to it is still a real traded price, just
@@ -445,9 +452,19 @@ export class TradesService {
     const barsSinceEntry = bars.filter(
       (b) => b.date >= entryDate && (exitDate === null || b.date <= exitDate),
     );
-    const currentPriceForTrail = trade.isOpen
-      ? ((await this.marketData.getQuotes([trade.symbol], false)).get(trade.symbol)
-          ?.price ?? null)
+    // Both lookups hit external providers and are independent, so start them
+    // together rather than paying for them back to back. A closed trade needs
+    // neither: no live price, and its high-water mark is bounded to the bars
+    // between entry and exit — extended-hours prints are fetched from entry
+    // to NOW and would include prices after the exit.
+    const quotePromise = trade.isOpen
+      ? this.marketData.getQuotes([trade.symbol], false)
+      : null;
+    const extremesPromise = trade.isOpen
+      ? this.marketData.getExtendedExtremes(trade.symbol, trade.enteredAt)
+      : null;
+    const currentPriceForTrail = quotePromise
+      ? ((await quotePromise).get(trade.symbol)?.price ?? null)
       : null;
     const highWaterPrice = await this.resolveHighWaterPrice(
       trade.symbol,
@@ -455,6 +472,7 @@ export class TradesService {
       trade.direction,
       barsSinceEntry,
       currentPriceForTrail,
+      extremesPromise,
     );
     const hasUnresolvedTrailing = currentStops.some(
       (l) =>

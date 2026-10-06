@@ -1,3 +1,4 @@
+import { afterEach, vi } from 'vitest';
 import { MarketDataService } from './market-data.service.js';
 import type { YahooClient, RawQuote } from './yahoo.client.js';
 
@@ -384,5 +385,44 @@ describe('MarketDataService', () => {
       expect(calls).toEqual([]);
       expect(map.get('NVDA')).toMatchObject({ price: 217.55, extended: false });
     });
+  });
+});
+
+describe('MarketDataService provider wait bound', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('extremes fall back to nulls when the provider never resolves, and a late result still fills the cache', async () => {
+    vi.useFakeTimers();
+    let resolveLate: (v: { high: number; low: number }) => void = () => {};
+    let calls = 0;
+    const client = {
+      extremesIncludingExtended: () => {
+        calls++;
+        return new Promise((r) => {
+          resolveLate = r;
+        });
+      },
+    } as unknown as YahooClient;
+    const svc = new MarketDataService(client);
+    const from = new Date('2026-03-02T15:00:00Z');
+    const p = svc.getExtendedExtremes('ABC', from);
+    await vi.advanceTimersByTimeAsync(4001);
+    expect(await p).toEqual({ high: null, low: null });
+    resolveLate({ high: 12, low: 3 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await svc.getExtendedExtremes('ABC', from)).toEqual({ high: 12, low: 3 });
+    expect(calls).toBe(1);
+  });
+
+  it('a quote batch that never resolves yields the failure path (empty without cache) and leaves no timer behind', async () => {
+    vi.useFakeTimers();
+    const client = {
+      quoteMany: () => new Promise(() => {}),
+    } as unknown as YahooClient;
+    const svc = new MarketDataService(client);
+    const p = svc.getQuotes(['ABC']);
+    await vi.advanceTimersByTimeAsync(4001);
+    expect((await p).size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

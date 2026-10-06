@@ -49,6 +49,27 @@ const CONSENSUS_TTL_MS = 24 * 60 * 60 * 1000;
  */
 const EXTREMES_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * How long a page-blocking provider call (a quote batch including its Twelve
+ * Data augmentation, or the extended-hours extremes chart) may take before
+ * the caller gives up and takes the same path as a provider failure. A slow
+ * Yahoo/Twelve Data response was observed holding the trade detail page for
+ * several seconds; stale-or-null data is better than a hung page. The call
+ * itself is NOT cancelled: when it eventually resolves it still populates the
+ * cache, so the next load is fast.
+ */
+const PROVIDER_WAIT_MS = 4000;
+
+/** Rejects if `work` has not settled within `ms`; the timer never outlives it. */
+function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    timer.unref?.();
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
 @Injectable()
 export class MarketDataService {
   // A swallowed provider failure is invisible to the operator: the UI honestly
@@ -142,7 +163,11 @@ export class MarketDataService {
     }
 
     try {
-      return await this.refreshExtremes(symbol, from, key);
+      return await withTimeout(
+        this.refreshExtremes(symbol, from, key),
+        PROVIDER_WAIT_MS,
+        `extremes(${symbol})`,
+      );
     } catch {
       // A failure here must never take down the portfolio: the caller falls
       // back to daily bars, which is the behaviour that existed before this.
@@ -231,27 +256,14 @@ export class MarketDataService {
     if (missing.length === 0) return out;
 
     try {
-      const rawQuotes = await this.yahoo.quoteMany(missing);
-      // Twelve Data's budget is spent in array order (see
-      // `TwelveDataClient.hasBudget`), so a caller's priority — `missing`'s
-      // own order, e.g. `PortfolioService` putting stopped symbols first —
-      // must survive here even though Yahoo's batch response is not
-      // contracted to come back in request order.
-      const priority = new Map(missing.map((symbol, index) => [symbol, index]));
-      const ordered = augment
-        ? [...rawQuotes].sort(
-            (a, b) =>
-              (priority.get(a.symbol.toUpperCase()) ?? 0) -
-              (priority.get(b.symbol.toUpperCase()) ?? 0),
-          )
-        : rawQuotes;
-      const enriched = augment
-        ? await Promise.all(ordered.map((raw) => this.augmentWithExtended(raw)))
-        : rawQuotes;
-      for (const raw of enriched) {
-        const key = raw.symbol.toUpperCase();
-        out.set(key, this.store(key, raw));
-      }
+      // The fetch stores into the cache itself, so a call that outlives
+      // PROVIDER_WAIT_MS still warms the cache when it finally lands.
+      const fetched = await withTimeout(
+        this.fetchAndStore(missing, augment),
+        PROVIDER_WAIT_MS,
+        `quoteMany(${missing.length} symbols)`,
+      );
+      for (const [key, quote] of fetched) out.set(key, quote);
     } catch (err) {
       this.logger.warn(
         `quoteMany(${missing.length} symbols) failed: ${describe(err)}`,
@@ -262,6 +274,35 @@ export class MarketDataService {
       }
     }
     return out;
+  }
+
+  private async fetchAndStore(
+    missing: string[],
+    augment: boolean,
+  ): Promise<Map<string, Quote>> {
+    const stored = new Map<string, Quote>();
+    const rawQuotes = await this.yahoo.quoteMany(missing);
+    // Twelve Data's budget is spent in array order (see
+    // `TwelveDataClient.hasBudget`), so a caller's priority — `missing`'s
+    // own order, e.g. `PortfolioService` putting stopped symbols first —
+    // must survive here even though Yahoo's batch response is not
+    // contracted to come back in request order.
+    const priority = new Map(missing.map((symbol, index) => [symbol, index]));
+    const ordered = augment
+      ? [...rawQuotes].sort(
+          (a, b) =>
+            (priority.get(a.symbol.toUpperCase()) ?? 0) -
+            (priority.get(b.symbol.toUpperCase()) ?? 0),
+        )
+      : rawQuotes;
+    const enriched = augment
+      ? await Promise.all(ordered.map((raw) => this.augmentWithExtended(raw)))
+      : rawQuotes;
+    for (const raw of enriched) {
+      const key = raw.symbol.toUpperCase();
+      stored.set(key, this.store(key, raw));
+    }
+    return stored;
   }
 
   /**
