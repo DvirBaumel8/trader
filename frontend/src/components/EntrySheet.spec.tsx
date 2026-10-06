@@ -846,3 +846,108 @@ describe('EntrySheet, an interest charge', () => {
     });
   });
 });
+
+
+describe('EntrySheet, price and net cash fill each other', () => {
+  function stubWithCash(positions: { symbol: string; quantity: number }[], cash: number) {
+    (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/portfolio') return Promise.resolve({ positions, cash });
+      return Promise.resolve({ id: 'created-1' });
+    });
+  }
+
+  it('fills the price from net cash when the quantity shown is the held suggestion', async () => {
+    stubWithCash([{ symbol: 'NVDA', quantity: 600 }], 0);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.click(screen.getByRole('button', { name: 'SELL' }));
+    await waitFor(() => expect(screen.getByPlaceholderText('qty')).toHaveValue(600));
+    await user.clear(screen.getByPlaceholderText('fee'));
+    await user.type(screen.getByPlaceholderText('fee'), '6');
+    await user.type(screen.getByLabelText('Platform net cash'), '22149');
+
+    expect(screen.getByPlaceholderText('price')).toHaveValue(36.925);
+  });
+
+  it('fills net cash and the balance after from a typed price', async () => {
+    stubWithCash([], 1000);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+    await user.type(screen.getByPlaceholderText('price'), '100.5');
+
+    // BUY: 10 x 100.5 + fee 4 = 1009 debited; 1000 - 1009 = -9.
+    expect(screen.getByLabelText('Platform net cash')).toHaveValue(1009);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Platform balance after')).toHaveValue(-9),
+    );
+  });
+
+  it('keeps both as typed when net cash is typed and then a price', async () => {
+    stubWithCash([], 0);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+    await user.type(screen.getByLabelText('Platform net cash'), '1004');
+    // The price previews as 100.4; the owner overwrites it with his own.
+    await user.clear(screen.getByPlaceholderText('price'));
+    await user.type(screen.getByPlaceholderText('price'), '99');
+
+    expect(screen.getByPlaceholderText('price')).toHaveValue(99);
+    expect(screen.getByLabelText('Platform net cash')).toHaveValue(1004);
+  });
+
+  it('saves the computed net cash as reportedNetCash, signed by side', async () => {
+    stubWithCash([], 5000);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+    await user.type(screen.getByPlaceholderText('price'), '100');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Platform balance after')).toHaveValue(3996),
+    );
+    await user.click(screen.getByText('Save entry'));
+
+    await waitFor(() => {
+      const save = (api as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/journal',
+      );
+      expect(save).toBeDefined();
+      expect(bodyOf(save as unknown[]).trade).toMatchObject({
+        price: 100,
+        reportedNetCash: -1004,
+        reportedBalance: 3996,
+      });
+    });
+  });
+
+  it('selects a previewed net cash on focus so typing replaces it', async () => {
+    stubWithCash([], 0);
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByText('New entry'));
+    await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
+    await user.type(screen.getByPlaceholderText('qty'), '10');
+    await user.type(screen.getByPlaceholderText('price'), '100');
+    // Previewed as 1004; the owner types the broker's exact figure over it.
+    await user.click(screen.getByLabelText('Platform net cash'));
+    await user.keyboard('1003.5');
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Platform net cash')).toHaveValue(1003.5),
+    );
+  });
+});

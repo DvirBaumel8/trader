@@ -4,6 +4,8 @@ import {
   signedReportedNetCash,
   parsedReportedBalance,
   computedBalanceFromReportedCash,
+  computedPriceFromReportedCash,
+  computedNetCashFromPrice,
   type EntryDraft,
 } from './entryDraft';
 
@@ -100,5 +102,68 @@ describe('computedBalanceFromReportedCash', () => {
         100,
       ),
     ).toBe(90);
+  });
+});
+
+describe('computedPriceFromReportedCash', () => {
+  it('works from the displayed quantity when the draft has none typed', () => {
+    // The held-position suggestion lives outside the draft, so the caller
+    // feeds it in as the draft's quantity.
+    expect(
+      computedPriceFromReportedCash(
+        draft({ side: 'SELL', quantity: '600', fee: '6', reportedNetCash: '22149' }),
+      ),
+    ).toBeCloseTo(36.925, 6);
+    expect(
+      computedPriceFromReportedCash(
+        draft({ side: 'SELL', quantity: '', reportedNetCash: '22149' }),
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe('computedNetCashFromPrice', () => {
+  it('adds the fee to a buy: qty x price + fee', () => {
+    expect(
+      computedNetCashFromPrice(
+        draft({ side: 'BUY', quantity: '10', price: '100.5', fee: '4' }),
+      ),
+    ).toBe(1009);
+  });
+
+  it('takes the fee off a sell: qty x price - fee', () => {
+    expect(
+      computedNetCashFromPrice(
+        draft({ side: 'SELL', quantity: '600', price: '36.925', fee: '6' }),
+      ),
+    ).toBe(22149);
+  });
+
+  it('rounds to the cent', () => {
+    expect(
+      computedNetCashFromPrice(
+        draft({ side: 'BUY', quantity: '3', price: '10.333', fee: '0' }),
+      ),
+    ).toBe(31);
+    expect(
+      computedNetCashFromPrice(
+        draft({ side: 'BUY', quantity: '1', price: '10.126', fee: '0' }),
+      ),
+    ).toBe(10.13);
+  });
+
+  it('is undefined without a usable quantity or price', () => {
+    expect(computedNetCashFromPrice(draft({ quantity: '', price: '10' }))).toBeUndefined();
+    expect(computedNetCashFromPrice(draft({ quantity: '10', price: '' }))).toBeUndefined();
+    expect(computedNetCashFromPrice(draft({ quantity: '0', price: '10' }))).toBeUndefined();
+    expect(computedNetCashFromPrice(draft({ quantity: '10', price: '0' }))).toBeUndefined();
+  });
+
+  it('is undefined when a sell\'s fee swallows the proceeds', () => {
+    expect(
+      computedNetCashFromPrice(
+        draft({ side: 'SELL', quantity: '1', price: '3', fee: '4' }),
+      ),
+    ).toBeUndefined();
   });
 });

@@ -112,6 +112,9 @@ export function parsedReportedBalance(draft: EntryDraft): number | undefined {
  * which this mirrors for display only; the backend's own computation at
  * save time is what is actually stored). Undefined whenever there isn't
  * enough to compute from yet, so the caller falls back to a typed price.
+ *
+ * Reads `draft.quantity`, so the caller passes the quantity actually shown —
+ * which may be the held-position suggestion rather than anything typed.
  */
 export function computedPriceFromReportedCash(
   draft: EntryDraft,
@@ -142,4 +145,26 @@ export function computedBalanceFromReportedCash(
   const netCash = signedReportedNetCash(draft);
   if (netCash === undefined) return undefined;
   return Math.round((previousBalance + netCash) * 100) / 100;
+}
+
+/**
+ * The inverse of `computedPriceFromReportedCash`: a live preview of the
+ * platform's net cash magnitude from a typed price — a buy pays
+ * `quantity x price + fee`, a sell receives `quantity x price - fee` — rounded
+ * to cents the way a platform reports it. Returned as a positive magnitude,
+ * like the field itself; `signedReportedNetCash` applies the sign from the
+ * side. Undefined without a usable quantity and price, or when a sell's fee
+ * swallows the proceeds. Like the other previews it is display-only: the
+ * caller never feeds it back into price, so the two cannot chase each other.
+ */
+export function computedNetCashFromPrice(draft: EntryDraft): number | undefined {
+  const quantity = Math.abs(parseFloat(draft.quantity || '0'));
+  const price = Math.abs(parseFloat(draft.price || '0'));
+  if (!Number.isFinite(quantity) || quantity <= 0) return undefined;
+  if (!Number.isFinite(price) || price <= 0) return undefined;
+  const fee = Math.abs(parseFloat(draft.fee || '0')) || 0;
+  const notional = quantity * price;
+  const netCash = draft.side === 'BUY' ? notional + fee : notional - fee;
+  const rounded = Math.round(netCash * 100) / 100;
+  return rounded > 0 ? rounded : undefined;
 }

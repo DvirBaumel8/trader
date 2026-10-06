@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FocusEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useSettings } from '../api/settings';
@@ -13,6 +13,7 @@ import {
   signedQuantity,
   signedReportedNetCash,
   computedPriceFromReportedCash,
+  computedNetCashFromPrice,
   computedBalanceFromReportedCash,
   type EntryDraft,
   type EntryKind,
@@ -81,6 +82,21 @@ function draftFromEntry(entry: Entry, defaultFee: number): EntryDraft {
   };
 }
 
+/**
+ * A previewed field shows a derived number the owner never typed. Focusing it
+ * selects that number so his first keystroke REPLACES the preview instead of
+ * appending to it (a price previewed as 100.4, typed over with 99, must not
+ * become 100.499). Deferred a tick because iOS WebKit drops a select() made
+ * synchronously inside the focus event on number inputs.
+ */
+function selectPreviewOnFocus(isPreview: boolean) {
+  return (e: FocusEvent<HTMLInputElement>) => {
+    if (!isPreview) return;
+    const input = e.currentTarget;
+    setTimeout(() => input.select(), 0);
+  };
+}
+
 export function EntrySheet({
   open,
   onClose,
@@ -135,6 +151,13 @@ export function EntrySheet({
    * never silently overwritten by a later edit to net cash.
    */
   const [priceTouched, setPriceTouched] = useState(false);
+
+  /**
+   * The mirror of `priceTouched`, for net cash: a typed price previews its
+   * net cash, but a net cash the owner typed himself always wins and is never
+   * overwritten. Whichever of the two he typed stands; the other follows.
+   */
+  const [netCashTouched, setNetCashTouched] = useState(false);
 
   /**
    * Same rule as `priceTouched`, for the platform's resulting balance: once
@@ -204,8 +227,31 @@ export function EntrySheet({
    * written into the draft, so a value the owner typed is never silently
    * replaced, and updates live as net cash, fee, or quantity change.
    */
-  const computedPrice = editing || priceTouched ? undefined : computedPriceFromReportedCash(draft);
+  // The two previews feed on what the owner TYPED, never on each other: price
+  // follows only a typed net cash, net cash follows only a typed price. That
+  // is what keeps them from chasing each other in a loop. Both use the
+  // quantity actually shown, which may be the held-position suggestion.
+  const shownQuantityDraft = { ...draft, quantity: quantityValue };
+  const computedPrice =
+    editing || priceTouched
+      ? undefined
+      : computedPriceFromReportedCash(shownQuantityDraft);
   const priceValue = draft.price !== '' ? draft.price : (computedPrice !== undefined ? String(computedPrice) : '');
+
+  /** The mirror of the price preview: net cash from a typed price, never from a computed one. */
+  const computedNetCash =
+    editing || netCashTouched
+      ? undefined
+      : computedNetCashFromPrice(shownQuantityDraft);
+  const netCashValue =
+    draft.reportedNetCash !== ''
+      ? draft.reportedNetCash
+      : computedNetCash !== undefined
+        ? String(computedNetCash)
+        : '';
+  // The displayed net cash, typed or computed — the one every downstream
+  // check, the balance preview, and the save payload agree on.
+  const shownCashDraft = { ...draft, reportedNetCash: netCashValue };
 
   /**
    * Same rule again, for the resulting balance: only ever previewed for a
@@ -216,7 +262,7 @@ export function EntrySheet({
   const computedBalance =
     editing || balanceTouched
       ? undefined
-      : computedBalanceFromReportedCash(draft, portfolio?.cash ?? null);
+      : computedBalanceFromReportedCash(shownCashDraft, portfolio?.cash ?? null);
   const balanceValue =
     draft.reportedBalance !== ''
       ? draft.reportedBalance
@@ -262,6 +308,7 @@ export function EntrySheet({
       setDraft(draftFromEntry(editing, defaultFee));
       setQuantityTouched(false);
       setPriceTouched(false);
+      setNetCashTouched(false);
       setBalanceTouched(false);
       setReasonsTouched(false);
       setSaveAttempted(false);
@@ -280,6 +327,7 @@ export function EntrySheet({
     setDraft(emptyDraft(defaultFee));
     setQuantityTouched(false);
     setPriceTouched(false);
+    setNetCashTouched(false);
     setBalanceTouched(false);
     setReasonsTouched(false);
     setSaveAttempted(false);
@@ -313,7 +361,7 @@ export function EntrySheet({
   const reportedCashRequired =
     draft.kind === 'TRADE' &&
     (!editing || editing.trade?.reportedNetCash != null);
-  const hasReportedNetCash = draft.reportedNetCash.trim() !== '';
+  const hasReportedNetCash = netCashValue.trim() !== '';
   // Includes the auto-computed preview, not just what was typed — once the
   // app can work the balance out for itself, that satisfies the requirement
   // exactly as well as the owner typing the same number in by hand.
@@ -363,7 +411,7 @@ export function EntrySheet({
                           : undefined,
                       quantity: Math.abs(parseFloat(r.quantity)),
                     })),
-                  reportedNetCash: signedReportedNetCash(draft),
+                  reportedNetCash: signedReportedNetCash(shownCashDraft),
                   reportedBalance: hasReportedBalance
                     ? parseFloat(balanceValue)
                     : undefined,
@@ -402,6 +450,7 @@ export function EntrySheet({
         setDraft((prev) => ({ ...emptyDraft(defaultFee), occurredAt: prev.occurredAt }));
         setQuantityTouched(false);
         setPriceTouched(false);
+        setNetCashTouched(false);
         setBalanceTouched(false);
         setReasonsTouched(false);
         setSaveAttempted(false);
@@ -518,6 +567,7 @@ export function EntrySheet({
                 inputMode="decimal"
                 placeholder="price"
                 value={priceValue}
+                onFocus={selectPreviewOnFocus(draft.price === '' && priceValue !== '')}
                 onChange={(e) => {
                   setPriceTouched(true);
                   set({ price: e.target.value });
@@ -540,8 +590,12 @@ export function EntrySheet({
                 inputMode="decimal"
                 placeholder="net cash"
                 aria-label="Platform net cash"
-                value={draft.reportedNetCash}
-                onChange={(e) => set({ reportedNetCash: e.target.value })}
+                value={netCashValue}
+                onFocus={selectPreviewOnFocus(draft.reportedNetCash === '' && netCashValue !== '')}
+                onChange={(e) => {
+                  setNetCashTouched(true);
+                  set({ reportedNetCash: e.target.value });
+                }}
                 className={inputClass}
               />
               <input
@@ -553,6 +607,7 @@ export function EntrySheet({
                 placeholder="balance after"
                 aria-label="Platform balance after"
                 value={balanceValue}
+                onFocus={selectPreviewOnFocus(draft.reportedBalance === '' && balanceValue !== '')}
                 onChange={(e) => {
                   setBalanceTouched(true);
                   set({ reportedBalance: e.target.value });
