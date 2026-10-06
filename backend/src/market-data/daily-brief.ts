@@ -17,6 +17,8 @@ export interface BriefNote {
   source: BriefSource;
   title: string;
   detail: string;
+  /** MOMENTUM only: consecutive days the trend has held, from `momentumStreakDays`. */
+  streakDays?: number;
 }
 
 const ATR_PERIOD = 14;
@@ -182,6 +184,7 @@ export function buildDailyBriefNotes(input: BriefSymbolInput): BriefNote[] {
       symbol: input.symbol,
       source: input.source,
       title,
+      streakDays: streak,
       detail: `Above rising trend averages and outperforming SPY by ${((stockReturn - spyReturn) * 100).toFixed(1)}%.`,
     });
   }
@@ -203,4 +206,15 @@ export function buildDailyBriefNotes(input: BriefSymbolInput): BriefNote[] {
   }
 
   return notes;
+}
+
+/**
+ * A watch row earns a place on the Brief only the day something starts: a
+ * confirmed breakout, or momentum on its first day. A streak already
+ * running repeated the same sentence every morning — the stale alert a
+ * daily reader learns to skip — and a big move alone is not a setup.
+ */
+export function isWatchTrigger(note: BriefNote): boolean {
+  if (note.kind === 'BREAKOUT') return true;
+  return note.kind === 'MOMENTUM' && (note.streakDays ?? 0) <= 1;
 }

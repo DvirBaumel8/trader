@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { RawBar } from './yahoo.client.js';
 import {
   buildDailyBriefNotes,
+  isWatchTrigger,
   momentumStreakDays,
+  type BriefNote,
   type BriefSymbolInput,
 } from './daily-brief.js';
 
@@ -101,4 +103,36 @@ describe('momentumStreakDays', () => {
     const spy = bars(Array.from({ length: 60 }, () => 100));
     expect(momentumStreakDays(source, spy)).toBe(0);
   });
+});
+
+describe('isWatchTrigger', () => {
+  const note = (over: Partial<BriefNote>): BriefNote => ({
+    kind: 'MOMENTUM', symbol: 'FSLR', source: 'WATCHLIST', title: 't', detail: 'd', ...over,
+  });
+
+  it('keeps a confirmed breakout', () => {
+    expect(isWatchTrigger(note({ kind: 'BREAKOUT' }))).toBe(true);
+  });
+  it('keeps momentum on its first day', () => {
+    expect(isWatchTrigger(note({ kind: 'MOMENTUM', streakDays: 1 }))).toBe(true);
+  });
+  // Pre-market the bars end yesterday, so a trend that only qualifies on
+  // today's live price has a streak of 0 — that is still its first day.
+  it('keeps momentum that holds only on the live price so far', () => {
+    expect(isWatchTrigger(note({ kind: 'MOMENTUM', streakDays: 0 }))).toBe(true);
+  });
+  it('drops a momentum streak already running, which is not news', () => {
+    expect(isWatchTrigger(note({ kind: 'MOMENTUM', streakDays: 2 }))).toBe(false);
+  });
+  it('drops a large daily move, which is not a setup on a watch row', () => {
+    expect(isWatchTrigger(note({ kind: 'ATR_MOVE' }))).toBe(false);
+  });
+});
+
+it('carries the momentum streak on the note it produced', () => {
+  const values = Array.from({ length: 60 }, (_, i) => 100 + i * 0.2);
+  const spy = bars(Array.from({ length: 60 }, () => 100));
+  const momentum = buildDailyBriefNotes(input({ bars: bars(values), spyBars: spy }))
+    .find((n) => n.kind === 'MOMENTUM');
+  expect(momentum?.streakDays).toBe(momentumStreakDays(bars(values), spy));
 });
