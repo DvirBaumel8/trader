@@ -13,17 +13,25 @@ import { api } from '../api/client';
 const initialBrief = {
   generatedAt: '2026-09-17T08:00:00.000Z',
   refreshAfterSeconds: 300,
+  session: 'PRE',
   marketDataAvailable: true,
-  coverage: [
-    { source: 'PORTFOLIO', symbol: 'NVDA', price: 102, regularPrice: 100, stale: false, session: 'POST', extended: true },
-    { source: 'WATCHLIST', symbol: 'FSLR', price: 155, regularPrice: 155, stale: true, session: 'CLOSED', extended: false },
-  ],
-  notes: [
-    { kind: 'MOMENTUM', source: 'PORTFOLIO', symbol: 'NVDA', title: 'NVDA has momentum', detail: 'Above rising averages.' },
-    { kind: 'ATR_MOVE', source: 'WATCHLIST', symbol: 'FSLR', title: 'FSLR moved 1.4 ATR', detail: 'A large daily move.' },
-    { kind: 'ECONOMIC', source: 'MARKET', symbol: null, title: 'Fed rate decision', detail: 'Fed raised rates 25 bp to 3.75–4.00%.' },
-  ],
+  mood: {
+    indices: [
+      { symbol: 'SPY', trend: 'uptrend', changePct: 0.004, stale: false, extended: true },
+      { symbol: 'QQQ', trend: 'mixed', changePct: -0.002, stale: true, extended: false },
+    ],
+    vix: { level: 17.8, change: 1.1, stale: false },
+    leader: { symbol: 'XLE', name: 'Energy', changePct: 0.012 },
+    laggard: { symbol: 'XLK', name: 'Technology', changePct: -0.009 },
+  },
+  events: [{ title: 'Fed rate decision', detail: 'Fed raised rates 25 bp to 3.75–4.00%.', eventAt: '2026-09-17' }],
+  holdingNotes: [{ kind: 'MOMENTUM', symbol: 'NVDA', title: 'NVDA has good momentum', detail: 'Above rising averages.' }],
+  watchTriggers: [],
+  narrative: null,
+  narrativeAt: null,
 };
+
+const fslrTrigger = { kind: 'BREAKOUT', symbol: 'FSLR', title: 'FSLR confirmed a breakout', detail: 'd' };
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
@@ -41,34 +49,6 @@ function renderBrief() {
 }
 
 describe('Brief', () => {
-  /**
-   * On a closed day every card carried the same MARKET CLOSED chip — sixteen
-   * copies of one fact. Shared by every quote, it is said once, up top.
-   */
-  it('says a session shared by every quote once, not on each card', async () => {
-    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ...initialBrief,
-      coverage: [
-        { source: 'PORTFOLIO', symbol: 'NVDA', price: 102, regularPrice: 101, stale: false, session: 'CLOSED', extended: false },
-        { source: 'WATCHLIST', symbol: 'FSLR', price: 155, regularPrice: 155, stale: false, session: 'CLOSED', extended: false },
-      ],
-    });
-    renderBrief();
-
-    const coverage = await screen.findByRole('region', { name: 'Current coverage' });
-    expect(within(coverage).queryByText('MARKET CLOSED')).not.toBeInTheDocument();
-    expect(screen.getAllByText('MARKET CLOSED')).toHaveLength(1);
-  });
-
-  it('keeps notable events ahead of long ticker coverage', async () => {
-    (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
-    renderBrief();
-
-    const events = await screen.findByRole('region', { name: 'Notable events' });
-    const coverage = screen.getByRole('region', { name: 'Current coverage' });
-    expect(events.compareDocumentPosition(coverage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
   /** A reused take's figures are older than the notes under it; say so. */
   it('labels an AI take older than the brief with its own time', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -94,7 +74,7 @@ describe('Brief', () => {
     expect(within(take).queryByText(/as of/)).not.toBeInTheDocument();
   });
 
-  it('shows the AI take above notable events when one was given', async () => {
+  it('shows the AI take above the market mood when one was given', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...initialBrief,
       narrative: 'Nothing urgent — FSLR is the one to watch.',
@@ -103,8 +83,8 @@ describe('Brief', () => {
 
     const take = await screen.findByRole('region', { name: 'AI take' });
     expect(take).toHaveTextContent('Nothing urgent — FSLR is the one to watch.');
-    const events = screen.getByRole('region', { name: 'Notable events' });
-    expect(take.compareDocumentPosition(events) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const market = screen.getByRole('region', { name: 'Market' });
+    expect(take.compareDocumentPosition(market) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('shows nothing extra when there is no AI take, rather than an empty box', async () => {
@@ -114,71 +94,93 @@ describe('Brief', () => {
     });
     renderBrief();
 
-    await screen.findByRole('region', { name: 'Notable events' });
+    await screen.findByRole('region', { name: 'Market' });
     expect(screen.queryByRole('region', { name: 'AI take' })).not.toBeInTheDocument();
   });
 
-  it('shows current session coverage and links each ticker to its owning list', async () => {
+  it('reads the market mood as one line, every figure from the server', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
-
-    const coverage = await screen.findByRole('region', { name: 'Current coverage' });
-    expect(within(coverage).getByRole('link', { name: /NVDA/ })).toHaveAttribute('href', '/?symbol=NVDA');
-    expect(within(coverage).getByRole('link', { name: /FSLR/ })).toHaveAttribute('href', '/watchlist?symbol=FSLR');
-    expect(within(coverage).getByText('$102.00')).toBeInTheDocument();
-    expect(within(coverage).getByText('AFTER HOURS')).toBeInTheDocument();
-    expect(within(coverage).getByText('STALE')).toBeInTheDocument();
-    expect(within(coverage).getByText(/Regular close/)).toBeInTheDocument();
+    const market = await screen.findByRole('region', { name: 'Market' });
+    expect(market).toHaveTextContent('SPY uptrend +0.40%');
+    expect(market).toHaveTextContent('QQQ mixed -0.20%');
+    expect(market).toHaveTextContent('VIX 17.80 (+1.10)');
+    expect(market).toHaveTextContent('Leading Energy +1.20%');
+    expect(market).toHaveTextContent('Lagging Technology -0.90%');
   });
 
-  it('groups notable notes and links stock events without inventing a market destination', async () => {
+  it('labels a stale index rather than passing it off as fresh', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
-
-    const events = await screen.findByRole('region', { name: 'Notable events' });
-    expect(within(events).getByRole('link', { name: /NVDA has momentum/ })).toHaveAttribute('href', '/?symbol=NVDA');
-    expect(within(events).getByRole('link', { name: /FSLR moved 1.4 ATR/ })).toHaveAttribute('href', '/watchlist?symbol=FSLR');
-    expect(within(events).getByText('Fed raised rates 25 bp to 3.75–4.00%.')).toBeInTheDocument();
-    expect(within(events).queryByRole('link', { name: /Fed rate decision/ })).not.toBeInTheDocument();
+    const market = await screen.findByRole('region', { name: 'Market' });
+    expect(within(market).getByText('STALE')).toBeInTheDocument();
   });
 
-  it('labels stale and extended quotes beside affected technical notes', async () => {
+  it("lists this week's economic events under the mood", async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
-
-    const events = await screen.findByRole('region', { name: 'Notable events' });
-    const note = within(events).getByRole('link', { name: /FSLR moved 1.4 ATR/ });
-    expect(note).toHaveTextContent('STALE QUOTE');
-    expect(within(events).getByRole('link', { name: /NVDA has momentum/ })).toHaveTextContent('AFTER HOURS');
+    const market = await screen.findByRole('region', { name: 'Market' });
+    expect(market).toHaveTextContent('Fed rate decision');
+    expect(market).toHaveTextContent('Fed raised rates 25 bp to 3.75–4.00%.');
   });
 
-  it('surfaces the macro decision before per-ticker signals', async () => {
+  it('says the mood is unavailable instead of an empty line', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief, mood: { indices: [], vix: null, leader: null, laggard: null },
+    });
+    renderBrief();
+    expect(await screen.findByText('Market mood unavailable right now.')).toBeInTheDocument();
+  });
+
+  it('no longer repeats the portfolio and watch list as price cards', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
-
-    const marketNote = await screen.findByText('Fed rate decision');
-    const stockNote = screen.getByText('NVDA has momentum');
-    expect(marketNote.compareDocumentPosition(stockNote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await screen.findByRole('region', { name: 'Market' });
+    expect(screen.queryByRole('region', { name: 'Current coverage' })).not.toBeInTheDocument();
   });
 
-  it('forces a fresh Brief and replaces coverage when a watched ticker was added', async () => {
+  it('links a holding note to the holding and a watch trigger to its watch row', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief,
+      watchTriggers: [{ kind: 'BREAKOUT', symbol: 'FSLR', title: 'FSLR confirmed a breakout', detail: 'Closed above its prior 20-day high on 2.1× average volume.' }],
+    });
+    renderBrief();
+    const holding = await screen.findByRole('link', { name: /NVDA has good momentum/ });
+    expect(holding).toHaveAttribute('href', '/?symbol=NVDA');
+    const trigger = screen.getByRole('link', { name: /FSLR confirmed a breakout/ });
+    expect(trigger).toHaveAttribute('href', '/watchlist?symbol=FSLR');
+  });
+
+  it('hides empty sections and says once that there is nothing to act on', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ ...initialBrief, holdingNotes: [], watchTriggers: [] });
+    renderBrief();
+    expect(await screen.findByText('No holding or watch signals right now.')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Holdings' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Watch triggers' })).not.toBeInTheDocument();
+  });
+
+  it('states the session once, in the header', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
+    renderBrief();
+    await screen.findByRole('region', { name: 'Market' });
+    expect(screen.getAllByText('PRE-MARKET')).toHaveLength(1);
+  });
+
+  it('forces a fresh Brief and replaces the brief when a watch trigger appears', async () => {
     const fresh = {
       ...initialBrief,
-      coverage: [
-        ...initialBrief.coverage,
-        { source: 'WATCHLIST', symbol: 'PLTR', price: 25, regularPrice: 25, stale: false, session: 'REGULAR', extended: false },
-      ],
+      watchTriggers: [fslrTrigger],
     };
     (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) =>
       Promise.resolve(path.includes('refresh=1') ? fresh : initialBrief),
     );
     renderBrief();
-    const coverage = await screen.findByRole('region', { name: 'Current coverage' });
-    expect(within(coverage).getByRole('link', { name: /FSLR/ })).toBeInTheDocument();
+    await screen.findByRole('region', { name: 'Market' });
+    expect(screen.queryByText('FSLR confirmed a breakout')).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh brief' }));
     await waitFor(() => expect(api).toHaveBeenLastCalledWith('/watchlist/daily-brief?refresh=1'));
-    expect(await within(coverage).findByRole('link', { name: /PLTR/ })).toHaveAttribute('href', '/watchlist?symbol=PLTR');
+    expect(await screen.findByRole('link', { name: /FSLR confirmed a breakout/ })).toHaveAttribute('href', '/watchlist?symbol=FSLR');
   });
 
   it('keeps the forced Brief when an earlier normal request settles afterward', async () => {
@@ -188,10 +190,7 @@ describe('Brief', () => {
     });
     const forced = {
       ...initialBrief,
-      coverage: [
-        ...initialBrief.coverage,
-        { source: 'WATCHLIST', symbol: 'PLTR', price: 25, regularPrice: 25, stale: false, session: 'REGULAR', extended: false },
-      ],
+      watchTriggers: [fslrTrigger],
     };
     (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) =>
       path === '/watchlist/daily-brief' ? pendingNormal : Promise.resolve(forced),
@@ -201,28 +200,24 @@ describe('Brief', () => {
     expect(client.getQueryState(['daily-brief'])?.fetchStatus).toBe('fetching');
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh brief' }));
-    const coverage = await screen.findByRole('region', { name: 'Current coverage' });
-    expect(within(coverage).getByRole('link', { name: /PLTR/ })).toBeInTheDocument();
+    expect(await screen.findByText('FSLR confirmed a breakout')).toBeInTheDocument();
 
     await act(async () => {
       resolveNormal(initialBrief);
       await pendingNormal;
     });
     await waitFor(() => expect(client.getQueryState(['daily-brief'])?.fetchStatus).toBe('idle'));
-    expect(within(coverage).getByRole('link', { name: /PLTR/ })).toBeInTheDocument();
+    expect(screen.getByText('FSLR confirmed a breakout')).toBeInTheDocument();
   });
 
-  it('keeps forced coverage when a normal read starts during refresh and settles later', async () => {
+  it('keeps the forced brief when a normal read starts during refresh and settles later', async () => {
     let resolveForced!: (value: typeof initialBrief) => void;
     let resolveLateNormal!: (value: typeof initialBrief) => void;
     const forcedRequest = new Promise<typeof initialBrief>((resolve) => { resolveForced = resolve; });
     const lateNormal = new Promise<typeof initialBrief>((resolve) => { resolveLateNormal = resolve; });
     const fresh = {
       ...initialBrief,
-      coverage: [
-        ...initialBrief.coverage,
-        { source: 'WATCHLIST', symbol: 'PLTR', price: 25, regularPrice: 25, stale: false, session: 'REGULAR', extended: false },
-      ],
+      watchTriggers: [fslrTrigger],
     };
     let normalReads = 0;
     (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
@@ -231,7 +226,7 @@ describe('Brief', () => {
       return normalReads === 1 ? Promise.resolve(initialBrief) : lateNormal;
     });
     const { client } = renderBrief();
-    await screen.findByRole('region', { name: 'Current coverage' });
+    await screen.findByRole('region', { name: 'Market' });
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh brief' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh brief' })).toBeDisabled());
@@ -240,30 +235,30 @@ describe('Brief', () => {
     let background!: Promise<void>;
     act(() => { background = client.refetchQueries({ queryKey: ['daily-brief'], exact: true }); });
     await act(async () => { resolveForced(fresh); await forcedRequest; });
-    expect(await screen.findByRole('link', { name: /PLTR/ })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /FSLR confirmed a breakout/ })).toBeInTheDocument();
     await act(async () => { resolveLateNormal(initialBrief); await background; });
     expect(normalReads).toBe(1);
     expect(client.getQueryData(['daily-brief'])).toEqual(fresh);
-    expect(screen.getByRole('link', { name: /PLTR/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /FSLR confirmed a breakout/ })).toBeInTheDocument();
   });
 
-  it('keeps completed coverage visible while a manual refresh is pending and after it fails', async () => {
+  it('keeps the completed brief visible while a manual refresh is pending and after it fails', async () => {
     let rejectRefresh!: (reason: Error) => void;
     const pending = new Promise((_, reject) => { rejectRefresh = reject; });
     (api as ReturnType<typeof vi.fn>).mockImplementation((path: string) =>
       path.includes('refresh=1') ? pending : Promise.resolve(initialBrief),
     );
     renderBrief();
-    const coverage = await screen.findByRole('region', { name: 'Current coverage' });
-    expect(within(coverage).getByRole('link', { name: /FSLR/ })).toBeInTheDocument();
+    await screen.findByRole('region', { name: 'Market' });
+    expect(screen.getByRole('link', { name: /NVDA has good momentum/ })).toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh brief' }));
-    expect(within(coverage).getByRole('link', { name: /FSLR/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /NVDA has good momentum/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Refresh brief' })).toBeDisabled();
 
     rejectRefresh(new Error('provider unavailable'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Refresh did not complete');
-    expect(within(coverage).getByRole('link', { name: /FSLR/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /NVDA has good momentum/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Refresh brief' })).toBeEnabled();
   });
 
@@ -280,11 +275,11 @@ describe('Brief', () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...initialBrief,
       marketDataAvailable: false,
-      notes: [],
+      events: [],
     });
     renderBrief();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Federal Reserve updates unavailable');
-    expect(screen.queryByText('No notable moves or events right now.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Fed rate decision')).not.toBeInTheDocument();
   });
 });

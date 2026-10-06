@@ -1,126 +1,17 @@
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
 import { api } from '../api/client';
-import { Money } from '../components/Money';
 import { SessionBadge } from '../components/SessionBadge';
 import { formatTimestamp } from '../components/format';
 import { RefreshButton } from '../components/RefreshButton';
 import { Markdown } from '../components/Markdown';
-import { DAILY_BRIEF_QUERY_KEY, fetchDailyBrief } from '../api/dailyBrief';
-
-type Source = 'PORTFOLIO' | 'WATCHLIST' | 'MARKET';
-type Coverage = {
-  source: 'PORTFOLIO' | 'WATCHLIST';
-  symbol: string;
-  price: number | null;
-  regularPrice: number | null;
-  stale: boolean;
-  session: 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
-  extended: boolean;
-};
-type BriefNote = {
-  kind: 'ATR_MOVE' | 'MOMENTUM' | 'BREAKOUT' | 'EARNINGS' | 'ECONOMIC' | 'QUIET_DAY';
-  source: Source;
-  symbol: string | null;
-  title: string;
-  detail: string;
-  eventAt?: string;
-};
-type BriefResponse = {
-  generatedAt: string;
-  refreshAfterSeconds: number;
-  marketDataAvailable: boolean;
-  coverage: Coverage[];
-  notes: BriefNote[];
-  /** Null whenever there is nothing to show — no AI configured, or the call failed. Silent by design. */
-  narrative: string | null;
-  /** When the narrative was written; earlier than generatedAt when the server reused it. */
-  narrativeAt?: string | null;
-};
+import { MoodLine } from '../components/brief/MoodLine';
+import { BriefNoteList } from '../components/brief/BriefNoteList';
+import { DAILY_BRIEF_QUERY_KEY, fetchDailyBrief, type BriefResponse } from '../api/dailyBrief';
 
 const QUERY_KEY = DAILY_BRIEF_QUERY_KEY;
-const GROUPS: { source: Source; label: string }[] = [
-  { source: 'MARKET', label: 'Market' },
-  { source: 'PORTFOLIO', label: 'Portfolio' },
-  { source: 'WATCHLIST', label: 'Watch' },
-];
-
-function destination(source: Coverage['source'], symbol: string) {
-  const list = source === 'PORTFOLIO' ? '/' : '/watchlist';
-  return `${list}?symbol=${encodeURIComponent(symbol)}`;
-}
-
-/**
- * The session every quote shares, or null when they differ. Shared, it is
- * said once in the header instead of as an identical chip on every card.
- */
-function sharedSession(coverage: Coverage[]): Pick<Coverage, 'session' | 'extended'> | null {
-  if (coverage.length === 0) return null;
-  const [first] = coverage;
-  const same = coverage.every((c) => c.session === first.session && c.extended === first.extended);
-  return same ? { session: first.session, extended: first.extended } : null;
-}
-
-function CoverageCard({ item, showSession }: { item: Coverage; showSession: boolean }) {
-  return (
-    <Link
-      to={destination(item.source, item.symbol)}
-      className="block rounded-xl border border-border bg-surface-1 p-3 transition-colors active:bg-surface-2"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-base font-semibold">{item.symbol}</span>
-        <span className="text-base font-medium tabular-nums">
-          {item.price === null ? 'Price unavailable' : <Money value={item.price} />}
-        </span>
-      </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted">
-        {showSession && <SessionBadge session={item.session} extended={item.extended} />}
-        {item.stale && <span className="font-medium tracking-wide text-down">STALE</span>}
-        {item.extended && item.regularPrice !== null && (
-          <span>Regular close <Money value={item.regularPrice} /></span>
-        )}
-        <span className="ml-auto text-accent">View {item.source === 'PORTFOLIO' ? 'holding' : 'watch row'} →</span>
-      </div>
-    </Link>
-  );
-}
-
-function NoteCard({
-  note,
-  coverage,
-  showSession,
-}: {
-  note: BriefNote;
-  coverage?: Coverage;
-  showSession: boolean;
-}) {
-  const content = (
-    <>
-      <h4 className="text-sm font-medium">{note.title}</h4>
-      {coverage && (coverage.stale || (showSession && coverage.extended)) && (
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-          {coverage.stale && <span className="font-medium tracking-wide text-down">STALE QUOTE</span>}
-          {showSession && coverage.extended && <SessionBadge session={coverage.session} extended={coverage.extended} />}
-        </div>
-      )}
-      <p className="mt-1 text-xs leading-relaxed text-muted">{note.detail}</p>
-    </>
-  );
-  const className = 'block rounded-xl border border-border bg-surface-1 p-3';
-  if (note.source === 'MARKET' || !note.symbol) {
-    return <article className={className}>{content}</article>;
-  }
-  return (
-    <Link
-      to={destination(note.source, note.symbol)}
-      className={`${className} transition-colors active:bg-surface-2`}
-    >
-      {content}
-      <span className="mt-2 block text-xs text-accent">View {note.symbol} →</span>
-    </Link>
-  );
-}
+const holdingDestination = (symbol: string) => `/?symbol=${encodeURIComponent(symbol)}`;
+const watchDestination = (symbol: string) => `/watchlist?symbol=${encodeURIComponent(symbol)}`;
 
 export function Brief() {
   const queryClient = useQueryClient();
@@ -133,7 +24,6 @@ export function Brief() {
     refetchInterval: (current) => (current.state.data?.refreshAfterSeconds ?? 300) * 1000,
   });
   const brief = query.data;
-  const shared = brief ? sharedSession(brief.coverage) : null;
 
   const refresh = async () => {
     setRefreshFailed(false);
@@ -160,7 +50,7 @@ export function Brief() {
           {brief && (
             <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
               Updated {formatTimestamp(brief.generatedAt)}
-              {shared && <SessionBadge session={shared.session} extended={shared.extended} />}
+              <SessionBadge session={brief.session} extended={false} />
             </p>
           )}
         </div>
@@ -198,53 +88,12 @@ export function Brief() {
             <Markdown text={brief.narrative} />
           </section>
         )}
-        <section aria-label="Notable events" className="space-y-3">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Notable events</h2>
-          {brief.notes.length === 0 ? (
-            <p className="text-sm text-muted">No Portfolio or Watch notes to show right now.</p>
-          ) : (
-            GROUPS.map((group) => {
-              const notes = brief.notes.filter((note) => note.source === group.source);
-              if (notes.length === 0) return null;
-              return (
-                <div key={group.source} className="space-y-2">
-                  <h3 className="text-[10px] uppercase tracking-wide text-muted">{group.label}</h3>
-                  <div className="space-y-2">
-                    {notes.map((note, index) => (
-                      <NoteCard
-                        showSession={shared === null}
-                        key={`${note.kind}-${note.symbol ?? 'market'}-${index}`}
-                        note={note}
-                        coverage={brief.coverage.find((item) => item.source === note.source && item.symbol === note.symbol)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </section>
-        <section aria-label="Current coverage" className="space-y-3">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Current coverage</h2>
-          {brief.coverage.length === 0 ? (
-            <p className="text-sm text-muted">No Portfolio or Watch tickers yet.</p>
-          ) : (
-            GROUPS.filter((group) => group.source !== 'MARKET').map((group) => {
-              const items = brief.coverage.filter((item) => item.source === group.source);
-              if (items.length === 0) return null;
-              return (
-                <div key={group.source} className="space-y-2">
-                  <h3 className="text-[10px] uppercase tracking-wide text-muted">{group.label}</h3>
-                  <div className="space-y-2">
-                    {items.map((item) => (
-                      <CoverageCard key={item.symbol} item={item} showSession={shared === null} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </section>
+        <MoodLine mood={brief.mood} events={brief.events} />
+        <BriefNoteList label="Holdings" notes={brief.holdingNotes} destination={holdingDestination} />
+        <BriefNoteList label="Watch triggers" notes={brief.watchTriggers} destination={watchDestination} />
+        {brief.holdingNotes.length === 0 && brief.watchTriggers.length === 0 && (
+          <p className="text-sm text-muted">No holding or watch signals right now.</p>
+        )}
       </>}
     </div>
   );

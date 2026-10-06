@@ -10,3 +10,30 @@ export const DAILY_BRIEF_QUERY_KEY = ['daily-brief'];
 export function fetchDailyBrief<T = unknown>(): Promise<T> {
   return api<T>('/watchlist/daily-brief');
 }
+
+export type MarketSession = 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED';
+
+export interface BriefMood {
+  indices: { symbol: string; trend: 'uptrend' | 'downtrend' | 'mixed' | null; changePct: number | null; stale: boolean; extended: boolean }[];
+  vix: { level: number; change: number | null; stale: boolean } | null;
+  leader: { symbol: string; name: string; changePct: number } | null;
+  laggard: { symbol: string; name: string; changePct: number } | null;
+}
+
+export interface BriefEvent { title: string; detail: string; eventAt: string }
+export interface BriefLine { kind: string; symbol: string; title: string; detail: string }
+
+export interface BriefResponse {
+  generatedAt: string;
+  refreshAfterSeconds: number;
+  session: MarketSession;
+  marketDataAvailable: boolean;
+  mood: BriefMood;
+  events: BriefEvent[];
+  holdingNotes: BriefLine[];
+  watchTriggers: BriefLine[];
+  /** Null whenever there is nothing to show — no AI configured, or the call failed. Silent by design. */
+  narrative: string | null;
+  /** When the narrative was written; earlier than generatedAt when the server reused it. */
+  narrativeAt: string | null;
+}
