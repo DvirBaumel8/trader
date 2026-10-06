@@ -12,7 +12,7 @@ import { MarketDataService } from './market-data.service.js';
 import { computeMarketSession, type MarketSession } from './market-session.js';
 import { buildMood, MOOD_INDICES, MOOD_QUOTE_SYMBOLS, type Mood, type MoodQuote } from './brief-mood.js';
 import { LlmClient } from '../llm/llm.client.js';
-import { buildDailyBriefContext, type DailyBriefContextInput } from '../llm/daily-brief-context.js';
+import { buildDailyBriefContext } from '../llm/daily-brief-context.js';
 import { buildDailyBriefUserPrompt } from '../llm/daily-brief-prompt.js';
 import { buildSystemPrompt } from '../llm/prompts.js';
 import { readTraderProfile } from '../llm/trader-profile.js';
@@ -61,6 +61,15 @@ function startOfWeek(now: Date): Date {
   start.setUTCDate(start.getUTCDate() - (day === 0 ? 6 : day - 1));
   start.setUTCHours(0, 0, 0, 0);
   return start;
+}
+
+/** What the narrative is written from: the response's facts, before they are serialised. */
+interface BriefFacts {
+  session: MarketSession;
+  mood: Mood;
+  events: BriefEvent[];
+  holdingNotes: HoldingNote[];
+  watchTriggers: WatchTrigger[];
 }
 
 @Injectable()
@@ -222,11 +231,7 @@ export class DailyBriefService {
    */
   private async buildNarrative(
     now: Date,
-    facts: Omit<DailyBriefContextInput, 'generatedAt' | 'events' | 'holdingNotes' | 'watchTriggers'> & {
-      events: BriefEvent[];
-      holdingNotes: HoldingNote[];
-      watchTriggers: WatchTrigger[];
-    },
+    facts: BriefFacts,
   ): Promise<{ text: string; at: Date } | null> {
     if (!this.llm || !this.llm.isConfigured()) return null;
     const userKey = this.users ? (await this.users.currentUser()).id : 'default';

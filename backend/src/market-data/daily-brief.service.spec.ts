@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { DailyBriefService } from './daily-brief.service.js';
 import { EMPTY_MOOD } from './brief-mood.js';
@@ -67,12 +68,15 @@ describe('DailyBriefService', () => {
   });
 
   it('still serves the brief with an empty mood when the quote fetch throws', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
     const getQuotes = vi.fn().mockRejectedValue(new Error('provider down'));
     const service = new DailyBriefService(...deps(), undefined, undefined, { getQuotes } as any);
 
     const result = await service.get();
 
     expect(result.mood).toEqual(EMPTY_MOOD);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('provider down'));
+    warn.mockRestore();
   });
 
   it('leaves VIX null when the provider returned no VIX quote', async () => {
@@ -214,6 +218,55 @@ describe('DailyBriefService', () => {
       { ensureFresh: vi.fn().mockResolvedValue(undefined) } as any,
       { week: vi.fn().mockResolvedValue({ available: true, events: [] }) } as any,
     ] as const;
+
+    it('writes the narrative from the mood, session and holdings, and asks again when they change', async () => {
+      const complete = vi.fn().mockResolvedValue('Read.');
+      const llm = { isConfigured: () => true, complete } as any;
+      const getQuotes = vi.fn().mockResolvedValue(new Map([['SPY', quote(502, 500)]]));
+      const withNote = (daysUntilEarnings: number | null) => deps({
+        positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings }],
+      });
+      const first = new DailyBriefService(...withNote(2), llm, undefined, { getQuotes } as any);
+
+      await first.get({ now: new Date('2026-09-16T15:00:00Z') });
+
+      const prompt = complete.mock.calls[0][0].user as string;
+      expect(prompt).toContain('- SPY:');
+      expect(prompt).toContain('market session REGULAR');
+      expect(prompt).toContain('NVDA has earnings this week');
+
+      // Same service, same day: an unchanged brief is reused, a changed holding set is not.
+      const holdings = { getPortfolio: vi.fn() };
+      holdings.getPortfolio
+        .mockResolvedValueOnce({ positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: 2 }], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } } })
+        .mockResolvedValueOnce({ positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: 2 }], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } } })
+        .mockResolvedValue({ positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null }], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } } });
+      const [, ...rest] = deps();
+      const service = new DailyBriefService(holdings as any, ...rest, llm, undefined, { getQuotes } as any);
+      complete.mockClear();
+
+      await service.get({ now: new Date('2026-09-16T15:00:00Z') });
+      await service.get({ now: new Date('2026-09-16T15:05:00Z') });
+      expect(complete).toHaveBeenCalledTimes(1);
+      await service.get({ now: new Date('2026-09-16T15:10:00Z') });
+      expect(complete).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks again within 30 minutes when this week\'s events change', async () => {
+      const complete = vi.fn().mockResolvedValue('Read.');
+      const llm = { isConfigured: () => true, complete } as any;
+      const week = vi.fn()
+        .mockResolvedValueOnce({ available: true, events: [] })
+        .mockResolvedValue({ available: true, events: [{ kind: 'RATE_DECISION', name: 'Fed', date: '2026-09-16', title: 'Fed raised rates 25 bp', detail: 'x' }] });
+      const [a, b, c, d, e] = deps();
+      const service = new DailyBriefService(a, b, c, d, e, { week } as any, llm);
+
+      await service.get({ now: new Date('2026-09-16T15:00:00Z') });
+      await service.get({ now: new Date('2026-09-16T15:05:00Z') });
+
+      expect(complete).toHaveBeenCalledTimes(2);
+      expect(complete.mock.calls[1][0].user).toContain('Fed raised rates 25 bp');
+    });
 
     it('is null when no LLM client was given, the same as an unconfigured one', async () => {
       const service = new DailyBriefService(...baseDeps());
