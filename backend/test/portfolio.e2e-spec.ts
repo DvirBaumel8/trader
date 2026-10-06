@@ -155,6 +155,23 @@ describe('Portfolio (e2e)', () => {
     expect(rows.map((r: { quantity: number }) => r.quantity).sort()).toEqual([
       40, 60,
     ]);
+    // The same two tiers, folded into one group for the Stops page.
+    const groups = res.body.stopGroups.filter(
+      (g: { symbol: string }) => g.symbol === 'NVDA',
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].tierCount).toBe(2);
+    expect(groups[0].quantity).toBe(100);
+    expect(groups[0].tiers).toHaveLength(2);
+    const summed = rows.reduce(
+      (s: number, r: { amountAtRisk: number }) => s + r.amountAtRisk,
+      0,
+    );
+    expect(groups[0].amountAtRisk).toBeCloseTo(summed, 6);
+    expect(groups[0].distance).toBeCloseTo(
+      summed / (100 * res.body.positions[0].price),
+      6,
+    );
     // NVDA now has a stop, so it must not also appear in the unstopped list.
     expect(res.body.atRisk.positionsWithoutStop.symbols).not.toContain('NVDA');
   });

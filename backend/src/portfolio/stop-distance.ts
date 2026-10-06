@@ -142,3 +142,71 @@ export function computeStopDistances(
 function round(n: number): number {
   return Math.round(n * 1e8) / 1e8;
 }
+
+/**
+ * One symbol's stop tiers folded into a single figure, for the Stops page.
+ * `stopTiers` stays the per-tier source of truth; this is the same rows plus
+ * the totals, computed here so the screen never sums money itself.
+ */
+export interface StopGroup {
+  symbol: string;
+  direction: 'LONG' | 'SHORT';
+  currentPrice: number;
+  session: MarketSession | null;
+  extended: boolean;
+  stale: boolean;
+  tierCount: number;
+  /** Shares covered across every tier, always positive. */
+  quantity: number;
+  /** Sum of the tiers' `amountAtRisk`; negative only if passed tiers outweigh the rest. */
+  amountAtRisk: number;
+  /**
+   * Share-weighted distance: `amountAtRisk / (quantity x currentPrice)`.
+   * Signed and unpre-multiplied like a tier's `distance`. Summing dollars and
+   * dividing once is what makes this a real weighted average rather than a
+   * mean of percentages.
+   */
+  distance: number;
+  /**
+   * The closest tier's signed distance. The combined `distance` can look
+   * comfortable while one tier is about to fire, so urgency sorts on this.
+   */
+  nearestDistance: number;
+  /** True when ANY tier has already been passed. */
+  passed: boolean;
+  tiers: StopDistanceRow[];
+}
+
+/**
+ * Groups tier rows by symbol, in first-seen order (rows from
+ * `computeStopDistances` arrive already contiguous per symbol).
+ */
+export function groupStopTiers(rows: StopDistanceRow[]): StopGroup[] {
+  const bySymbol = new Map<string, StopDistanceRow[]>();
+  for (const r of rows) {
+    const list = bySymbol.get(r.symbol);
+    if (list) list.push(r);
+    else bySymbol.set(r.symbol, [r]);
+  }
+
+  return [...bySymbol.values()].map((tiers) => {
+    const first = tiers[0];
+    const quantity = tiers.reduce((s, t) => s + t.quantity, 0);
+    const amountAtRisk = tiers.reduce((s, t) => s + t.amountAtRisk, 0);
+    return {
+      symbol: first.symbol,
+      direction: first.direction,
+      currentPrice: first.currentPrice,
+      session: first.session,
+      extended: first.extended,
+      stale: first.stale,
+      tierCount: tiers.length,
+      quantity: round(quantity),
+      amountAtRisk,
+      distance: round(amountAtRisk / (quantity * first.currentPrice)),
+      nearestDistance: Math.min(...tiers.map((t) => t.distance)),
+      passed: tiers.some((t) => t.passed),
+      tiers,
+    };
+  });
+}

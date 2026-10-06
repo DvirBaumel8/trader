@@ -27,6 +27,14 @@ documents for decisions, implementation detail, and history.
   the source of portfolio numbers. `docs/trader-profile.md` goes, whole and
   framed as dated background, into the owner's own AI requests only; other
   accounts get the no-profile path.
+- The Stops page lists "Stop tiers" per symbol. A symbol with one tier is a
+  plain row linking to its trade. A symbol with two or more shows one
+  collapsed row ("N stops · covered shares · now price") with the summed dollars
+  at risk and a share-weighted distance, or PASSED when any tier has passed;
+  tapping it expands indented tier lines (each linking to the trade) and tapping
+  again collapses it. Expansion is not remembered. Sorting works on symbols:
+  largest risk by total dollars, nearest/furthest by the closest tier. Totals come
+  from `stopGroups` on `GET /portfolio`.
 - The watchlist supports targets and a cached AI ranking of the whole list.
 - A trade entry can carry the broker's own reported net cash and resulting
   balance for that fill. When given, price is derived from it (full

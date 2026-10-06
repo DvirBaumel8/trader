@@ -1,4 +1,8 @@
-import { computeStopDistances, type StopDistanceInput } from './stop-distance.js';
+import {
+  computeStopDistances,
+  groupStopTiers,
+  type StopDistanceInput,
+} from './stop-distance.js';
 import type { StopLevelInput } from './risk.js';
 
 const fixed = (price: number, quantity: number): StopLevelInput => ({
@@ -262,5 +266,77 @@ describe('trail traceability', () => {
 
     expect(row.trailPercent).toBeNull();
     expect(row.trailsFrom).toBeNull();
+  });
+});
+
+describe('groupStopTiers', () => {
+  const nvda = (levels: StopLevelInput[]) =>
+    computeStopDistances([
+      {
+        ...base,
+        currentPrice: 240.74,
+        direction: 'LONG',
+        avgEntry: 200,
+        levels,
+      },
+    ]);
+
+  it('combines two NVDA tiers into one share-weighted group', () => {
+    const rows = nvda([fixed(215.93, 150), fixed(229.93, 150)]);
+    const [g] = groupStopTiers(rows);
+    expect(groupStopTiers(rows)).toHaveLength(1);
+    expect(g.symbol).toBe('NVDA');
+    expect(g.tierCount).toBe(2);
+    expect(g.quantity).toBe(300);
+    expect(g.amountAtRisk).toBeCloseTo(5343.0, 6);
+    // 5343 / (300 x 240.74)
+    expect(g.distance).toBeCloseTo(0.0740, 4);
+    // The nearer tier (229.93) is 10.81 / 240.74 away.
+    expect(g.nearestDistance).toBeCloseTo(10.81 / 240.74, 6);
+    expect(g.passed).toBe(false);
+    expect(g.currentPrice).toBe(240.74);
+    expect(g.tiers).toEqual(rows);
+  });
+
+  it('passes a single tier through with its own figures', () => {
+    const rows = nvda([fixed(229.93, 100)]);
+    const [g] = groupStopTiers(rows);
+    expect(g.tierCount).toBe(1);
+    expect(g.quantity).toBe(100);
+    expect(g.amountAtRisk).toBe(rows[0].amountAtRisk);
+    expect(g.distance).toBeCloseTo(rows[0].distance, 6);
+    expect(g.nearestDistance).toBe(rows[0].distance);
+    expect(g.tiers).toEqual(rows);
+  });
+
+  it('marks the group passed when any tier has passed, and keeps the sign', () => {
+    const rows = nvda([fixed(229.93, 100), fixed(250, 100)]);
+    const [g] = groupStopTiers(rows);
+    expect(g.passed).toBe(true);
+    expect(g.nearestDistance).toBeLessThan(0);
+    // 100 x 10.81 + 100 x -9.26
+    expect(g.amountAtRisk).toBeCloseTo(155, 6);
+  });
+
+  it('groups per symbol, keeping first-seen order, and carries short direction', () => {
+    const rows = computeStopDistances([
+      { ...base, symbol: 'AAA', direction: 'LONG', avgEntry: 90, levels: [fixed(95, 10)] },
+      {
+        ...base,
+        symbol: 'SHRT',
+        direction: 'SHORT',
+        avgEntry: 90,
+        levels: [fixed(105, 10), fixed(110, 10)],
+      },
+    ]);
+    const groups = groupStopTiers(rows);
+    expect(groups.map((g) => g.symbol)).toEqual(['AAA', 'SHRT']);
+    expect(groups[1].direction).toBe('SHORT');
+    expect(groups[1].tierCount).toBe(2);
+    expect(groups[1].distance).toBeCloseTo((5 + 10) / 200, 6);
+  });
+
+  it('returns no groups for no rows', () => {
+    expect(groupStopTiers([])).toEqual([]);
   });
 });

@@ -1,22 +1,24 @@
 /**
  * 'asc'/'desc' order by distance to trigger; 'risk' orders by the dollars a
- * tier puts at risk. Stored in localStorage, so the two distance values keep
+ * symbol's stops put at risk. Stored in localStorage, so the two distance values keep
  * their original names — a saved preference must not be invalidated by
  * adding a third mode.
  */
 export type StopSortDir = 'asc' | 'desc' | 'risk';
 
-export interface SortableStopTier {
+export interface SortableStopGroup {
   symbol: string;
   /**
-   * Signed fraction of the current price — positive is room, negative means
-   * the level has already been passed. See `stopTiers` on the portfolio
-   * response (backend/src/portfolio/stop-distance.ts).
+   * The group's CLOSEST tier, as a signed fraction of the current price —
+   * positive is room, negative means a level has already been passed. Not the
+   * combined distance: a wide average must never hide the tier that is about
+   * to fire. See `stopGroups` on the portfolio response
+   * (backend/src/portfolio/stop-distance.ts).
    */
-  distance: number;
+  nearestDistance: number;
   /**
-   * Dollars given back if this tier fires. Signed: negative exactly when the
-   * level has already been passed. See `amountAtRisk` on
+   * Dollars given back if every tier fires: the sum across tiers. Signed per
+   * tier, so a passed tier subtracts. See `amountAtRisk` on
    * backend/src/portfolio/stop-distance.ts.
    */
   amountAtRisk: number;
@@ -29,7 +31,7 @@ export interface SortableStopTier {
  * itself encodes urgency, so no separate "passed" bucket is needed here.
  * Symbol is the tie-break so the order is always stable.
  */
-export function sortStopTiers<T extends SortableStopTier>(
+export function sortStopGroups<T extends SortableStopGroup>(
   rows: T[],
   dir: StopSortDir,
 ): T[] {
@@ -53,7 +55,7 @@ export function sortStopTiers<T extends SortableStopTier>(
 
   const factor = dir === 'asc' ? 1 : -1;
   return [...rows].sort((a, b) => {
-    if (a.distance === b.distance) return a.symbol.localeCompare(b.symbol);
-    return (a.distance < b.distance ? -1 : 1) * factor;
+    if (a.nearestDistance === b.nearestDistance) return a.symbol.localeCompare(b.symbol);
+    return (a.nearestDistance < b.nearestDistance ? -1 : 1) * factor;
   });
 }

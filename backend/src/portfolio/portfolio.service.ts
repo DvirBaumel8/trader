@@ -29,7 +29,7 @@ import {
 } from './derive.js';
 import { tradeId } from './trade-window.js';
 import { computeAtRisk } from './risk.js';
-import { computeStopDistances } from './stop-distance.js';
+import { computeStopDistances, groupStopTiers } from './stop-distance.js';
 import { computeDayChange, dayChangeBase, sumNullable } from './day-change.js';
 import { bucketFees, computeInterestCost, totalFees, type FeePeriod } from './fee-buckets.js';
 
@@ -344,6 +344,9 @@ export class PortfolioService {
       pricedAt: new Date().toISOString(),
       atRisk,
       stopTiers,
+      // The same tiers folded per symbol, with summed dollars and a
+      // share-weighted distance. See groupStopTiers.
+      stopGroups: groupStopTiers(stopTiers),
     };
   }
 

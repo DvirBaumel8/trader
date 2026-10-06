@@ -8,7 +8,7 @@ import { SessionBadge } from '../components/SessionBadge';
 import { RefreshButton } from '../components/RefreshButton';
 import { Select } from '../components/ui/Select';
 import { loadDraft, saveDraft } from '../lib/draftStorage';
-import { sortStopTiers, type StopSortDir } from '../lib/sortStopTiers';
+import { sortStopGroups, type StopSortDir } from '../lib/sortStopTiers';
 
 type Session = 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
 
@@ -27,6 +27,29 @@ interface StopTierRow {
   /** Set only for a trailing tier — see the note on the row below. */
   trailPercent: number | null;
   trailsFrom: number | null;
+}
+
+/**
+ * One symbol's tiers with the totals the backend computed — see `StopGroup`
+ * in backend/src/portfolio/stop-distance.ts. The screen only groups for
+ * display and toggles; it never sums these itself.
+ */
+interface StopGroup {
+  symbol: string;
+  direction: 'LONG' | 'SHORT';
+  currentPrice: number;
+  session: Session;
+  extended: boolean;
+  stale: boolean;
+  tierCount: number;
+  quantity: number;
+  amountAtRisk: number;
+  /** Share-weighted combined distance. */
+  distance: number;
+  /** Closest tier's distance — what the sort uses. */
+  nearestDistance: number;
+  passed: boolean;
+  tiers: StopTierRow[];
 }
 
 interface Position {
@@ -51,7 +74,7 @@ interface Portfolio {
       positions: { symbol: string; coveredQuantity: number; heldQuantity: number }[];
     };
   };
-  stopTiers: StopTierRow[];
+  stopGroups: StopGroup[];
 }
 
 /**
@@ -91,6 +114,45 @@ function SortPicker({
       options={STOP_SORT_OPTIONS}
       srLabel="Sort stops"
     />
+  );
+}
+
+/**
+ * The right-hand column shared by a tier, a combined row and an expanded
+ * tier line. The distance figure is never allowed to read as an ordinary
+ * small number when a level has already been passed, so that case gets its
+ * own label and colour instead of a formatted negative percentage.
+ */
+function StopFigures({
+  passed,
+  distance,
+  amountAtRisk,
+}: {
+  passed: boolean;
+  distance: number;
+  amountAtRisk: number;
+}) {
+  return (
+    <div className="shrink-0 text-right">
+      {passed ? (
+        <div className="text-[13px] font-semibold leading-tight text-down">
+          PASSED
+          <div className="mt-0.5 text-[11px] font-normal opacity-80">
+            {formatMagnitudePercent(distance)} through
+          </div>
+          <div className="mt-0.5 text-[11px] leading-tight text-muted">
+            <Money value={amountAtRisk} />
+          </div>
+        </div>
+      ) : (
+        <div className="text-[15px] font-medium leading-tight">
+          {formatMagnitudePercent(distance)}
+          <div className="mt-0.5 text-[11px] leading-tight text-muted">
+            <Money value={amountAtRisk} />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -142,26 +204,11 @@ function StopTierRowView({
         )}
       </div>
 
-      <div className="shrink-0 text-right">
-        {row.passed ? (
-          <div className="text-[13px] font-semibold leading-tight text-down">
-            PASSED
-            <div className="mt-0.5 text-[11px] font-normal opacity-80">
-              {formatMagnitudePercent(row.distance)} through
-            </div>
-            <div className="mt-0.5 text-[11px] leading-tight text-muted">
-              <Money value={row.amountAtRisk} />
-            </div>
-          </div>
-        ) : (
-          <div className="text-[15px] font-medium leading-tight">
-            {formatMagnitudePercent(row.distance)}
-            <div className="mt-0.5 text-[11px] leading-tight text-muted">
-              <Money value={row.amountAtRisk} />
-            </div>
-          </div>
-        )}
-      </div>
+      <StopFigures
+        passed={row.passed}
+        distance={row.distance}
+        amountAtRisk={row.amountAtRisk}
+      />
     </>
   );
 
@@ -178,6 +225,110 @@ function StopTierRowView({
         <div className="flex items-center justify-between gap-3 py-2.5">
           {content}
         </div>
+      )}
+    </li>
+  );
+}
+
+/**
+ * A symbol with two or more stop tiers: one combined row, collapsed by
+ * default and not remembered, that expands to the tiers. The row is a button
+ * and the tier lines are links, so no interactive element sits inside
+ * another. Shows the backend's totals (`amountAtRisk` summed, `distance`
+ * share-weighted) — the screen sums nothing.
+ */
+function StopGroupRowView({
+  group,
+  tradeId,
+}: {
+  group: StopGroup;
+  tradeId: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const panelId = `stop-tiers-${group.symbol}`;
+
+  return (
+    <li className="border-b border-border last:border-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 py-2.5 text-left transition-colors hover:bg-surface-1 active:bg-surface-2"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[15px] font-semibold leading-tight">
+              {group.symbol}
+            </span>
+            {group.direction === 'SHORT' && (
+              <span className="rounded bg-down/15 px-1 py-px text-[9px] font-medium tracking-wide text-down">
+                SHORT
+              </span>
+            )}
+            {group.stale && (
+              <span className="text-[9px] tracking-wide text-down">STALE</span>
+            )}
+            <span aria-hidden className="text-[11px] text-muted">
+              {open ? '▾' : '▸'}
+            </span>
+          </div>
+          <div className="mt-0.5 truncate text-[11px] leading-tight text-muted">
+            {group.tierCount} stops · {formatQuantity(group.quantity)} sh · now{' '}
+            <Money value={group.currentPrice} />
+          </div>
+        </div>
+        <StopFigures
+          passed={group.passed}
+          // "X% through" must be the passed tier's own figure — the
+          // share-weighted average can still be positive with one tier passed.
+          distance={group.passed ? group.nearestDistance : group.distance}
+          amountAtRisk={group.amountAtRisk}
+        />
+      </button>
+      {open && (
+        <ul id={panelId} className="mb-1.5 ml-3 border-l border-border pl-3">
+          {group.tiers.map((row, i) => {
+            const line = (
+              <>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[11px] leading-tight text-muted">
+                    Stop <Money value={row.stopPrice} /> ·{' '}
+                    {formatQuantity(row.quantity)} sh
+                  </div>
+                  {row.trailPercent !== null && row.trailsFrom !== null && (
+                    <div className="truncate text-[10px] leading-tight text-muted opacity-80">
+                      trails {row.trailPercent}% from{' '}
+                      <Money value={row.trailsFrom} />
+                    </div>
+                  )}
+                </div>
+                <StopFigures
+                  passed={row.passed}
+                  distance={row.distance}
+                  amountAtRisk={row.amountAtRisk}
+                />
+              </>
+            );
+            const key = `${row.stopPrice}:${i}`;
+            return (
+              <li key={key}>
+                {tradeId !== null ? (
+                  <Link
+                    to={`/trades/${encodeURIComponent(tradeId)}`}
+                    className="flex items-center justify-between gap-3 py-2 transition-colors hover:bg-surface-1 active:bg-surface-2"
+                  >
+                    {line}
+                  </Link>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    {line}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       )}
     </li>
   );
@@ -391,7 +542,7 @@ export function Stops() {
     const p = positionBySymbol.get(coverage.symbol);
     if (p) partiallyStoppedPositions.push({ ...p, ...coverage });
   }
-  const sortedTiers = sortStopTiers(data.stopTiers, dir);
+  const sortedGroups = sortStopGroups(data.stopGroups, dir);
 
   // Every position is priced in the same market session, so the badge is a
   // property of the page rather than of a row.
@@ -479,17 +630,25 @@ export function Stops() {
           </span>
           <SortPicker dir={dir} onChange={changeDir} />
         </div>
-        {sortedTiers.length === 0 ? (
+        {sortedGroups.length === 0 ? (
           <p className="text-sm text-muted">No stops recorded yet.</p>
         ) : (
           <ul>
-            {sortedTiers.map((row, i) => (
-              <StopTierRowView
-                key={`${row.symbol}:${row.stopPrice}:${i}`}
-                row={row}
-                tradeId={tradeIdBySymbol.get(row.symbol) ?? null}
-              />
-            ))}
+            {sortedGroups.map((group) =>
+              group.tierCount === 1 ? (
+                <StopTierRowView
+                  key={group.symbol}
+                  row={group.tiers[0]}
+                  tradeId={tradeIdBySymbol.get(group.symbol) ?? null}
+                />
+              ) : (
+                <StopGroupRowView
+                  key={group.symbol}
+                  group={group}
+                  tradeId={tradeIdBySymbol.get(group.symbol) ?? null}
+                />
+              ),
+            )}
           </ul>
         )}
       </section>
