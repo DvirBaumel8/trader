@@ -142,6 +142,12 @@ export interface EntryView {
       expectedBalance: number;
       netCashMismatch: boolean;
       balanceMismatch: boolean;
+      /**
+       * Interest the platform charged that the diary lacks: expected minus
+       * reported balance, in cents, only when the platform is lower by more
+       * than half a cent. `settleBalance` records it. Null otherwise.
+       */
+      interestToSettle: number | null;
     } | null;
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
@@ -365,6 +371,7 @@ export class JournalService {
               ? (() => {
                   const expectedNetCash = tradeNetCash(t);
                   const expectedBalance = balanceAfter.get(t.id) ?? 0;
+                  const owed = expectedBalance - t.reportedBalance;
                   return {
                     expectedNetCash,
                     expectedBalance,
@@ -372,6 +379,8 @@ export class JournalService {
                       Math.abs(expectedNetCash - t.reportedNetCash) > 0.005,
                     balanceMismatch:
                       Math.abs(expectedBalance - t.reportedBalance) > 0.005,
+                    interestToSettle:
+                      owed > 0.005 ? Math.round(owed * 100) / 100 : null,
                   };
                 })()
               : null,
@@ -565,6 +574,52 @@ export class JournalService {
 
     const [view] = (await this.list()).filter((e) => e.id === id);
     return view;
+  }
+
+  /**
+   * Records the interest a reconciled trade's platform balance says was
+   * charged: an ordinary INTEREST entry for `interestToSettle`, dated the
+   * trade's day and ordered immediately before the trade (createdAt one
+   * millisecond earlier — the same-day tie-break cash uses), so the trade's
+   * own balance check, and later trades off by the same amount, clear.
+   */
+  async settleBalance(id: string): Promise<EntryView> {
+    const user = await this.users.currentUser();
+    const tradeEntry = await this.entries.findOne({
+      where: { id, userId: user.id },
+    });
+    if (!tradeEntry) throw new NotFoundException('Entry not found');
+
+    const view = (await this.list()).find((e) => e.id === id);
+    const owed = view?.trade?.reconciliation?.interestToSettle ?? null;
+    if (owed == null) {
+      throw new BadRequestException('Nothing to settle for this entry');
+    }
+
+    const entryId = await this.dataSource.transaction(async (manager) => {
+      const entry = await manager.save(
+        manager.create(JournalEntry, {
+          userId: user.id,
+          kind: 'INTEREST',
+          body: 'Balance adjustment to match platform',
+          occurredAt: tradeEntry.occurredAt,
+          reasons: [],
+          createdAt: new Date(tradeEntry.createdAt.getTime() - 1),
+        }),
+      );
+      await manager.save(
+        manager.create(InterestCharge, {
+          userId: user.id,
+          entryId: entry.id,
+          amount: owed,
+          occurredAt: tradeEntry.occurredAt,
+        }),
+      );
+      return entry.id;
+    });
+
+    const [created] = (await this.list()).filter((e) => e.id === entryId);
+    return created;
   }
 
   async remove(id: string): Promise<void> {

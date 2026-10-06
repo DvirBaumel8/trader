@@ -32,7 +32,10 @@ documents for decisions, implementation detail, and history.
   balance for that fill. When given, price is derived from it (full
   precision) rather than trusting a typed guess, and a mismatch badge flags
   remaining drift — a stopgap for reconciling against the broker, not a
-  permanent fixture.
+  permanent fixture. When the platform balance is lower than derived, the
+  backend exposes the gap as `reconciliation.interestToSettle` and the entry
+  card offers a two-tap "Add $X interest" that records it as an `INTEREST`
+  entry ordered just before the trade, clearing that and later balance checks.
 - A broker-charged cost outside any trade (margin interest, to start) can be
   logged as its own `INTEREST` entry: it lowers cash the way a withdrawal
   does but is excluded from contributed capital, the mirror image of how a

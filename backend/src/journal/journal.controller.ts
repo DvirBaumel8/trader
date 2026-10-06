@@ -65,6 +65,11 @@ export class JournalController {
     return this.journal.update(id, toInput(body));
   }
 
+  @Post(':id/settle-balance')
+  settleBalance(@Param('id', ParseUUIDPipe) id: string) {
+    return this.journal.settleBalance(id);
+  }
+
   @Delete(':id')
   async remove(@Param('id', ParseUUIDPipe) id: string) {
     await this.journal.remove(id);

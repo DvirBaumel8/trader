@@ -66,6 +66,7 @@ because an entry was written, never through a "add transaction" endpoint.
 | `GET /journal/tags` | Declared before `:id` routes so "tags" is never read as an id. |
 | `POST /journal` | Creates an entry, and with it any transaction / cash flow / dividend / stop levels it implies. |
 | `PATCH /journal/:id` | Full replace. No optimistic locking — two concurrent edits both return 200 and the last commit wins (see `docs/backlog.md`). |
+| `POST /journal/:id/settle-balance` | For a reconciled trade whose reported balance is lower than derived: creates an `INTEREST` entry for `trade.reconciliation.interestToSettle`, dated the trade's day and ordered immediately before it (`createdAt` 1 ms earlier). Returns the new entry. 400 if the entry is not a reconciled trade or nothing is owed; 404 if not the caller's. |
 | `DELETE /journal/:id` | Removes the entry and everything it owned. |
 
 ### Watchlist — `watchlist/`

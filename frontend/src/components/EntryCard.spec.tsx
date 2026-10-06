@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EntryCard, type Entry } from './EntryCard';
 
@@ -40,7 +40,11 @@ const entry = (reasons: string[], reconciliation: Reconciliation = null): Entry 
   reasons,
 });
 
-function renderCard(reasons: string[], reconciliation: Reconciliation = null) {
+function renderCard(
+  reasons: string[],
+  reconciliation: Reconciliation = null,
+  { editMode = false, onOpen = () => {} }: { editMode?: boolean; onOpen?: () => void } = {},
+) {
   (api as ReturnType<typeof vi.fn>).mockResolvedValue({
     defaultFee: 4,
     reasons: {
@@ -52,8 +56,8 @@ function renderCard(reasons: string[], reconciliation: Reconciliation = null) {
     <QueryClientProvider client={new QueryClient()}>
       <EntryCard
         entry={entry(reasons, reconciliation)}
-        editMode={false}
-        onOpen={() => {}}
+        editMode={editMode}
+        onOpen={onOpen}
       />
     </QueryClientProvider>,
   );
@@ -90,6 +94,7 @@ describe('EntryCard reconciliation badge', () => {
       expectedBalance: 5000,
       netCashMismatch: false,
       balanceMismatch: false,
+      interestToSettle: null,
     });
     await screen.findByText('took the loss');
     expect(screen.queryByText(/off by/)).not.toBeInTheDocument();
@@ -101,6 +106,7 @@ describe('EntryCard reconciliation badge', () => {
       expectedBalance: 5000,
       netCashMismatch: true,
       balanceMismatch: false,
+      interestToSettle: null,
     });
     // reportedNetCash from the fixture is 1000; expected is 997 — off by 3.
     expect(await screen.findByText(/off by \$3\.00/)).toBeInTheDocument();
@@ -112,8 +118,48 @@ describe('EntryCard reconciliation badge', () => {
       expectedBalance: 4750,
       netCashMismatch: false,
       balanceMismatch: true,
+      interestToSettle: null,
     });
     // reportedBalance from the fixture is 5000; expected is 4750 — off by 250.
     expect(await screen.findByText(/off by \$250\.00/)).toBeInTheDocument();
+  });
+});
+
+describe('EntryCard settle interest', () => {
+  const owing: NonNullable<Reconciliation> = {
+    expectedNetCash: 1000,
+    expectedBalance: 5012.34,
+    netCashMismatch: false,
+    balanceMismatch: true,
+    interestToSettle: 12.34,
+  };
+
+  it('offers nothing when no interest is owed', async () => {
+    renderCard([], { ...owing, interestToSettle: null });
+    await screen.findByText('took the loss');
+    expect(screen.queryByText(/interest/i)).not.toBeInTheDocument();
+  });
+
+  it('arms on the first tap and posts only on the second, without opening the entry', async () => {
+    const onOpen = vi.fn();
+    renderCard([], owing, { editMode: true, onOpen });
+    const control = await screen.findByRole('button', { name: 'Add $12.34 interest' });
+    // Never nested inside the row's own button.
+    expect(control.closest('button[aria-label^="Edit"]')).toBeNull();
+
+    fireEvent.click(control);
+    expect(screen.getByRole('button', { name: 'Add interest $12.34?' })).toBeInTheDocument();
+    expect(api).not.toHaveBeenCalledWith(
+      '/journal/e1/settle-balance',
+      expect.anything(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add interest $12.34?' }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith('/journal/e1/settle-balance', {
+        method: 'POST',
+      }),
+    );
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });

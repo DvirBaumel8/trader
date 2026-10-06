@@ -1,4 +1,8 @@
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '../api/client';
 import { useSettings } from '../api/settings';
+import { Button } from './ui/Button';
 import { Money } from './Money';
 import { formatQuantity, formatMoney } from './format';
 
@@ -41,6 +45,8 @@ export interface Entry {
       expectedBalance: number;
       netCashMismatch: boolean;
       balanceMismatch: boolean;
+      /** Interest the platform charged that the diary lacks; the backend computes it. */
+      interestToSettle: number | null;
     } | null;
   } | null;
   cash: { direction: 'DEPOSIT' | 'WITHDRAW'; amount: number } | null;
@@ -232,6 +238,47 @@ function EntryBody({ entry }: { entry: Entry }) {
   );
 }
 
+/** Same keys the entry sheet refetches after any journal write. */
+const AFFECTED = ['journal', 'portfolio', 'stats', 'tags'];
+
+/**
+ * Records the interest the platform's balance implies. Writes data, so the
+ * first tap only arms it. Rendered beside the row's tap target, never inside
+ * it: a button nested in the edit button is invalid HTML and would open the
+ * entry.
+ */
+function SettleInterest({ entry }: { entry: Entry }) {
+  const owed = entry.trade?.reconciliation?.interestToSettle ?? null;
+  const [armed, setArmed] = useState(false);
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: () =>
+      api(`/journal/${entry.id}/settle-balance`, { method: 'POST' }),
+    onSuccess: () =>
+      Promise.all(
+        AFFECTED.map((key) => queryClient.invalidateQueries({ queryKey: [key] })),
+      ),
+    onSettled: () => setArmed(false),
+  });
+  if (owed === null) return null;
+
+  return (
+    <div className="pb-3">
+      <Button
+        variant={armed ? 'danger' : 'accent'}
+        disabled={mutation.isPending}
+        onClick={() => (armed ? mutation.mutate() : setArmed(true))}
+        onBlur={() => setArmed(false)}
+      >
+        {armed ? `Add interest ${formatMoney(owed)}?` : `Add ${formatMoney(owed)} interest`}
+      </Button>
+      {mutation.isError && (
+        <div className="pt-1 text-[11px] text-down">Could not add the interest.</div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Rows are inert until edit mode is switched on for the whole list. A dense
  * list is something you scroll past, so making every row permanently tappable
@@ -252,6 +299,7 @@ export function EntryCard({
     return (
       <li className="border-b border-border py-3 last:border-0">
         <EntryBody entry={entry} />
+        <SettleInterest entry={entry} />
       </li>
     );
   }
@@ -269,6 +317,7 @@ export function EntryCard({
           <ChevronIcon />
         </span>
       </button>
+      <SettleInterest entry={entry} />
     </li>
   );
 }

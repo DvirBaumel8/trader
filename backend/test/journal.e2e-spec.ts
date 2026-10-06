@@ -542,6 +542,91 @@ describe('Journal (e2e)', () => {
       });
     });
 
+    describe('settling a balance the platform reports lower', () => {
+      const deposit = () =>
+        post({
+          kind: 'CASH',
+          body: 'deposit',
+          occurredAt: '2026-08-27T00:00:00.000Z',
+          cash: { direction: 'DEPOSIT', amount: 10000 },
+        }).expect(201);
+
+      it('exposes interestToSettle, and settling clears this and later trades', async () => {
+        await deposit();
+        // Derived balance after: 10000 - 1004 = 8996. Platform says 12.34 less.
+        const first = await trade(10, 100, '2026-08-28T12:00:00.000Z', {
+          fee: 4,
+          reportedNetCash: -1004,
+          reportedBalance: 8983.66,
+        }).expect(201);
+        expect(first.body.trade.reconciliation).toMatchObject({
+          balanceMismatch: true,
+          interestToSettle: 12.34,
+        });
+        // Next trade is off by the same 12.34 (carried over).
+        const second = await trade(1, 100, '2026-08-29T12:00:00.000Z', {
+          reportedNetCash: -100,
+          reportedBalance: 8883.66,
+        }).expect(201);
+        expect(second.body.trade.reconciliation.balanceMismatch).toBe(true);
+
+        const settled = await http(app, token)
+          .post(`/journal/${first.body.id}/settle-balance`)
+          .expect(201);
+        expect(settled.body).toMatchObject({
+          kind: 'INTEREST',
+          body: 'Balance adjustment to match platform',
+          interest: { amount: 12.34 },
+        });
+        expect(settled.body.occurredAt).toBe(first.body.occurredAt);
+
+        const list = await http(app, token).get('/journal').expect(200);
+        const byId = (id: string) =>
+          list.body.find((e: { id: string }) => e.id === id);
+        expect(byId(first.body.id).trade.reconciliation).toMatchObject({
+          balanceMismatch: false,
+          interestToSettle: null,
+        });
+        expect(byId(second.body.id).trade.reconciliation.balanceMismatch).toBe(
+          false,
+        );
+
+        await http(app, token)
+          .post(`/journal/${first.body.id}/settle-balance`)
+          .expect(400);
+      });
+
+      it('offers nothing when the platform balance is higher', async () => {
+        await deposit();
+        const res = await trade(10, 100, '2026-08-28T12:00:00.000Z', {
+          fee: 4,
+          reportedNetCash: -1004,
+          reportedBalance: 9000,
+        }).expect(201);
+        expect(res.body.trade.reconciliation).toMatchObject({
+          balanceMismatch: true,
+          interestToSettle: null,
+        });
+        await http(app, token)
+          .post(`/journal/${res.body.id}/settle-balance`)
+          .expect(400);
+      });
+
+      it('rejects a non-trade entry and an unknown entry', async () => {
+        const note = await post({
+          kind: 'NOTE',
+          body: 'n',
+          occurredAt: '2026-08-28T12:00:00.000Z',
+        }).expect(201);
+        await http(app, token)
+          .post(`/journal/${note.body.id}/settle-balance`)
+          .expect(400);
+        await http(app, token)
+          .post('/journal/00000000-0000-4000-8000-000000000000/settle-balance')
+          .expect(404);
+      });
+    });
+
     it('rejects a reported net cash without a reported balance', async () => {
       await trade(10, 200, '2026-08-29T14:30:00.000Z', {
         reportedNetCash: -2000,
