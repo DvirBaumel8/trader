@@ -50,9 +50,9 @@ const CONSENSUS_TTL_MS = 24 * 60 * 60 * 1000;
 const EXTREMES_TTL_MS = 5 * 60 * 1000;
 
 /**
- * How long a page-blocking provider call (a quote batch including its Twelve
- * Data augmentation, or the extended-hours extremes chart) may take before
- * the caller gives up and takes the same path as a provider failure. A slow
+ * How long the extended-hours extremes chart may take before the caller gives
+ * up and takes the same path as a provider failure (daily bars alone). Quotes
+ * are not bounded by this — see getQuotes for why. A slow
  * Yahoo/Twelve Data response was observed holding the trade detail page for
  * several seconds; stale-or-null data is better than a hung page. The call
  * itself is NOT cancelled: when it eventually resolves it still populates the
@@ -256,13 +256,12 @@ export class MarketDataService {
     if (missing.length === 0) return out;
 
     try {
-      // The fetch stores into the cache itself, so a call that outlives
-      // PROVIDER_WAIT_MS still warms the cache when it finally lands.
-      const fetched = await withTimeout(
-        this.fetchAndStore(missing, augment),
-        PROVIDER_WAIT_MS,
-        `quoteMany(${missing.length} symbols)`,
-      );
+      // Deliberately NOT bounded by PROVIDER_WAIT_MS. In production Yahoo's
+      // batch quote endpoint is blocked and quoteMany falls back to one chart
+      // call per symbol, which routinely takes longer than that for a whole
+      // portfolio — and on a cold cache a timeout here means NO prices at
+      // all. That shipped once and blanked every quote on the brief.
+      const fetched = await this.fetchAndStore(missing, augment);
       for (const [key, quote] of fetched) out.set(key, quote);
     } catch (err) {
       this.logger.warn(

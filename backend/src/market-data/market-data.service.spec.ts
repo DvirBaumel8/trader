@@ -414,15 +414,35 @@ describe('MarketDataService provider wait bound', () => {
     expect(calls).toBe(1);
   });
 
-  it('a quote batch that never resolves yields the failure path (empty without cache) and leaves no timer behind', async () => {
+  // Regression: a 4s bound here blanked every price on a cold cache in
+  // production, where quoteMany falls back to slow per-symbol chart calls.
+  it('a slow quote batch still returns its prices rather than giving up', async () => {
     vi.useFakeTimers();
     const client = {
-      quoteMany: () => new Promise(() => {}),
+      quoteMany: () =>
+        new Promise((r) =>
+          setTimeout(
+            () =>
+              r([
+                {
+                  symbol: 'ABC',
+                  name: null,
+                  price: 10,
+                  currency: 'USD',
+                  session: 'REGULAR',
+                  extended: false,
+                  regularPrice: 10,
+                  previousClose: 9,
+                  peRatio: null,
+                },
+              ]),
+            8000,
+          ),
+        ),
     } as unknown as YahooClient;
     const svc = new MarketDataService(client);
     const p = svc.getQuotes(['ABC']);
-    await vi.advanceTimersByTimeAsync(4001);
-    expect((await p).size).toBe(0);
-    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(8001);
+    expect((await p).get('ABC')?.price).toBe(10);
   });
 });
