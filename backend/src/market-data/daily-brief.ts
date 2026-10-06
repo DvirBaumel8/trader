@@ -26,7 +26,7 @@ const BREAKOUT_LOOKBACK = 20;
 const BREAKOUT_RELATIVE_VOLUME = 1.5;
 const MOMENTUM_STREAK_CAP = 30;
 
-function ema(values: number[], period: number): number | null {
+export function ema(values: number[], period: number): number | null {
   if (values.length < period) return null;
   const multiplier = 2 / (period + 1);
   let value = values.slice(0, period).reduce((sum, n) => sum + n, 0) / period;
@@ -34,7 +34,7 @@ function ema(values: number[], period: number): number | null {
   return value;
 }
 
-function sma(values: number[], period: number): number | null {
+export function sma(values: number[], period: number): number | null {
   if (values.length < period) return null;
   return values.slice(-period).reduce((sum, n) => sum + n, 0) / period;
 }
@@ -71,7 +71,7 @@ function relativeVolume(bars: RawBar[]): number | null {
   return average > 0 ? latest / average : null;
 }
 
-function fiveDayEmaAgo(bars: RawBar[]): number | null {
+export function fiveDayEmaAgo(bars: RawBar[]): number | null {
   if (bars.length < TREND_PERIOD + 5) return null;
   return ema(bars.slice(0, -5).map((bar) => bar.close), TREND_PERIOD);
 }
