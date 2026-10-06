@@ -1,75 +1,69 @@
 /**
  * Assembles the facts block the model reads for the Daily Brief narrative.
- * Every line is quoted straight from the already-computed notes/coverage
- * DailyBriefService produces — nothing here recalculates a figure, in the
- * same spirit as portfolio-context.ts. Pure and dependency-free so it is
- * covered by fixture-driven tests; the caller is the only place that
- * touches I/O.
+ * Every figure is quoted from what DailyBriefService already computed —
+ * nothing here recalculates one, in the same spirit as portfolio-context.ts.
+ * Pure and dependency-free so it is covered by fixture-driven tests.
  */
+import type { Mood } from '../market-data/brief-mood.js';
+import type { MarketSession } from '../market-data/market-session.js';
 
-export interface ContextNote {
-  source: 'PORTFOLIO' | 'WATCHLIST' | 'MARKET';
+export interface ContextLine {
   title: string;
   detail: string;
 }
 
-export interface ContextCoverage {
-  source: 'PORTFOLIO' | 'WATCHLIST';
-  symbol: string;
-  price: number | null;
-  regularPrice: number | null;
-  stale: boolean;
-  session: 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED' | null;
-  extended: boolean;
-}
-
 export interface DailyBriefContextInput {
   generatedAt: string;
-  notes: ContextNote[];
-  coverage: ContextCoverage[];
+  session: MarketSession;
+  mood: Mood;
+  events: ContextLine[];
+  holdingNotes: ContextLine[];
+  watchTriggers: ContextLine[];
 }
 
-function money(value: number): string {
-  return `$${value.toFixed(2)}`;
+function percent(fraction: number): string {
+  return `${fraction >= 0 ? '+' : '-'}${(Math.abs(fraction) * 100).toFixed(2)}%`;
 }
 
-function coverageLine(item: ContextCoverage): string {
-  if (item.price === null) {
-    return `[${item.source}] ${item.symbol}: price unavailable${item.stale ? ' (stale)' : ''}`;
+function points(value: number): string {
+  return `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(2)}`;
+}
+
+function moodLines(mood: Mood): string[] {
+  const lines: string[] = [];
+  for (const index of mood.indices) {
+    const parts = [`${index.symbol}: ${index.trend ?? 'trend unknown'}`];
+    if (index.changePct !== null) parts.push(`, ${percent(index.changePct)} today`);
+    if (index.extended) parts.push(' (extended-hours print)');
+    if (index.stale) parts.push(' (stale)');
+    lines.push(`- ${parts.join('')}`);
   }
-  const parts = [money(item.price)];
-  if (item.stale) parts.push('(stale)');
-  else if (item.extended)
-    parts.push(
-      `(after-hours/overnight print${item.regularPrice !== null ? `, regular close ${money(item.regularPrice)}` : ''})`,
-    );
-  return `[${item.source}] ${item.symbol}: ${parts.join(' ')}`;
+  if (mood.vix) {
+    const change = mood.vix.change !== null ? ` (${points(mood.vix.change)})` : '';
+    lines.push(`- VIX: ${mood.vix.level.toFixed(2)}${change}${mood.vix.stale ? ' (stale)' : ''}`);
+  }
+  if (mood.leader) lines.push(`- Leading sector: ${mood.leader.name} (${mood.leader.symbol}) ${percent(mood.leader.changePct)}`);
+  if (mood.laggard) lines.push(`- Lagging sector: ${mood.laggard.name} (${mood.laggard.symbol}) ${percent(mood.laggard.changePct)}`);
+  return lines.length > 0 ? lines : ['- Market mood unavailable.'];
+}
+
+function section(heading: string, items: ContextLine[], empty: string): string[] {
+  return [
+    heading,
+    ...(items.length === 0 ? [`- ${empty}`] : items.map((item) => `- ${item.title}: ${item.detail}`)),
+    '',
+  ];
 }
 
 export function buildDailyBriefContext(input: DailyBriefContextInput): string {
-  const lines: string[] = [];
-
-  lines.push(`FACTS (daily brief as of ${input.generatedAt}, computed by the app — quote these, do not recalculate)`);
-  lines.push('');
-
-  lines.push('Notable events today');
-  if (input.notes.length === 0) {
-    lines.push('- No notable events today.');
-  } else {
-    for (const note of input.notes) {
-      lines.push(`- [${note.source}] ${note.title}: ${note.detail}`);
-    }
-  }
-  lines.push('');
-
-  lines.push('Current coverage');
-  if (input.coverage.length === 0) {
-    lines.push('- No portfolio or watchlist tickers covered.');
-  } else {
-    for (const item of input.coverage) {
-      lines.push(`- ${coverageLine(item)}`);
-    }
-  }
-
-  return lines.join('\n');
+  return [
+    `FACTS (daily brief as of ${input.generatedAt}, market session ${input.session}, computed by the app — quote these, do not recalculate)`,
+    '',
+    'Market mood',
+    ...moodLines(input.mood),
+    '',
+    ...section('Economic events this week', input.events, 'No economic events this week.'),
+    ...section('Your holdings', input.holdingNotes, 'Nothing notable on your holdings today.'),
+    ...section('Watchlist triggers', input.watchTriggers, 'No new watchlist triggers.'),
+  ].join('\n').trimEnd();
 }
