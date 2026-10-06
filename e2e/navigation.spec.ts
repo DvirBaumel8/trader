@@ -46,6 +46,16 @@ test.describe('navigation', () => {
     await expect(page.getByText('Federal Reserve browser fixture')).toBeVisible();
   });
 
+  test('Brief opens on the market mood, with no repeated price cards, and fits the phone', async ({ page }) => {
+    await page.goto('/brief');
+    const market = page.getByRole('region', { name: 'Market' });
+    await expect(market).toContainText('SPY');
+    await expect(market).toContainText('VIX 100.00');
+    await expect(page.getByRole('region', { name: 'Current coverage' })).toHaveCount(0);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+
   test('shows every holding fact without horizontal clipping on iPhone', async ({ page }) => {
     const response = await page.evaluate(async () => {
       const token = localStorage.getItem('trader.authToken.v1');
