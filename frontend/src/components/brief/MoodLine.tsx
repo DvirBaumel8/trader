@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import type { BriefEvent, BriefMood } from '../../api/dailyBrief';
+import { SessionBadge } from '../SessionBadge';
 import { formatPercent, signClass } from '../format';
 
 function Change({ value }: { value: number | null }) {
@@ -20,7 +21,7 @@ export function MoodLine({ mood, events }: { mood: BriefMood; events: BriefEvent
   for (const index of mood.indices) {
     parts.push({
       key: index.symbol,
-      node: <>{index.symbol}{index.trend && ` ${index.trend}`} <Change value={index.changePct} />{index.stale && <> <Stale /></>}</>,
+      node: <>{index.symbol}{index.trend && ` ${index.trend}`} <Change value={index.changePct} />{index.extended && <> <SessionBadge session={index.session} extended /></>}{index.stale && <> <Stale /></>}</>,
     });
   }
   if (mood.vix) {

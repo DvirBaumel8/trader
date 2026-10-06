@@ -13,7 +13,7 @@ const falling = bars(Array.from({ length: 60 }, (_, i) => 160 - i));
 const flat = bars(Array.from({ length: 60 }, () => 100));
 
 function quote(price: number, previousClose: number | null, over: Partial<MoodQuote> = {}): MoodQuote {
-  return { price, previousClose, stale: false, extended: false, ...over };
+  return { price, previousClose, stale: false, extended: false, session: 'REGULAR', regularPrice: null, ...over };
 }
 
 describe('trendOf', () => {
@@ -44,8 +44,8 @@ describe('buildMood', () => {
       indexBars: { SPY: rising, QQQ: flat },
     });
     expect(mood.indices).toEqual([
-      { symbol: 'SPY', trend: 'uptrend', changePct: 0.004, stale: false, extended: false },
-      { symbol: 'QQQ', trend: 'mixed', changePct: -0.0025, stale: false, extended: true },
+      { symbol: 'SPY', trend: 'uptrend', changePct: 0.004, stale: false, extended: false, session: 'REGULAR' },
+      { symbol: 'QQQ', trend: 'mixed', changePct: -0.0025, stale: false, extended: true, session: 'REGULAR' },
     ]);
   });
 
@@ -105,6 +105,62 @@ describe('buildMood', () => {
     const mood = buildMood({ quotes: new Map([['XLE', quote(102, 100)]]), indexBars: { SPY: [], QQQ: [] } });
     expect(mood.leader).toBeNull();
     expect(mood.laggard).toBeNull();
+  });
+
+  describe('the move per session', () => {
+    const spy = (q: MoodQuote) => buildMood({ quotes: new Map([['SPY', q]]), indexBars: { SPY: [], QQQ: [] } }).indices[0].changePct;
+    // previousClose 500 is the session before yesterday; the last close is 510.
+    it('PRE with an extended print measures from the last regular close', () => {
+      expect(spy(quote(512.04, 500, { session: 'PRE', extended: true, regularPrice: 510 }))).toBeCloseTo(0.004, 10);
+    });
+    it('PRE without an extended print has no move, never 0.00%', () => {
+      expect(spy(quote(510, 500, { session: 'PRE', extended: false, regularPrice: 510 }))).toBeNull();
+    });
+    it('REGULAR measures from the previous close', () => {
+      expect(spy(quote(502, 500, { session: 'REGULAR', regularPrice: 502 }))).toBeCloseTo(0.004, 10);
+    });
+    it('POST measures from the previous close', () => {
+      expect(spy(quote(503, 500, { session: 'POST', extended: true, regularPrice: 502 }))).toBeCloseTo(0.006, 10);
+    });
+    it('CLOSED measures from the previous close', () => {
+      expect(spy(quote(502, 500, { session: 'CLOSED', regularPrice: 502 }))).toBeCloseTo(0.004, 10);
+    });
+    it('VIX in PRE: from the regular close with an extended print, null without', () => {
+      const vix = (q: MoodQuote) => buildMood({ quotes: new Map([['^VIX', q]]), indexBars: { SPY: [], QQQ: [] } }).vix?.change;
+      expect(vix(quote(18, 16, { session: 'PRE', extended: true, regularPrice: 17.5 }))).toBeCloseTo(0.5, 10);
+      expect(vix(quote(17.5, 16, { session: 'PRE', extended: false, regularPrice: 17.5 }))).toBeNull();
+    });
+  });
+
+  describe('ranking sectors on one base', () => {
+    const run = (quotes: [string, MoodQuote][]) => buildMood({ quotes: new Map(quotes), indexBars: { SPY: [], QQQ: [] } });
+    it('in PRE counts only sectors with an extended print, from the regular close', () => {
+      const mood = run([
+        ['XLE', quote(103, 90, { session: 'PRE', extended: true, regularPrice: 100 })],
+        ['XLK', quote(99, 90, { session: 'PRE', extended: true, regularPrice: 100 })],
+        ['XLF', quote(120, 90, { session: 'PRE', extended: false, regularPrice: 120 })],
+      ]);
+      expect(mood.leader).toMatchObject({ symbol: 'XLE' });
+      expect(mood.leader?.changePct).toBeCloseTo(0.03, 10);
+      expect(mood.laggard).toMatchObject({ symbol: 'XLK' });
+    });
+    it('in PRE with one sector printing there is no pair', () => {
+      const mood = run([
+        ['XLE', quote(103, 90, { session: 'PRE', extended: true, regularPrice: 100 })],
+        ['XLK', quote(100, 90, { session: 'PRE', extended: false, regularPrice: 100 })],
+      ]);
+      expect(mood.leader).toBeNull();
+    });
+    it('after the close ranks the regular-session move, not the extended print', () => {
+      const mood = run([
+        ['XLE', quote(110, 100, { session: 'POST', extended: true, regularPrice: 101 })],
+        ['XLK', quote(95, 100, { session: 'POST', extended: true, regularPrice: 102 })],
+        ['XLF', quote(100, 100, { session: 'POST', extended: false, regularPrice: 99 })],
+      ]);
+      expect(mood.leader).toMatchObject({ symbol: 'XLK' });
+      expect(mood.leader?.changePct).toBeCloseTo(0.02, 10);
+      expect(mood.laggard).toMatchObject({ symbol: 'XLF' });
+    });
   });
 
   it('EMPTY_MOOD is what no quotes at all produce', () => {

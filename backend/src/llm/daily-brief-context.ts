@@ -33,7 +33,7 @@ function moodLines(mood: Mood): string[] {
   const lines: string[] = [];
   for (const index of mood.indices) {
     const parts = [`${index.symbol}: ${index.trend ?? 'trend unknown'}`];
-    if (index.changePct !== null) parts.push(`, ${percent(index.changePct)} today`);
+    if (index.changePct !== null) parts.push(`, ${percent(index.changePct)} since prior close`);
     if (index.extended) parts.push(' (extended-hours print)');
     if (index.stale) parts.push(' (stale)');
     lines.push(`- ${parts.join('')}`);

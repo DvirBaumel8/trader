@@ -17,8 +17,8 @@ const initialBrief = {
   marketDataAvailable: true,
   mood: {
     indices: [
-      { symbol: 'SPY', trend: 'uptrend', changePct: 0.004, stale: false, extended: true },
-      { symbol: 'QQQ', trend: 'mixed', changePct: -0.002, stale: true, extended: false },
+      { symbol: 'SPY', trend: 'uptrend', changePct: 0.004, stale: false, extended: true, session: 'PRE' },
+      { symbol: 'QQQ', trend: 'mixed', changePct: -0.002, stale: true, extended: false, session: 'PRE' },
     ],
     vix: { level: 17.8, change: 1.1, stale: false },
     leader: { symbol: 'XLE', name: 'Energy', changePct: 0.012 },
@@ -109,6 +109,19 @@ describe('Brief', () => {
     expect(market).toHaveTextContent('Lagging Technology -0.90%');
   });
 
+  it('labels an extended-hours index print with its session', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief,
+      mood: {
+        ...initialBrief.mood,
+        indices: [{ symbol: 'SPY', trend: 'uptrend', changePct: 0.004, stale: false, extended: true, session: 'POST' }],
+      },
+    });
+    renderBrief();
+    const market = await screen.findByRole('region', { name: 'Market' });
+    expect(within(market).getByText('AFTER HOURS')).toBeInTheDocument();
+  });
+
   it('labels a stale index rather than passing it off as fresh', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
@@ -159,11 +172,12 @@ describe('Brief', () => {
     expect(screen.queryByRole('region', { name: 'Watch triggers' })).not.toBeInTheDocument();
   });
 
-  it('states the session once, in the header', async () => {
+  it('states the session in the header, and again only on an extended-hours index print', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
     await screen.findByRole('region', { name: 'Market' });
-    expect(screen.getAllByText('PRE-MARKET')).toHaveLength(1);
+    // Header plus SPY (extended: true); QQQ and the rest of the line stay unlabelled.
+    expect(screen.getAllByText('PRE-MARKET')).toHaveLength(2);
   });
 
   it('forces a fresh Brief and replaces the brief when a watch trigger appears', async () => {

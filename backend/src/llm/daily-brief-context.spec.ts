@@ -24,16 +24,16 @@ describe('buildDailyBriefContext', () => {
     const facts = buildDailyBriefContext(input({
       mood: {
         indices: [
-          { symbol: 'SPY', trend: 'uptrend', changePct: 0.004, stale: false, extended: false },
-          { symbol: 'QQQ', trend: null, changePct: -0.0025, stale: true, extended: true },
+          { symbol: 'SPY', trend: 'uptrend', changePct: 0.004, stale: false, extended: false, session: 'REGULAR' },
+          { symbol: 'QQQ', trend: null, changePct: -0.0025, stale: true, extended: true, session: 'POST' },
         ],
         vix: { level: 17.8, change: 1.1, stale: false },
         leader: { symbol: 'XLE', name: 'Energy', changePct: 0.012 },
         laggard: { symbol: 'XLK', name: 'Technology', changePct: -0.009 },
       },
     }));
-    expect(facts).toContain('- SPY: uptrend, +0.40% today');
-    expect(facts).toContain('- QQQ: trend unknown, -0.25% today (extended-hours print) (stale)');
+    expect(facts).toContain('- SPY: uptrend, +0.40% since prior close');
+    expect(facts).toContain('- QQQ: trend unknown, -0.25% since prior close (extended-hours print) (stale)');
     expect(facts).toContain('- VIX: 17.80 (+1.10)');
     expect(facts).toContain('- Leading sector: Energy (XLE) +1.20%');
     expect(facts).toContain('- Lagging sector: Technology (XLK) -0.90%');

@@ -252,6 +252,17 @@ describe('DailyBriefService', () => {
       expect(complete).toHaveBeenCalledTimes(2);
     });
 
+    it('does not reuse a pre-market take after the open', async () => {
+      const complete = vi.fn().mockResolvedValue('Read.');
+      const llm = { isConfigured: () => true, complete } as any;
+      const service = new DailyBriefService(...baseDeps(), llm);
+
+      await service.get({ now: new Date('2026-09-16T13:20:00Z') }); // 09:20 ET, PRE
+      await service.get({ now: new Date('2026-09-16T13:35:00Z') }); // 09:35 ET, REGULAR
+
+      expect(complete).toHaveBeenCalledTimes(2);
+    });
+
     it('asks again within 30 minutes when this week\'s events change', async () => {
       const complete = vi.fn().mockResolvedValue('Read.');
       const llm = { isConfigured: () => true, complete } as any;

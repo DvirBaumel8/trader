@@ -14,7 +14,7 @@ export function fetchDailyBrief<T = unknown>(): Promise<T> {
 export type MarketSession = 'PRE' | 'REGULAR' | 'POST' | 'OVERNIGHT' | 'CLOSED';
 
 export interface BriefMood {
-  indices: { symbol: string; trend: 'uptrend' | 'downtrend' | 'mixed' | null; changePct: number | null; stale: boolean; extended: boolean }[];
+  indices: { symbol: string; trend: 'uptrend' | 'downtrend' | 'mixed' | null; changePct: number | null; stale: boolean; extended: boolean; session: MarketSession | null }[];
   vix: { level: number; change: number | null; stale: boolean } | null;
   leader: { symbol: string; name: string; changePct: number } | null;
   laggard: { symbol: string; name: string; changePct: number } | null;

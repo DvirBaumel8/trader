@@ -214,7 +214,7 @@ export function buildDailyBriefNotes(input: BriefSymbolInput): BriefNote[] {
  * running repeated the same sentence every morning — the stale alert a
  * daily reader learns to skip — and a big move alone is not a setup.
  */
-export function isWatchTrigger(note: BriefNote): boolean {
+export function isWatchTrigger(note: BriefNote): note is BriefNote & { kind: 'BREAKOUT' | 'MOMENTUM' } {
   if (note.kind === 'BREAKOUT') return true;
   return note.kind === 'MOMENTUM' && (note.streakDays ?? 0) <= 1;
 }

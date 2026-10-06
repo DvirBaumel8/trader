@@ -1,4 +1,6 @@
 import type { RawBar } from './yahoo.client.js';
+import { dayChangeBase } from '../portfolio/day-change.js';
+import type { MarketSession } from './select-price.js';
 import { ema, fiveDayEmaAgo, sma } from './daily-brief.js';
 
 /**
@@ -40,6 +42,9 @@ export interface MoodQuote {
   previousClose: number | null;
   stale: boolean;
   extended: boolean;
+  session: MarketSession | null;
+  /** The last regular-session price; before the open, the base of today's move. */
+  regularPrice: number | null;
 }
 
 export interface MoodInput {
@@ -59,6 +64,7 @@ export interface MoodIndexRow {
   changePct: number | null;
   stale: boolean;
   extended: boolean;
+  session: MarketSession | null;
 }
 
 export interface Mood {
@@ -73,10 +79,33 @@ export const EMPTY_MOOD: Mood = { indices: [], vix: null, leader: null, laggard:
 const TREND_PERIOD = 20;
 const LONG_TREND_PERIOD = 50;
 
+/**
+ * The move since the last regular close, as a fraction. Before the open,
+ * Yahoo's previousClose names the session before yesterday, so the base is
+ * the regular price (see dayChangeBase) and, with no extended print, there is
+ * no pre-market move to report: null, never a fake 0.00%.
+ */
 function changePct(quote: MoodQuote): number | null {
-  return quote.previousClose !== null && quote.previousClose > 0
-    ? (quote.price - quote.previousClose) / quote.previousClose
-    : null;
+  if (quote.session === 'PRE' && !quote.extended) return null;
+  const base = dayChangeBase(quote);
+  return base !== null && base > 0 ? (quote.price - base) / base : null;
+}
+
+function vixChange(quote: MoodQuote): number | null {
+  if (quote.session === 'PRE' && !quote.extended) return null;
+  const base = dayChangeBase(quote);
+  return base !== null ? quote.price - base : null;
+}
+
+/**
+ * One base for ranking sectors, so the leader and laggard are comparable.
+ * Pre-market only sectors with an extended print count (measured from the
+ * last regular close); every other session ranks the regular-session move.
+ */
+function sectorChangePct(quote: MoodQuote): number | null {
+  if (quote.session === 'PRE') return changePct(quote);
+  const prev = quote.previousClose;
+  return prev !== null && prev > 0 ? ((quote.regularPrice ?? quote.price) - prev) / prev : null;
 }
 
 /**
@@ -106,6 +135,7 @@ export function buildMood(input: MoodInput): Mood {
       changePct: changePct(quote),
       stale: quote.stale,
       extended: quote.extended,
+      session: quote.session,
     }];
   });
 
@@ -113,7 +143,7 @@ export function buildMood(input: MoodInput): Mood {
   const vix = vixQuote
     ? {
         level: vixQuote.price,
-        change: vixQuote.previousClose !== null ? vixQuote.price - vixQuote.previousClose : null,
+        change: vixChange(vixQuote),
         stale: vixQuote.stale,
       }
     : null;
@@ -124,7 +154,7 @@ export function buildMood(input: MoodInput): Mood {
     .flatMap(([symbol, name]): MoodSector[] => {
       const quote = input.quotes.get(symbol);
       if (!quote || quote.stale) return [];
-      const pct = changePct(quote);
+      const pct = sectorChangePct(quote);
       return pct === null ? [] : [{ symbol, name, changePct: pct }];
     })
     .sort((a, b) => b.changePct - a.changePct);

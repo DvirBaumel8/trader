@@ -191,7 +191,7 @@ export class DailyBriefService {
       const notes = buildDailyBriefNotes({ symbol: row.symbol, source: 'WATCHLIST', price: row.price, bars: barsFor(row.symbol), spyBars });
       for (const note of notes) {
         if (isWatchTrigger(note)) {
-          watchTriggers.push({ kind: note.kind as WatchTrigger['kind'], symbol: note.symbol, title: note.title, detail: note.detail });
+          watchTriggers.push({ kind: note.kind, symbol: note.symbol, title: note.title, detail: note.detail });
         }
       }
     }
@@ -217,7 +217,7 @@ export class DailyBriefService {
     if (!this.marketData) return new Map();
     try {
       const quotes = await this.marketData.getQuotes([...MOOD_QUOTE_SYMBOLS], refresh, false);
-      return new Map([...quotes].map(([symbol, q]) => [symbol, { price: q.price, previousClose: q.previousClose, stale: q.stale, extended: q.extended }]));
+      return new Map([...quotes].map(([symbol, q]) => [symbol, { price: q.price, previousClose: q.previousClose, stale: q.stale, extended: q.extended, session: q.session, regularPrice: q.regularPrice }]));
     } catch (err) {
       this.logger.warn(`daily brief mood quotes failed: ${err instanceof Error ? err.message : String(err)}`);
       return new Map();
@@ -236,6 +236,7 @@ export class DailyBriefService {
     if (!this.llm || !this.llm.isConfigured()) return null;
     const userKey = this.users ? (await this.users.currentUser()).id : 'default';
     const signature = JSON.stringify({
+      session: facts.session,
       day: now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
       events: [...facts.holdingNotes, ...facts.watchTriggers].map((n) => [n.kind, n.symbol]),
       macro: facts.events.map((e) => e.title),
