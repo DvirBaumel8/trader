@@ -32,6 +32,7 @@ export interface BriefResponse {
   events: BriefEvent[];
   holdingNotes: BriefLine[];
   watchTriggers: BriefLine[];
+  queue: BriefLine[];
   /** Null whenever there is nothing to show — no AI configured, or the call failed. Silent by design. */
   narrative: string | null;
   /** When the narrative was written; earlier than generatedAt when the server reused it. */

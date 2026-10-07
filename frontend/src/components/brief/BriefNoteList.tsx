@@ -6,15 +6,19 @@ export function BriefNoteList({
   label,
   notes,
   destination,
+  empty,
 }: {
   label: string;
   notes: BriefLine[];
   destination: (symbol: string) => string;
+  /** Shown under the heading when there are no notes; without it an empty list renders nothing. */
+  empty?: string;
 }) {
-  if (notes.length === 0) return null;
+  if (notes.length === 0 && !empty) return null;
   return (
     <section aria-label={label} className="space-y-2">
       <h2 className="text-xs font-medium uppercase tracking-wide text-muted">{label}</h2>
+      {notes.length === 0 && <p className="text-sm text-muted">{empty}</p>}
       {notes.map((note, index) => (
         <Link
           key={`${note.kind}-${note.symbol}-${index}`}

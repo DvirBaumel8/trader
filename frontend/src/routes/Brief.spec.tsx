@@ -27,6 +27,7 @@ const initialBrief = {
   events: [{ title: 'Fed rate decision', detail: 'Fed raised rates 25 bp to 3.75–4.00%.', eventAt: '2026-09-17' }],
   holdingNotes: [{ kind: 'MOMENTUM', symbol: 'NVDA', title: 'NVDA has good momentum', detail: 'Above rising averages.' }],
   watchTriggers: [],
+  queue: [],
   narrative: null,
   narrativeAt: null,
 };
@@ -49,6 +50,38 @@ function renderBrief() {
 }
 
 describe('Brief', () => {
+  it('puts what needs a decision in its own section, each item linking to the holding', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief,
+      queue: [
+        { kind: 'STOP_CROSSED', symbol: 'NVDA', title: 'NVDA is through its stop at $95.00', detail: 'Last $93.00. If the stop has not filled, act on it now.' },
+        { kind: 'NO_STOP', symbol: 'PLTR', title: 'PLTR has no stop', detail: 'Nothing limits the loss on this position.' },
+      ],
+    });
+    renderBrief();
+    const section = await screen.findByRole('region', { name: 'Needs attention' });
+    const links = within(section).getAllByRole('link');
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/?symbol=NVDA', '/?symbol=PLTR']);
+    expect(links[0]).toHaveTextContent('NVDA is through its stop at $95.00');
+  });
+
+  it('says when nothing needs a decision, rather than hiding the section', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
+    renderBrief();
+    const section = await screen.findByRole('region', { name: 'Needs attention' });
+    expect(section).toHaveTextContent('Nothing needs a decision today.');
+  });
+
+  it('shows the queue after the market line and before holdings', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
+    renderBrief();
+    const queue = await screen.findByRole('region', { name: 'Needs attention' });
+    const market = screen.getByRole('region', { name: 'Market' });
+    const holdings = screen.getByRole('region', { name: 'Holdings' });
+    expect(market.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(queue.compareDocumentPosition(holdings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   /** A reused take's figures are older than the notes under it; say so. */
   it('labels an AI take older than the brief with its own time', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
