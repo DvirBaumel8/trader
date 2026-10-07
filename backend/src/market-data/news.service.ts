@@ -88,7 +88,7 @@ export class NewsService {
     since: Date,
   ): Promise<{ title: string; source: string; url: string; at: string } | null> {
     const newest = (await this.recentHeadlines(symbol)).find(
-      (h) => Date.parse(h.publishedAt) >= since.getTime(),
+      (h) => Date.parse(h.publishedAt) >= since.getTime() && /^https?:\/\//.test(h.url),
     );
     return newest
       ? { title: newest.headline, source: newest.source, url: newest.url, at: newest.publishedAt }

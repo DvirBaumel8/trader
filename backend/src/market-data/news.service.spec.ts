@@ -134,4 +134,13 @@ describe('latestHeadline', () => {
     const { service } = serviceWith([]);
     await expect(service.latestHeadline('NVDA', new Date('2026-10-06T12:00:00Z'))).resolves.toBeNull();
   });
+
+  it('skips an item whose url is not http(s) and takes the newest valid one', async () => {
+    const { service } = serviceWith([
+      { ...recent('newest', 1), url: 'javascript:alert(1)' },
+      { ...recent('empty', 2), url: '' },
+      recent('valid', 3),
+    ]);
+    await expect(service.latestHeadline('NVDA', new Date('2026-10-06T12:00:00Z'))).resolves.toMatchObject({ title: 'valid' });
+  });
 });
