@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { YahooClient } from './yahoo.client.js';
 
 function clientReturning(quotes: unknown[]): YahooClient {
@@ -212,6 +212,153 @@ describe('chart fallback when the quote endpoint is blocked', () => {
     const quotes = await client.quoteMany(['BROKEN', 'NVDA']);
 
     expect(quotes.map((q) => q.symbol)).toEqual(['NVDA']);
+  });
+});
+
+describe('chart fallback prices extended hours from 5m candles', () => {
+  // Production's crumb-gated quote endpoint is blocked, so the daily-bar
+  // fallback alone showed yesterday's close all through pre-market and
+  // after-hours. The 5m chart with includePrePost needs no crumb and carries
+  // the live print.
+  const crumbBlocked = () => {
+    throw new Error('Failed to get crumb, status 429, statusText: Too Many Requests');
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function fakeYf(
+    intraday: () => unknown,
+    regularMarketPrice = 84.25,
+  ): { yf: never; intradayCalls: () => number } {
+    let calls = 0;
+    const yf = {
+      quote: async () => crumbBlocked(),
+      chart: async (_s: string, opts: { interval: string; includePrePost?: boolean }) => {
+        if (opts.interval === '5m' && opts.includePrePost === true) {
+          calls++;
+          return intraday();
+        }
+        return {
+          meta: { symbol: 'TQQQ', regularMarketPrice, previousClose: 83 },
+        };
+      },
+    } as never;
+    return { yf, intradayCalls: () => calls };
+  }
+
+  const candles = (...rows: [string, number | null][]) => ({
+    quotes: rows.map(([date, close]) => ({ date: new Date(date), close })),
+  });
+
+  it('uses a fresh pre-market candle as an extended price', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-07T08:55:00Z')); // 04:55 ET Wednesday
+    const { yf } = fakeYf(() =>
+      candles(
+        ['2026-10-06T19:55:00Z', 84.25],
+        ['2026-10-07T08:50:00Z', 83.7],
+        ['2026-10-07T08:55:00Z', 83.75],
+        ['2026-10-07T08:56:00Z', null],
+      ),
+    );
+
+    const q = await new YahooClient(yf).quote('TQQQ');
+
+    expect(q?.price).toBe(83.75);
+    expect(q?.extended).toBe(true);
+    expect(q?.regularPrice).toBe(84.25);
+    expect(q?.previousClose).toBe(83);
+    expect(q?.session).toBe('PRE');
+  });
+
+  it('makes no intraday call during the regular session', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-07T15:00:00Z'));
+    const { yf, intradayCalls } = fakeYf(() => candles(['2026-10-07T14:59:00Z', 90]));
+
+    const q = await new YahooClient(yf).quote('TQQQ');
+
+    expect(intradayCalls()).toBe(0);
+    expect(q?.price).toBe(84.25);
+    expect(q?.extended).toBe(false);
+  });
+
+  it("rejects yesterday's after-hours print as stale in the pre-market", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-07T08:55:00Z'));
+    const { yf, intradayCalls } = fakeYf(() => candles(['2026-10-06T23:55:00Z', 85.5]));
+
+    const q = await new YahooClient(yf).quote('TQQQ');
+
+    expect(intradayCalls()).toBe(1);
+    expect(q?.price).toBe(84.25);
+    expect(q?.extended).toBe(false);
+    expect(q?.session).toBe('PRE');
+  });
+
+  it('rejects a regular-hours candle even when it is the last one', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-07T21:30:00Z')); // POST, same ET day
+    const { yf } = fakeYf(() => candles(['2026-10-07T19:55:00Z', 84.1]));
+
+    const q = await new YahooClient(yf).quote('TQQQ');
+
+    expect(q?.price).toBe(84.25);
+    expect(q?.extended).toBe(false);
+  });
+
+  it('falls back to the regular-session quote when the intraday call throws', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-07T08:55:00Z'));
+    const { yf } = fakeYf(() => {
+      throw new Error('boom');
+    });
+
+    const q = await new YahooClient(yf).quote('TQQQ');
+
+    expect(q?.price).toBe(84.25);
+    expect(q?.extended).toBe(false);
+  });
+
+  it('falls back when the intraday response is empty or malformed', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-07T08:55:00Z'));
+    for (const body of [undefined, {}, { quotes: 'nope' }, candles(['2026-10-07T08:55:00Z', null])]) {
+      const { yf } = fakeYf(() => body);
+      const q = await new YahooClient(yf).quote('TQQQ');
+      expect(q?.price).toBe(84.25);
+      expect(q?.extended).toBe(false);
+    }
+  });
+
+  it('uses a fresh after-hours candle', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-07T21:30:00Z')); // 17:30 ET
+    const { yf } = fakeYf(() =>
+      candles(['2026-10-07T19:55:00Z', 84.1], ['2026-10-07T21:25:00Z', 83.9]),
+    );
+
+    const q = await new YahooClient(yf).quote('TQQQ');
+
+    expect(q?.price).toBe(83.9);
+    expect(q?.extended).toBe(true);
+    expect(q?.session).toBe('POST');
+  });
+
+  it("accepts Friday's after-hours candle on a closed weekend", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-10T15:00:00Z')); // Saturday
+    const { yf } = fakeYf(() =>
+      candles(['2026-10-09T19:55:00Z', 84.1], ['2026-10-09T23:50:00Z', 83.6]),
+    );
+
+    const q = await new YahooClient(yf).quote('TQQQ');
+
+    expect(q?.price).toBe(83.6);
+    expect(q?.extended).toBe(true);
+    expect(q?.session).toBe('CLOSED');
   });
 });
 

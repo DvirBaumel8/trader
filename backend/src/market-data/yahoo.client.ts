@@ -1,6 +1,8 @@
 import { Injectable, Optional } from '@nestjs/common';
 import YahooFinance from 'yahoo-finance2';
 import { selectPrice, type MarketSession } from './select-price.js';
+import { computeMarketSession } from './market-session.js';
+import { isExtendedPrintFresh } from './extended-print-freshness.js';
 import { parseEarningsDate } from './earnings.js';
 
 export interface RawQuote {
@@ -141,9 +143,13 @@ export class YahooClient {
    * not. A datacenter IP gets 429 on the crumb request — shared address, shared
    * reputation — which took every price in production dark while chart calls
    * kept working. Chart meta carries the price and the name but no
-   * marketState, no pre/post print and no trailing P/E, so a fallback quote is
-   * deliberately a regular-session one with a null P/E: less than the real
-   * quote, but true. Rethrows the original failure when chart cannot price it
+   * marketState, no pre/post print and no trailing P/E, so the daily-bar quote
+   * is a regular-session one with a null P/E. Outside regular hours it was
+   * yesterday's close with a 0% move, which is wrong all night; so then one
+   * more 5-minute chart call (also crumb-free) supplies the latest pre-market
+   * or after-hours print, subject to the same freshness rule as Twelve Data's.
+   * That call is best-effort: any failure leaves the regular-session quote,
+   * less than the real quote but true. Rethrows the original failure when chart cannot price it
    * either, so the caller still serves its cached price rather than a blank.
    */
   private async quoteFromChart(
@@ -164,7 +170,7 @@ export class YahooClient {
     } catch {
       throw original;
     }
-    return toRawQuote({
+    const quote = toRawQuote({
       symbol: meta.symbol ?? symbol,
       shortName: meta.shortName,
       longName: meta.longName,
@@ -177,6 +183,42 @@ export class YahooClient {
       // close. Fewer than two closes: unknown, and null says so.
       previousClose: meta.previousClose ?? (closes.length >= 2 ? closes[closes.length - 2] : undefined),
     });
+    if (!quote || quote.session === 'REGULAR') return quote;
+    const print = await this.latestExtendedPrint(symbol, quote.session);
+    return print === null ? quote : { ...quote, price: print, extended: true };
+  }
+
+  /**
+   * The latest pre/post/overnight print from the 5-minute chart, or null when
+   * there is none worth trusting. Four days back so a Monday pre-market still
+   * reaches Friday's after-hours. Never throws: this only improves a quote
+   * that is already good enough to serve.
+   */
+  private async latestExtendedPrint(
+    symbol: string,
+    session: MarketSession,
+  ): Promise<number | null> {
+    try {
+      const now = new Date();
+      const result = await this.yf.chart(symbol, {
+        period1: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000),
+        interval: '5m',
+        includePrePost: true,
+      });
+      const quotes = result?.quotes;
+      if (!Array.isArray(quotes)) return null;
+      for (let i = quotes.length - 1; i >= 0; i--) {
+        const c = quotes[i] as { date?: unknown; close?: unknown } | null;
+        if (typeof c?.close !== 'number' || !Number.isFinite(c.close)) continue;
+        const at = new Date(c.date as string | number | Date);
+        if (Number.isNaN(at.getTime())) return null;
+        if (computeMarketSession(at) === 'REGULAR') return null;
+        return isExtendedPrintFresh(now, at, session) ? c.close : null;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   /**

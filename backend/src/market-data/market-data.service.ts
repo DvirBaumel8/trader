@@ -106,7 +106,8 @@ export class MarketDataService {
    * offer — never on a regular-session quote, and never overriding a real
    * pre/post print Yahoo already gave us. This is what actually reaches for
    * Twelve Data in production, where Yahoo's crumb-gated quote endpoint is
-   * blocked and its fallback carries no extended print at all.
+   * blocked: Yahoo's chart fallback now supplies an extended print when it can, and
+   * this is the backup for the symbols where it could not.
    *
    * Public rather than private: `TickerFactsService` calls a raw Yahoo quote
    * directly on its own fallback path (it needs the provider's own
