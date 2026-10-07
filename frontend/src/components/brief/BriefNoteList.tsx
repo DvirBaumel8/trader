@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { BriefLine } from '../../api/dailyBrief';
 
-/** A labelled list of server-written notes, each linking to where the owner acts on it. Renders nothing when empty. */
+/** A labelled list of server-written notes, each linking to where the owner acts on it. Renders nothing when empty, unless `empty` text is given. */
 export function BriefNoteList({
   label,
   notes,
