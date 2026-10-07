@@ -445,48 +445,79 @@ describe('Journal (e2e)', () => {
       expect(res.body.trade.netCash).toBe(1996);
     });
 
-    it('uses the platform\'s own reported net cash as netCash, exactly, when given', async () => {
+    it('shows the fill\'s cash impact (reported gross minus the fee) as netCash when a reported net cash is given', async () => {
+      // Broker net 2000 = 10 x 200 exactly; the $4 fee is charged separately.
       const res = await trade(10, 200, '2026-08-29T14:30:00.000Z', {
         fee: 4,
-        reportedNetCash: -2004,
+        reportedNetCash: -2000,
         reportedBalance: 5000,
       }).expect(201);
+      expect(res.body.trade.price).toBe(200);
       expect(res.body.trade.netCash).toBe(-2004);
     });
 
     it('flags no mismatch when the platform numbers match what we derive', async () => {
-      // 600 sold @ 36.92, fee 6: net cash = 600*36.92 - 6 = 22146.
-      // Starting from a 0 balance, that is also the balance after.
+      // 600 sold @ 36.92, fee 6: the broker reports net cash 22152 (shares x
+      // price); cash moves 22152 - 6 = 22146. From a 0 balance that is also
+      // the balance after.
       const res = await trade(-600, 36.92, '2026-08-30T19:44:50.000Z', {
         fee: 6,
-        reportedNetCash: 22146,
+        reportedNetCash: 22152,
         reportedBalance: 22146,
       }).expect(201);
 
-      expect(res.body.trade.reportedNetCash).toBe(22146);
+      expect(res.body.trade.reportedNetCash).toBe(22152);
       expect(res.body.trade.reconciliation).toMatchObject({
-        expectedNetCash: 22146,
+        expectedNetCash: 22152,
         expectedBalance: 22146,
         netCashMismatch: false,
         balanceMismatch: false,
       });
     });
 
+    it('prices the BITX sell at 19.56 and reconciles it: net 19,560, fee 10', async () => {
+      const res = await trade(-1000, 19.57, '2026-08-30T19:44:50.000Z', {
+        fee: 10,
+        reportedNetCash: 19560,
+        reportedBalance: 19550,
+      }).expect(201);
+
+      expect(res.body.trade.price).toBe(19.56);
+      expect(res.body.trade.netCash).toBe(19550);
+      expect(res.body.trade.reconciliation).toMatchObject({
+        expectedNetCash: 19560,
+        expectedBalance: 19550,
+        netCashMismatch: false,
+        balanceMismatch: false,
+      });
+    });
+
+    it('keeps a sub-cent derived price exact and still reconciles', async () => {
+      // 3 shares for 31.00 is 10.3333... each; qty x price rounds back to 31.00.
+      const res = await trade(3, 10, '2026-08-30T19:44:50.000Z', {
+        fee: 0,
+        reportedNetCash: -31,
+        reportedBalance: -31,
+      }).expect(201);
+      expect(res.body.trade.price).toBeCloseTo(10.33333333, 7);
+      expect(res.body.trade.reconciliation.netCashMismatch).toBe(false);
+    });
+
     it('backs out a precise price from the reported net cash, rather than trusting a rounded typed price', async () => {
       // Typed as the round order price (36.92), but the platform's real
-      // average fill was 36.925 (net cash 22149 on 600 shares, fee 6) — a
-      // half-cent higher, from partial fills at slightly different prices.
-      // The stored price becomes the exact one implied by that net cash,
-      // not the guess that was typed.
+      // average fill was 36.925 (net cash 22155 on 600 shares; the fee 6 is
+      // separate) — a half-cent higher, from partial fills at slightly
+      // different prices. The stored price becomes the exact one implied by
+      // that net cash, not the guess that was typed.
       const res = await trade(-600, 36.92, '2026-08-30T19:44:50.000Z', {
         fee: 6,
-        reportedNetCash: 22149,
+        reportedNetCash: 22155,
         reportedBalance: 22149,
       }).expect(201);
 
       expect(res.body.trade.price).toBe(36.925);
       expect(res.body.trade.reconciliation).toMatchObject({
-        expectedNetCash: 22149,
+        expectedNetCash: 22155,
         netCashMismatch: false,
       });
     });
@@ -498,10 +529,10 @@ describe('Journal (e2e)', () => {
       expect(res.body.trade.price).toBe(36.92);
     });
 
-    it('rejects a reported net cash the fee alone exceeds', async () => {
+    it('rejects a reported net cash of zero', async () => {
       await trade(10, 200, '2026-08-29T14:30:00.000Z', {
         fee: 2000,
-        reportedNetCash: -1004,
+        reportedNetCash: 0,
         reportedBalance: 5000,
       }).expect(400);
     });
@@ -509,12 +540,12 @@ describe('Journal (e2e)', () => {
     it('flags a balance mismatch even when this fill\'s own net cash matches', async () => {
       const res = await trade(-600, 36.92, '2026-08-30T19:44:50.000Z', {
         fee: 6,
-        reportedNetCash: 22146,
+        reportedNetCash: 22152,
         reportedBalance: 30000,
       }).expect(201);
 
       expect(res.body.trade.reconciliation).toMatchObject({
-        expectedNetCash: 22146,
+        expectedNetCash: 22152,
         netCashMismatch: false,
         expectedBalance: 22146,
         balanceMismatch: true,
@@ -529,10 +560,10 @@ describe('Journal (e2e)', () => {
         cash: { direction: 'DEPOSIT', amount: 10000 },
       }).expect(201);
 
-      // 10 bought @ 100, fee 4: net cash = -1004. Balance after = 10000 - 1004 = 8996.
+      // 10 bought @ 100, fee 4: broker net -1000; cash moves -1004. Balance after = 8996.
       const res = await trade(10, 100, '2026-08-28T12:00:00.000Z', {
         fee: 4,
-        reportedNetCash: -1004,
+        reportedNetCash: -1000,
         reportedBalance: 8996,
       }).expect(201);
 
@@ -556,7 +587,7 @@ describe('Journal (e2e)', () => {
         // Derived balance after: 10000 - 1004 = 8996. Platform says 12.34 less.
         const first = await trade(10, 100, '2026-08-28T12:00:00.000Z', {
           fee: 4,
-          reportedNetCash: -1004,
+          reportedNetCash: -1000,
           reportedBalance: 8983.66,
         }).expect(201);
         expect(first.body.trade.reconciliation).toMatchObject({
@@ -600,7 +631,7 @@ describe('Journal (e2e)', () => {
         await deposit();
         const res = await trade(10, 100, '2026-08-28T12:00:00.000Z', {
           fee: 4,
-          reportedNetCash: -1004,
+          reportedNetCash: -1000,
           reportedBalance: 9000,
         }).expect(201);
         expect(res.body.trade.reconciliation).toMatchObject({

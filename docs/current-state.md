@@ -37,8 +37,9 @@ documents for decisions, implementation detail, and history.
   from `stopGroups` on `GET /portfolio`.
 - The watchlist supports targets and a cached AI ranking of the whole list.
 - A trade entry can carry the broker's own reported net cash and resulting
-  balance for that fill. When given, price is derived from it (full
-  precision) rather than trusting a typed guess, and a mismatch badge flags
+  balance for that fill. The broker's net cash is quantity x price exactly
+  (the fee is charged to cash separately). When given, price is derived from it
+  (full precision, |net cash| / quantity) rather than trusting a typed guess, and a mismatch badge flags
   remaining drift — a stopgap for reconciling against the broker, not a
   permanent fixture. When the platform balance is lower than derived, the
   backend exposes the gap as `reconciliation.interestToSettle` and the entry

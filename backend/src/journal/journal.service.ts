@@ -24,6 +24,7 @@ import {
   tradeNetCash,
   cashBalancesAfter,
   priceFromNetCash,
+  reconcileNetCash,
   type CashEvent,
 } from '../portfolio/derive.js';
 import { Instrument } from '../instruments/instrument.entity.js';
@@ -124,8 +125,9 @@ export interface EntryView {
     reportedBalance: number | null;
     /**
      * This fill's real, fee-inclusive cash impact — the platform's own
-     * `reportedNetCash` when given (exact), otherwise `tradeNetCash`
-     * computed from the stored price, fee, and side. Always present, unlike
+     * `reportedNetCash` (shares x price) less the separately charged fee when
+     * given (exact), otherwise `tradeNetCash` computed from the stored price,
+     * fee, and side. Always present, unlike
      * `reconciliation` below: this is what a plain list of activities
      * should show as "the amount", not the bare quantity×price notional,
      * which quietly excludes the fee and reads wrong next to what the
@@ -365,18 +367,21 @@ export class JournalService {
           })),
           reportedNetCash: t.reportedNetCash,
           reportedBalance: t.reportedBalance,
-          netCash: t.reportedNetCash ?? tradeNetCash(t),
+          netCash:
+            t.reportedNetCash != null
+              ? Math.round((t.reportedNetCash - t.fee) * 100) / 100
+              : tradeNetCash(t),
           reconciliation:
             t.reportedNetCash != null && t.reportedBalance != null
               ? (() => {
-                  const expectedNetCash = tradeNetCash(t);
+                  const { expectedNetCash, mismatch: netCashMismatch } =
+                    reconcileNetCash(t, t.reportedNetCash);
                   const expectedBalance = balanceAfter.get(t.id) ?? 0;
                   const owed = expectedBalance - t.reportedBalance;
                   return {
                     expectedNetCash,
                     expectedBalance,
-                    netCashMismatch:
-                      Math.abs(expectedNetCash - t.reportedNetCash) > 0.005,
+                    netCashMismatch,
                     balanceMismatch:
                       Math.abs(expectedBalance - t.reportedBalance) > 0.005,
                     interestToSettle:
@@ -812,29 +817,21 @@ export class JournalService {
 
   /**
    * A typed price is often a rounded guess at an average fill (2 decimals);
-   * the platform's own reported net cash is exact. When it is given, it
-   * becomes the source of truth for this fill's price — computed to full
-   * precision rather than trusting whatever was typed — so the stored price
-   * and the platform's own cash impact can never quietly disagree. Without
+   * the broker's own reported net cash (quantity x price, fee excluded) is
+   * exact. When it is given, it becomes the source of truth for this fill's
+   * price — computed to full precision rather than trusting whatever was
+   * typed — so the stored price and the broker's own figure can never quietly
+   * disagree. Without
    * it, the typed price is used unchanged, exactly as before this existed.
    */
   private resolvePrice(
     trade: NonNullable<CreateEntryInput['trade']>,
-    side: 'BUY' | 'SELL',
     quantity: number,
-    fee: number,
   ): number {
     if (trade.reportedNetCash == null) return Math.abs(trade.price);
-    const price = priceFromNetCash(
-      side,
-      quantity,
-      fee,
-      Math.abs(trade.reportedNetCash),
-    );
+    const price = priceFromNetCash(quantity, Math.abs(trade.reportedNetCash));
     if (price <= 0) {
-      throw new BadRequestException(
-        'reportedNetCash cannot be smaller than the fee',
-      );
+      throw new BadRequestException('reportedNetCash must be greater than zero');
     }
     return price;
   }
@@ -913,12 +910,7 @@ export class JournalService {
 
       this.validateReportedCash(input.trade);
       const fee = Math.abs(input.trade.fee ?? 0);
-      const price = this.resolvePrice(
-        input.trade,
-        resolved.side,
-        resolved.quantity,
-        fee,
-      );
+      const price = this.resolvePrice(input.trade, resolved.quantity);
 
       const txn = await manager.save(
         manager.create(Transaction, {

@@ -110,8 +110,10 @@ export function parsedReportedBalance(draft: EntryDraft): number | undefined {
  * `reportedNetCash` is given — it recomputes the fill from cash rather than
  * trusting a typed 2-decimal guess (see `priceFromNetCash` on the backend,
  * which this mirrors for display only; the backend's own computation at
- * save time is what is actually stored). Undefined whenever there isn't
- * enough to compute from yet, so the caller falls back to a typed price.
+ * save time is what is actually stored). The broker's net cash is quantity x
+ * price exactly — the fee is charged separately — so the price is the net
+ * cash magnitude over the quantity. Undefined whenever there isn't enough to
+ * compute from yet, so the caller falls back to a typed price.
  *
  * Reads `draft.quantity`, so the caller passes the quantity actually shown —
  * which may be the held-position suggestion rather than anything typed.
@@ -123,19 +125,18 @@ export function computedPriceFromReportedCash(
   if (netCash === undefined) return undefined;
   const quantity = Math.abs(parseFloat(draft.quantity || '0'));
   if (!Number.isFinite(quantity) || quantity <= 0) return undefined;
-  const fee = Math.abs(parseFloat(draft.fee || '0'));
   const magnitude = Math.abs(netCash);
-  const notional = draft.side === 'BUY' ? magnitude - fee : magnitude + fee;
-  return notional > 0 ? notional / quantity : undefined;
+  return magnitude > 0 ? magnitude / quantity : undefined;
 }
 
 /**
  * A live preview of the resulting platform balance, from the account's cash
- * immediately before this fill plus the fill's own signed net cash impact —
- * the same arithmetic the backend's ledger performs, previewed here so the
- * owner rarely has to type a number the app can already work out. Undefined
- * whenever there isn't enough to compute from yet: no net cash given, or the
- * previous balance isn't known (see the caller for where that comes from).
+ * immediately before this fill plus the fill's own signed net cash and minus
+ * its fee, which the broker charges to cash separately — the same arithmetic
+ * the backend's ledger performs, previewed here so the owner rarely has to
+ * type a number the app can already work out. Undefined whenever there isn't
+ * enough to compute from yet: no net cash given, or the previous balance
+ * isn't known (see the caller for where that comes from).
  */
 export function computedBalanceFromReportedCash(
   draft: EntryDraft,
@@ -144,27 +145,25 @@ export function computedBalanceFromReportedCash(
   if (previousBalance === null) return undefined;
   const netCash = signedReportedNetCash(draft);
   if (netCash === undefined) return undefined;
-  return Math.round((previousBalance + netCash) * 100) / 100;
+  const fee = Math.abs(parseFloat(draft.fee || '0')) || 0;
+  return Math.round((previousBalance + netCash - fee) * 100) / 100;
 }
 
 /**
  * The inverse of `computedPriceFromReportedCash`: a live preview of the
- * platform's net cash magnitude from a typed price — a buy pays
- * `quantity x price + fee`, a sell receives `quantity x price - fee` — rounded
- * to cents the way a platform reports it. Returned as a positive magnitude,
- * like the field itself; `signedReportedNetCash` applies the sign from the
- * side. Undefined without a usable quantity and price, or when a sell's fee
- * swallows the proceeds. Like the other previews it is display-only: the
- * caller never feeds it back into price, so the two cannot chase each other.
+ * broker's net cash magnitude from a typed price — exactly `quantity x price`,
+ * rounded to cents the way a broker reports it; the fee is charged to cash
+ * separately and is not part of it. Returned as a positive magnitude, like the
+ * field itself; `signedReportedNetCash` applies the sign from the side.
+ * Undefined without a usable quantity and price. Like the other previews it is
+ * display-only: the caller never feeds it back into price, so the two cannot
+ * chase each other.
  */
 export function computedNetCashFromPrice(draft: EntryDraft): number | undefined {
   const quantity = Math.abs(parseFloat(draft.quantity || '0'));
   const price = Math.abs(parseFloat(draft.price || '0'));
   if (!Number.isFinite(quantity) || quantity <= 0) return undefined;
   if (!Number.isFinite(price) || price <= 0) return undefined;
-  const fee = Math.abs(parseFloat(draft.fee || '0')) || 0;
-  const notional = quantity * price;
-  const netCash = draft.side === 'BUY' ? notional + fee : notional - fee;
-  const rounded = Math.round(netCash * 100) / 100;
+  const rounded = Math.round(quantity * price * 100) / 100;
   return rounded > 0 ? rounded : undefined;
 }

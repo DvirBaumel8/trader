@@ -17,10 +17,10 @@ test.describe('trade composer', () => {
     await page.getByPlaceholder('price').fill('100');
 
     const netCash = page.getByLabel('Platform net cash');
-    await expect(netCash).toHaveValue('1004');
+    await expect(netCash).toHaveValue('1000');
 
     await netCash.tap();
-    await page.keyboard.type('1003.5');
-    await expect(netCash).toHaveValue('1003.5');
+    await page.keyboard.type('999.5');
+    await expect(netCash).toHaveValue('999.5');
   });
 });

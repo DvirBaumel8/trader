@@ -78,10 +78,13 @@ export class Transaction {
   executedAt: Date;
 
   /**
-   * The platform's actual cash impact of this fill, net of its fee — entered
-   * by hand from the broker's confirmation to catch drift between what we
-   * derive and what really happened (rounding, multi-fill averaging, fees we
-   * don't model). Diagnostic only: never read back into `deriveCash`.
+   * The broker's net amount for this fill, as it reports it: signed
+   * quantity x price (negative on a buy), with the fee NOT included — the fee
+   * is charged to cash separately, so the fill's cash impact is this figure
+   * minus the fee. Entered by hand from the broker's confirmation; it sets the
+   * stored price (price = |reportedNetCash| / quantity) and catches drift
+   * between what we derive and what really happened. Never read back into
+   * `deriveCash`, which works from price, quantity and fee.
    */
   @Column('numeric', {
     precision: 20,

@@ -250,12 +250,12 @@ describe('EntrySheet, platform reconciliation fields', () => {
     await user.type(screen.getByPlaceholderText('qty'), '600');
     await user.clear(screen.getByPlaceholderText('fee'));
     await user.type(screen.getByPlaceholderText('fee'), '6');
-    await user.type(screen.getByLabelText('Platform net cash'), '22149');
+    await user.type(screen.getByLabelText('Platform net cash'), '22155');
 
-    // 600 sold, fee 6, net cash 22149 → price = (22149 + 6) / 600 = 36.925.
+    // 600 sold, net cash 22155 (shares x price; the fee is separate) → price = 22155 / 600 = 36.925.
     expect(screen.getByPlaceholderText('price')).toHaveValue(36.925);
 
-    await user.type(screen.getByLabelText('Platform balance after'), '22149');
+    await user.type(screen.getByLabelText('Platform balance after'), '22155');
     await user.click(screen.getByText('Save entry'));
 
     await waitFor(() => {
@@ -277,7 +277,7 @@ describe('EntrySheet, platform reconciliation fields', () => {
     await user.type(screen.getByPlaceholderText('qty'), '600');
     await user.clear(screen.getByPlaceholderText('fee'));
     await user.type(screen.getByPlaceholderText('fee'), '6');
-    await user.type(screen.getByLabelText('Platform net cash'), '22149');
+    await user.type(screen.getByLabelText('Platform net cash'), '22155');
 
     // Computed and shown automatically — nothing typed into price yet.
     expect(screen.getByPlaceholderText('price')).toHaveValue(36.925);
@@ -400,10 +400,10 @@ describe('EntrySheet, platform reconciliation fields', () => {
     await user.type(screen.getByPlaceholderText('qty'), '10');
     await user.type(screen.getByLabelText('Platform net cash'), '24924');
 
-    // BUY debits cash: -165188 + (-24924) = -190112, never typed by hand.
+    // BUY debits cash: -165188 - 24924 - fee 4 = -190116, never typed by hand.
     expect(
       await screen.findByLabelText('Platform balance after'),
-    ).toHaveValue(-190112);
+    ).toHaveValue(-190116);
 
     await user.click(screen.getByText('Save entry'));
     await waitFor(() => {
@@ -411,7 +411,7 @@ describe('EntrySheet, platform reconciliation fields', () => {
         (c) => c[0] === '/journal',
       );
       expect(bodyOf(save as unknown[]).trade).toMatchObject({
-        reportedBalance: -190112,
+        reportedBalance: -190116,
       });
     });
   });
@@ -867,7 +867,7 @@ describe('EntrySheet, price and net cash fill each other', () => {
     await waitFor(() => expect(screen.getByPlaceholderText('qty')).toHaveValue(600));
     await user.clear(screen.getByPlaceholderText('fee'));
     await user.type(screen.getByPlaceholderText('fee'), '6');
-    await user.type(screen.getByLabelText('Platform net cash'), '22149');
+    await user.type(screen.getByLabelText('Platform net cash'), '22155');
 
     expect(screen.getByPlaceholderText('price')).toHaveValue(36.925);
   });
@@ -882,8 +882,9 @@ describe('EntrySheet, price and net cash fill each other', () => {
     await user.type(screen.getByPlaceholderText('qty'), '10');
     await user.type(screen.getByPlaceholderText('price'), '100.5');
 
-    // BUY: 10 x 100.5 + fee 4 = 1009 debited; 1000 - 1009 = -9.
-    expect(screen.getByLabelText('Platform net cash')).toHaveValue(1009);
+    // BUY: net cash is 10 x 100.5 = 1005 (fee not included); the fee 4 is
+    // charged separately, so 1000 - 1005 - 4 = -9.
+    expect(screen.getByLabelText('Platform net cash')).toHaveValue(1005);
     await waitFor(() =>
       expect(screen.getByLabelText('Platform balance after')).toHaveValue(-9),
     );
@@ -927,7 +928,7 @@ describe('EntrySheet, price and net cash fill each other', () => {
       expect(save).toBeDefined();
       expect(bodyOf(save as unknown[]).trade).toMatchObject({
         price: 100,
-        reportedNetCash: -1004,
+        reportedNetCash: -1000,
         reportedBalance: 3996,
       });
     });
@@ -942,7 +943,7 @@ describe('EntrySheet, price and net cash fill each other', () => {
     await user.type(screen.getByPlaceholderText('NVDA'), 'NVDA');
     await user.type(screen.getByPlaceholderText('qty'), '10');
     await user.type(screen.getByPlaceholderText('price'), '100');
-    // Previewed as 1004; the owner types the broker's exact figure over it.
+    // Previewed as 1000; the owner types the broker's exact figure over it.
     await user.click(screen.getByLabelText('Platform net cash'));
     await user.keyboard('1003.5');
 

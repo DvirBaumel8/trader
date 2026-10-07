@@ -212,22 +212,35 @@ export function tradeNetCash(t: {
 }
 
 /**
- * The exact per-share price implied by the platform's own reported net cash,
- * inverting `tradeNetCash` — a 2-decimal typed price is often a rounded
- * guess at an average fill, while the platform's cash figure is exact. The
- * result can be zero or negative when the fee exceeds the reported amount;
- * the caller decides whether that is an error, since this stays a pure
- * calculation with no business rule of its own.
+ * The exact per-share price implied by the broker's reported net cash. On the
+ * owner's broker the net amount of a fill is quantity x price exactly; the fee
+ * is charged to cash separately (owner decision, 2026-10-08) — so the fee
+ * plays no part here. A 2-decimal typed price is often a rounded guess at an
+ * average fill, while the broker's figure is exact. The result is zero when
+ * the amount is zero; the caller decides whether that is an error, since this
+ * stays a pure calculation with no business rule of its own.
  */
 export function priceFromNetCash(
-  side: Side,
   quantity: number,
-  fee: number,
   netCashMagnitude: number,
 ): number {
-  const notional =
-    side === 'BUY' ? netCashMagnitude - fee : netCashMagnitude + fee;
-  return round(notional / quantity);
+  return round(netCashMagnitude / quantity);
+}
+
+/**
+ * Compares the broker's reported net cash (signed quantity x price, no fee)
+ * with what the stored fill implies. `expectedNetCash` is the signed gross to
+ * the cent: `tradeNetCash` plus the fee that is charged separately.
+ */
+export function reconcileNetCash(
+  t: { side: Side; quantity: number; price: number; fee: number },
+  reportedNetCash: number,
+): { expectedNetCash: number; mismatch: boolean } {
+  const expectedNetCash = Math.round((tradeNetCash(t) + t.fee) * 100) / 100;
+  return {
+    expectedNetCash,
+    mismatch: Math.abs(expectedNetCash - reportedNetCash) > 0.005,
+  };
 }
 
 export interface CashEvent {

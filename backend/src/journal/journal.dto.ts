@@ -112,10 +112,11 @@ export class TradeDto {
   stopExecutions?: StopExecutionDto[];
 
   /**
-   * The platform's actual net cash impact of this fill, for reconciliation
-   * against what we derive. Optional — the UI form asks for it on every new
-   * trade, but the API itself does not require it (seeding and older
-   * entries have none). Signed like a real cash delta: negative on a buy.
+   * The broker's net amount for this fill (quantity x price, fee excluded —
+   * the fee is charged separately), for reconciliation against what we derive.
+   * Optional — the UI form asks for it on every new trade, but the API
+   * itself does not require it (seeding and older entries have none). Signed
+   * like a cash delta: negative on a buy.
    */
   @IsOptional()
   @IsNumber()

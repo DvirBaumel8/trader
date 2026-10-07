@@ -5,6 +5,7 @@ import {
   tradeNetCash,
   cashBalancesAfter,
   priceFromNetCash,
+  reconcileNetCash,
   type DerivedTxn,
   type DerivedFlow,
   type DerivedDividend,
@@ -275,25 +276,50 @@ describe('tradeNetCash', () => {
 });
 
 describe('priceFromNetCash', () => {
-  it('backs out the price on a buy: notional is the magnitude minus the fee', () => {
-    // 10 shares, platform reported net cash of -1004 (magnitude 1004), fee 4.
-    expect(priceFromNetCash('BUY', 10, 4, 1004)).toBe(100);
+  // The broker's net cash for a fill is quantity x price exactly; the fee is a
+  // separate cash charge (owner decision, 2026-10-08).
+  it('is the reported magnitude over the quantity, with no fee involved', () => {
+    // BUY 100 shares, net 10,000 (fee 5 is charged on top): price 100.
+    expect(priceFromNetCash(100, 10000)).toBe(100);
   });
 
-  it('backs out the price on a sell: notional is the magnitude plus the fee', () => {
-    // 600 shares, platform reported net cash of 22146, fee 6.
-    expect(priceFromNetCash('SELL', 600, 6, 22146)).toBe(36.92);
+  it('prices the BITX sell at 19.56, not 19.57', () => {
+    // SELL 1000 BITX, net 19,560, fee 10.
+    expect(priceFromNetCash(1000, 19560)).toBe(19.56);
   });
 
   it('recovers sub-cent precision a manually typed price would round away', () => {
-    // The real-world case: recorded at 36.92, but the platform's actual
-    // average fill was 36.925 — a half-cent higher, from partial fills at
-    // slightly different prices.
-    expect(priceFromNetCash('SELL', 600, 6, 22149)).toBe(36.925);
+    expect(priceFromNetCash(600, 22155)).toBe(36.925);
   });
 
-  it('can produce a non-positive price when the fee exceeds the reported amount — the caller decides whether that is an error', () => {
-    expect(priceFromNetCash('BUY', 10, 2000, 1004)).toBeLessThanOrEqual(0);
+  it('is zero for a zero amount — the caller decides whether that is an error', () => {
+    expect(priceFromNetCash(10, 0)).toBe(0);
+  });
+
+  it('round-trips with tradeNetCash: net cash = signed gross, cash impact = gross - fee', () => {
+    const price = priceFromNetCash(1000, 19560);
+    const t = sell('BITX', 1000, price, 10);
+    expect(tradeNetCash(t)).toBe(19560 - 10);
+  });
+});
+
+describe('reconcileNetCash', () => {
+  it('expects the signed gross (quantity x price), not the fee-inclusive cash impact', () => {
+    const r = reconcileNetCash(sell('BITX', 1000, 19.56, 10), 19560);
+    expect(r).toEqual({ expectedNetCash: 19560, mismatch: false });
+    expect(reconcileNetCash(buy('X', 100, 100, 5), -10000).mismatch).toBe(false);
+  });
+
+  it('flags a reported figure a cent off', () => {
+    const r = reconcileNetCash(sell('BITX', 1000, 19.56, 10), 19560.01);
+    expect(r.expectedNetCash).toBe(19560);
+    expect(r.mismatch).toBe(true);
+  });
+
+  it('flags a reported figure that still includes the fee (the old rule)', () => {
+    expect(reconcileNetCash(sell('BITX', 1000, 19.56, 10), 19550).mismatch).toBe(
+      true,
+    );
   });
 });
 
