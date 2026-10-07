@@ -35,6 +35,14 @@ documents for decisions, implementation detail, and history.
   again collapses it. Expansion is not remembered. Sorting works on symbols:
   largest risk by total dollars, nearest/furthest by the closest tier. Totals come
   from `stopGroups` on `GET /portfolio`.
+- The Brief (`GET /watchlist/daily-brief`) opens with a Market line (index
+  trends, VIX, leading and lagging sectors, this week's events), then Needs
+  attention (stop crossed, near stop, no stop, partial stop, earnings, thesis
+  broken), then Movers: holdings that moved 1 ATR or more, each with its top
+  headline and the entry-reason chips from the entry that opened the position.
+  Watch triggers close it. One cached AI call supplies the summary and a
+  per-mover "AI:" thesis check against the owner's entry note; a reused take is
+  labelled with its own time, and an AI failure leaves the rest unchanged.
 - The watchlist supports targets and a cached AI ranking of the whole list.
 - A trade entry can carry the broker's own reported net cash and resulting
   balance for that fill. The broker's net cash is quantity x price exactly

@@ -100,7 +100,7 @@ because an entry was written, never through a "add transaction" endpoint.
 | `GET`/`DELETE /ai/summaries`, `/ai/summaries/:id` | History of those summaries. |
 | `GET`/`PATCH /settings` | `defaultFee`, plus a read-only `reasons` vocabulary (`opening`/`closing`) the composer renders its chips from. `PATCH` takes only `defaultFee`. |
 | `GET /health` | Status plus a database check. Needs a token. |
-| `GET /health/ping` | Public and deliberately DB-free — the keep-warm pinger hits it every 5 minutes. |
+| `GET /health/ping` | Public and deliberately DB-free — the keep-warm pinger hits it every 5 minutes. Returns `{ status, version }`, where `version` is the first 7 characters of the deployed commit (`RENDER_GIT_COMMIT`), or `null` locally. |
 
 ## Things that surprise callers
 
