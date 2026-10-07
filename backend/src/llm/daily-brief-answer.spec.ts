@@ -47,4 +47,29 @@ describe('parseDailyBriefAnswer', () => {
   it('keeps only the first thesis line for a symbol', () => {
     expect(parseDailyBriefAnswer('SUMMARY: s\nTHESIS NVDA: one.\nTHESIS NVDA: two.', ['NVDA']).thesis).toEqual({ NVDA: 'one.' });
   });
+
+  it('does not mistake prose that starts with "Thesis" for a thesis tag', () => {
+    const text = 'Thesis check: your stops are fine.\nNothing else urgent.';
+    expect(parseDailyBriefAnswer(text, ['NVDA'])).toEqual({ summary: text, thesis: {} });
+  });
+
+  it('keeps a mid-text "Thesis holds:" line in the summary and still reads the real thesis line', () => {
+    const text = 'SUMMARY: s1\nThesis holds: broadly.\nTHESIS NVDA: real.';
+    expect(parseDailyBriefAnswer(text, ['NVDA'])).toEqual({
+      summary: 's1\nThesis holds: broadly.',
+      thesis: { NVDA: 'real.' },
+    });
+  });
+
+  it('finds a summary that comes after the thesis lines', () => {
+    expect(parseDailyBriefAnswer('THESIS NVDA: holds.\nSUMMARY: s', ['NVDA'])).toEqual({
+      summary: 's',
+      thesis: { NVDA: 'holds.' },
+    });
+  });
+
+  it('parses a CRLF answer the same as an LF one', () => {
+    const lf = 'SUMMARY: a\nb\nTHESIS NVDA: holds.';
+    expect(parseDailyBriefAnswer(lf.replace(/\n/g, '\r\n'), ['NVDA'])).toEqual(parseDailyBriefAnswer(lf, ['NVDA']));
+  });
 });

@@ -17,18 +17,21 @@ export function parseDailyBriefAnswer(text: string, moverSymbols: readonly strin
   const bySymbol = new Map(moverSymbols.map((s) => [s.toUpperCase(), s]));
   const thesis: Record<string, string> = {};
   const summaryLines: string[] = [];
-  let inThesis = false;
 
-  for (const line of text.split('\n')) {
+  for (const line of text.split(/\r?\n/)) {
     const match = THESIS.exec(line);
     if (match) {
-      inThesis = true;
       const symbol = bySymbol.get(match[1].toUpperCase());
-      const body = match[2].trim();
-      if (symbol && body && !(symbol in thesis)) thesis[symbol] = body;
-      continue;
+      if (symbol) {
+        const body = match[2].trim();
+        if (body && !(symbol in thesis)) thesis[symbol] = body;
+        continue;
+      }
+      // A shouted "THESIS XYZ:" tag for a non-mover is an invented opinion:
+      // drop it. Anything else ("Thesis check: ...") is ordinary prose.
+      if (/^\s*\**\s*THESIS\s+[A-Z0-9.^-]+\s*:/.test(line)) continue;
     }
-    if (!inThesis) summaryLines.push(line.replace(SUMMARY, ''));
+    summaryLines.push(line.replace(SUMMARY, ''));
   }
 
   const summary = summaryLines.join('\n').trim();
