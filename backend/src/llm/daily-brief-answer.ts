@@ -13,7 +13,9 @@ export interface DailyBriefAnswer {
 const SUMMARY = /^\s*(?:[-*•]\s+)?\**\s*SUMMARY\s*\**\s*:\s*\**\s*/i;
 const THESIS = /^\s*(?:[-*•]\s+)?\**\s*THESIS\s+\**([A-Za-z0-9.^-]+)\**\s*:\s*\**\s*(.*)$/i;
 const SHOUTED_THESIS = /^\s*(?:[-*•]\s+)?\**\s*THESIS\s+\**[A-Z0-9.^-]+\**\s*:/;
-const stripTrailingBold = (text: string) => text.replace(/\**\s*$/, '').trim();
+/** Drops a trailing bold marker only when it is unbalanced (an opener we already consumed). */
+const stripTrailingBold = (text: string) =>
+  ((text.match(/\*\*/g) ?? []).length % 2 === 1 ? text.replace(/\**\s*$/, '') : text).trim();
 
 export function parseDailyBriefAnswer(text: string, moverSymbols: readonly string[]): DailyBriefAnswer {
   const bySymbol = new Map(moverSymbols.map((s) => [s.toUpperCase(), s]));

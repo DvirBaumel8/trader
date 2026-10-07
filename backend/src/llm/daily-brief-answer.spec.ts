@@ -96,4 +96,9 @@ describe('parseDailyBriefAnswer', () => {
   it('strips trailing bold markers from the summary', () => {
     expect(parseDailyBriefAnswer('**SUMMARY: s**', []).summary).toBe('s');
   });
+
+  it('keeps balanced bold at the end of a summary line or thesis body', () => {
+    expect(parseDailyBriefAnswer('SUMMARY: Watch **NVDA**', []).summary).toBe('Watch **NVDA**');
+    expect(parseDailyBriefAnswer('THESIS NVDA: holds **firmly**', ['NVDA']).thesis).toEqual({ NVDA: 'holds **firmly**' });
+  });
 });
