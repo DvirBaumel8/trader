@@ -8,7 +8,7 @@ import { Markdown } from '../components/Markdown';
 import { MoodLine } from '../components/brief/MoodLine';
 import { MoverList } from '../components/brief/MoverList';
 import { BriefNoteList } from '../components/brief/BriefNoteList';
-import { DAILY_BRIEF_QUERY_KEY, fetchDailyBrief, type BriefResponse } from '../api/dailyBrief';
+import { DAILY_BRIEF_QUERY_KEY, fetchDailyBrief, isBriefResponse, type BriefResponse } from '../api/dailyBrief';
 
 const QUERY_KEY = DAILY_BRIEF_QUERY_KEY;
 const holdingDestination = (symbol: string) => `/?symbol=${encodeURIComponent(symbol)}`;
@@ -22,9 +22,11 @@ export function Brief() {
     queryKey: QUERY_KEY,
     queryFn: () => refreshInFlight.current ?? fetchDailyBrief<BriefResponse>(),
     staleTime: 300_000,
-    refetchInterval: (current) => (current.state.data?.refreshAfterSeconds ?? 300) * 1000,
+    refetchInterval: (current) => (isBriefResponse(current.state.data) ? current.state.data.refreshAfterSeconds : 300) * 1000,
   });
-  const brief = query.data;
+  // A response from a mismatched server version must never reach the sections.
+  const unreadable = query.data !== undefined && !isBriefResponse(query.data);
+  const brief = isBriefResponse(query.data) ? query.data : undefined;
 
   const refresh = async () => {
     setRefreshFailed(false);
@@ -69,6 +71,11 @@ export function Brief() {
       )}
       {query.isError && !brief && !refreshFailed && (
         <p role="alert" className="text-sm text-down">Daily brief unavailable right now.</p>
+      )}
+      {unreadable && (
+        <p role="alert" className="rounded-lg border border-border bg-surface-1 p-3 text-sm text-muted">
+          The brief came back in a format this version of the app doesn't understand. The server may be mid-update — try again in a few minutes.
+        </p>
       )}
       {brief && <>
         {!brief.marketDataAvailable && (

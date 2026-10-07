@@ -388,4 +388,34 @@ describe('Brief', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Federal Reserve updates unavailable');
     expect(screen.queryByText('Fed rate decision')).not.toBeInTheDocument();
   });
+
+  describe('unexpected response shape', () => {
+    const message = /format this version of the app doesn.t understand/;
+
+    it('shows a message, keeps the header and refresh button, and does not throw on an old-shape payload', async () => {
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+        generatedAt: initialBrief.generatedAt, refreshAfterSeconds: 300, coverage: [], notes: [], narrative: null,
+      });
+      renderBrief();
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Daily brief' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Refresh brief/ })).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Movers' })).not.toBeInTheDocument();
+    });
+
+    it('shows the message when only movers is missing', async () => {
+      const { movers: _movers, ...withoutMovers } = initialBrief;
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue(withoutMovers);
+      renderBrief();
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      expect(screen.queryByText('Fed rate decision')).not.toBeInTheDocument();
+    });
+
+    it('does not show the message for a normal payload', async () => {
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
+      renderBrief();
+      await screen.findByRole('region', { name: 'Movers' });
+      expect(screen.queryByText(message)).not.toBeInTheDocument();
+    });
+  });
 });

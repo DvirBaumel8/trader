@@ -46,3 +46,24 @@ export interface BriefResponse {
   /** When the summary was written; earlier than generatedAt when the server reused it. */
   summaryAt: string | null;
 }
+
+const isArray = (x: unknown): x is unknown[] => Array.isArray(x);
+
+/**
+ * Shape guard for what Brief reads at the top level. It exists so a frontend
+ * that deploys ahead of (or behind) the backend shows a message instead of
+ * crashing; it deliberately checks no business rules.
+ */
+export function isBriefResponse(x: unknown): x is BriefResponse {
+  if (typeof x !== 'object' || x === null) return false;
+  const b = x as Record<string, unknown>;
+  return (
+    typeof b.generatedAt === 'string' &&
+    typeof b.mood === 'object' && b.mood !== null && !isArray(b.mood) &&
+    isArray((b.mood as Record<string, unknown>).indices) &&
+    isArray(b.queue) &&
+    isArray(b.movers) &&
+    isArray(b.watchTriggers) &&
+    isArray(b.events)
+  );
+}
