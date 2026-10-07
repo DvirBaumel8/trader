@@ -154,7 +154,7 @@ export class TradesService {
    * one.
    */
   async openTradeEntries(): Promise<
-    Array<{ symbol: string; direction: 'LONG' | 'SHORT'; enteredAt: Date; reasons: string[] }>
+    Array<{ symbol: string; direction: 'LONG' | 'SHORT'; enteredAt: Date; reasons: string[]; note: string }>
   > {
     const user = await this.users.currentUser();
     const open = (await this.deriveAllTrades()).filter((t) => t.isOpen);
@@ -166,11 +166,13 @@ export class TradesService {
         ? []
         : await this.entries.find({ where: { userId: user.id, id: In(entryIds) } });
     const reasonsById = new Map(entries.map((e) => [e.id, e.reasons]));
+    const bodyById = new Map(entries.map((e) => [e.id, e.body]));
     return open.map((t) => ({
       symbol: t.symbol,
       direction: t.direction,
       enteredAt: t.enteredAt,
       reasons: reasonsById.get(t.fills[0]?.entryId ?? '') ?? [],
+      note: bodyById.get(t.fills[0]?.entryId ?? '') ?? '',
     }));
   }
 

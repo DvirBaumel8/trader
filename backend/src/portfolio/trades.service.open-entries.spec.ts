@@ -24,10 +24,10 @@ describe('TradesService.openTradeEntries', () => {
         { symbol: 'NVDA', direction: 'LONG', enteredAt: ENTERED, isOpen: true, fills: [{ entryId: 'e1' }, { entryId: 'e2' }] },
         { symbol: 'OLD', direction: 'LONG', enteredAt: ENTERED, isOpen: false, fills: [{ entryId: 'e3' }] },
       ],
-      [{ id: 'e1', reasons: ['ENTRY_BREAKOUT'] }],
+      [{ id: 'e1', reasons: ['ENTRY_BREAKOUT'], body: 'Broke out of a 3-month base on 2x volume.' }],
     );
     await expect(svc.openTradeEntries()).resolves.toEqual([
-      { symbol: 'NVDA', direction: 'LONG', enteredAt: ENTERED, reasons: ['ENTRY_BREAKOUT'] },
+      { symbol: 'NVDA', direction: 'LONG', enteredAt: ENTERED, reasons: ['ENTRY_BREAKOUT'], note: 'Broke out of a 3-month base on 2x volume.' },
     ]);
   });
 
@@ -46,7 +46,7 @@ describe('TradesService.openTradeEntries', () => {
       [],
     );
     await expect(svc.openTradeEntries()).resolves.toEqual([
-      { symbol: 'NVDA', direction: 'LONG', enteredAt: ENTERED, reasons: [] },
+      { symbol: 'NVDA', direction: 'LONG', enteredAt: ENTERED, reasons: [], note: '' },
     ]);
     expect(find).not.toHaveBeenCalled();
   });

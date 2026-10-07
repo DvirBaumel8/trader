@@ -70,12 +70,29 @@ describe('buildDailyBriefContext', () => {
   it('writes each mover with figures as given and its headline', () => {
     const facts = buildDailyBriefContext(input({
       movers: [
-        { symbol: 'NVDA', changePct: 0.042, atrMultiple: 2.31, dollarChange: 1234.5, extended: false, stale: false, headline: { title: 'Nvidia wins deal', source: 'Reuters' } },
-        { symbol: 'MRNA', changePct: 0.03, atrMultiple: 1.2, dollarChange: -600, extended: true, stale: false, headline: null },
+        { symbol: 'NVDA', changePct: 0.042, atrMultiple: 2.31, dollarChange: 1234.5, extended: false, stale: false, headline: { title: 'Nvidia wins deal', source: 'Reuters' }, reasons: [], note: '' },
+        { symbol: 'MRNA', changePct: 0.03, atrMultiple: 1.2, dollarChange: -600, extended: true, stale: false, headline: null, reasons: [], note: '' },
       ],
     }));
     expect(facts).toContain('Movers\n- NVDA: +4.20% since prior close (2.3× ATR), +$1234.50 on the position. Headline: "Nvidia wins deal" (Reuters)');
     expect(facts).toContain('- MRNA: +3.00% since prior close (1.2× ATR), -$600.00 on the position (extended-hours print). No headline found.');
+  });
+
+  it('quotes the owner\'s entry reasons and note under each mover, truncating a long note', () => {
+    const long = 'x'.repeat(320);
+    const facts = buildDailyBriefContext(input({
+      movers: [
+        { symbol: 'NVDA', changePct: 0.042, atrMultiple: 2.31, dollarChange: 1234.5, extended: false, stale: false,
+          headline: null, reasons: ['Breakout', 'Volume'], note: 'Broke out of a 3-month base.' },
+        { symbol: 'MRNA', changePct: 0.03, atrMultiple: 1.2, dollarChange: -600, extended: false, stale: false,
+          headline: null, reasons: [], note: long },
+        { symbol: 'AMD', changePct: 0.02, atrMultiple: 1.1, dollarChange: 100, extended: false, stale: false,
+          headline: null, reasons: [], note: '' },
+      ],
+    }));
+    expect(facts).toContain('  Entry reasons: Breakout, Volume. Entry note: "Broke out of a 3-month base."');
+    expect(facts).toContain(`  Entry reasons: none recorded. Entry note: "${'x'.repeat(300)}…"`);
+    expect(facts).toContain('  Entry reasons: none recorded. No entry note.');
   });
 
   it('says plainly when nothing moved enough', () => {

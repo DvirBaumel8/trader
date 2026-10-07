@@ -20,6 +20,10 @@ export interface ContextMover {
   extended: boolean;
   stale: boolean;
   headline: { title: string; source: string } | null;
+  /** Labels of the reasons on the entry that opened the position. */
+  reasons: string[];
+  /** The owner's own entry note, verbatim; '' when none. */
+  note: string;
 }
 
 export interface DailyBriefContextInput {
@@ -46,14 +50,18 @@ function money(value: number): string {
 
 function moverLines(movers: ContextMover[]): string[] {
   if (movers.length === 0) return ['- No holding moved 1 ATR or more.'];
-  return movers.map((m) => {
+  return movers.flatMap((m) => {
     let line = `- ${m.symbol}: ${percent(m.changePct)} since prior close (${m.atrMultiple.toFixed(1)}× ATR)`;
     if (m.dollarChange !== null) line += `, ${money(m.dollarChange)} on the position`;
     if (m.extended) line += ' (extended-hours print)';
     if (m.stale) line += ' (stale)';
     line += '. ';
     line += m.headline ? `Headline: "${m.headline.title}" (${m.headline.source})` : 'No headline found.';
-    return line;
+    const reasons = m.reasons.length > 0 ? m.reasons.join(', ') : 'none recorded';
+    const note = m.note.trim();
+    const noteText =
+      note === '' ? 'No entry note.' : `Entry note: "${note.length > 300 ? `${note.slice(0, 300)}…` : note}"`;
+    return [line, `  Entry reasons: ${reasons}. ${noteText}`];
   });
 }
 
