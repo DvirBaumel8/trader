@@ -76,17 +76,17 @@ export function Brief() {
             Federal Reserve updates unavailable right now. Market events may be incomplete.
           </p>
         )}
-        {brief.narrative && (
+        {brief.summary && (
           <section
             aria-label="AI take"
             className="rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm leading-relaxed"
           >
-            {brief.narrativeAt && brief.narrativeAt !== brief.generatedAt && (
+            {brief.summaryAt && brief.summaryAt !== brief.generatedAt && (
               <p className="mb-1 text-[10px] tracking-wide text-muted uppercase">
-                AI take as of {formatTimestamp(brief.narrativeAt)}
+                AI take as of {formatTimestamp(brief.summaryAt)}
               </p>
             )}
-            <Markdown text={brief.narrative} />
+            <Markdown text={brief.summary} />
           </section>
         )}
         <MoodLine mood={brief.mood} events={brief.events} />

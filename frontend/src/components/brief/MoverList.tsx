@@ -40,7 +40,9 @@ export function MoverList({ movers }: { movers: BriefMover[] }) {
           ) : (
             <p className="text-xs text-muted">No news found</p>
           )}
-          {mover.thesis && <p className="text-xs leading-relaxed text-muted">{mover.thesis}</p>}
+          {mover.thesis && (
+            <p className="text-xs text-muted"><span className="font-medium text-accent">AI:</span> {mover.thesis}</p>
+          )}
         </div>
       ))}
     </section>

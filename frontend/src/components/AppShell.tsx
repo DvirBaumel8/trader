@@ -41,7 +41,7 @@ export function AppShell() {
   const queryClient = useQueryClient();
 
   // Fired once per app session, not on every route change or click — by the
-  // time the owner actually taps Brief, its slowest part (the AI narrative
+  // time the owner actually taps Brief, its slowest part (the AI summary
   // call) has often already finished, not just started. Shares Brief's own
   // staleTime so mounting the real query there does not immediately refetch
   // what this already just fetched.

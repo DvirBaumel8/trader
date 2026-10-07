@@ -33,8 +33,8 @@ const initialBrief = {
   }],
   watchTriggers: [],
   queue: [],
-  narrative: null,
-  narrativeAt: null,
+  summary: null,
+  summaryAt: null,
 };
 
 const fslrTrigger = { kind: 'BREAKOUT', symbol: 'FSLR', title: 'FSLR confirmed a breakout', detail: 'd' };
@@ -55,6 +55,22 @@ function renderBrief() {
 }
 
 describe('Brief', () => {
+  it('shows the AI thesis check under a mover, labelled as AI', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief, movers: [{ ...initialBrief.movers[0], thesis: 'The deal confirms your breakout thesis.' }],
+    });
+    renderBrief();
+    const movers = await screen.findByRole('region', { name: 'Movers' });
+    expect(movers).toHaveTextContent('AI: The deal confirms your breakout thesis.');
+  });
+
+  it('shows no AI line under a mover when there is no thesis', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
+    renderBrief();
+    const movers = await screen.findByRole('region', { name: 'Movers' });
+    expect(movers).not.toHaveTextContent('AI:');
+  });
+
   it('puts what needs a decision in its own section, each item linking to the holding', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...initialBrief,
@@ -91,8 +107,8 @@ describe('Brief', () => {
   it('labels an AI take older than the brief with its own time', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...initialBrief,
-      narrative: 'IONQ is the one to watch.',
-      narrativeAt: '2026-09-17T07:40:00.000Z',
+      summary: 'IONQ is the one to watch.',
+      summaryAt: '2026-09-17T07:40:00.000Z',
     });
     renderBrief();
 
@@ -103,8 +119,8 @@ describe('Brief', () => {
   it('does not label a take written with this brief', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...initialBrief,
-      narrative: 'IONQ is the one to watch.',
-      narrativeAt: initialBrief.generatedAt,
+      summary: 'IONQ is the one to watch.',
+      summaryAt: initialBrief.generatedAt,
     });
     renderBrief();
 
@@ -115,7 +131,7 @@ describe('Brief', () => {
   it('shows the AI take above the market mood when one was given', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...initialBrief,
-      narrative: 'Nothing urgent — FSLR is the one to watch.',
+      summary: 'Nothing urgent — FSLR is the one to watch.',
     });
     renderBrief();
 
@@ -128,7 +144,7 @@ describe('Brief', () => {
   it('shows nothing extra when there is no AI take, rather than an empty box', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...initialBrief,
-      narrative: null,
+      summary: null,
     });
     renderBrief();
 
