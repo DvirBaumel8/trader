@@ -32,13 +32,6 @@ function input(over: Partial<BriefSymbolInput> = {}): BriefSymbolInput {
 }
 
 describe('daily brief signal rules', () => {
-  it('notes when today moved at least one ATR from the prior close', () => {
-    const source = bars(Array.from({ length: 20 }, () => 100));
-    source[source.length - 1] = { ...source.at(-1)!, close: 103, high: 104, low: 99 };
-    const notes = buildDailyBriefNotes(input({ price: 103, bars: source }));
-    expect(notes.some((note) => note.kind === 'ATR_MOVE')).toBe(true);
-  });
-
   it('notes good momentum only when trend and relative strength agree', () => {
     const notes = buildDailyBriefNotes(input());
     expect(notes.some((note) => note.kind === 'MOMENTUM')).toBe(true);
@@ -123,9 +116,6 @@ describe('isWatchTrigger', () => {
   });
   it('drops a momentum streak already running, which is not news', () => {
     expect(isWatchTrigger(note({ kind: 'MOMENTUM', streakDays: 2 }))).toBe(false);
-  });
-  it('drops a large daily move, which is not a setup on a watch row', () => {
-    expect(isWatchTrigger(note({ kind: 'ATR_MOVE' }))).toBe(false);
   });
 });
 

@@ -1,7 +1,7 @@
 import type { RawBar } from './yahoo.client.js';
 
 export type BriefSource = 'PORTFOLIO' | 'WATCHLIST';
-export type BriefKind = 'ATR_MOVE' | 'MOMENTUM' | 'BREAKOUT';
+export type BriefKind = 'MOMENTUM' | 'BREAKOUT';
 
 export interface BriefSymbolInput {
   symbol: string;
@@ -139,22 +139,6 @@ export function buildDailyBriefNotes(input: BriefSymbolInput): BriefNote[] {
   const bars = [...input.bars].sort((a, b) => a.date.localeCompare(b.date));
   const notes: BriefNote[] = [];
   const latest = bars.at(-1);
-  const previous = bars.at(-2);
-  const atr = priorAtr(bars);
-
-  if (latest && previous && atr !== null && atr > 0) {
-    const move = Math.abs(latest.close - previous.close);
-    if (move >= atr) {
-      notes.push({
-        kind: 'ATR_MOVE',
-        symbol: input.symbol,
-        source: input.source,
-        title: `${input.symbol} moved ${(move / atr).toFixed(1)}× its daily ATR`,
-        detail: `Today’s move was ${(move / atr).toFixed(1)} ATR from the prior close.`,
-      });
-    }
-  }
-
   const closes = bars.map((bar) => bar.close);
   const ema20 = ema(closes, TREND_PERIOD);
   const sma50 = sma(closes, LONG_TREND_PERIOD);
