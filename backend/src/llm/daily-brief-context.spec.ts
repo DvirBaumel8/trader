@@ -8,6 +8,7 @@ function input(over: Partial<DailyBriefContextInput> = {}): DailyBriefContextInp
     session: 'REGULAR',
     mood: EMPTY_MOOD,
     events: [],
+    queue: [],
     holdingNotes: [],
     watchTriggers: [],
     ...over,
@@ -59,5 +60,18 @@ describe('buildDailyBriefContext', () => {
     expect(facts).toContain('- No economic events this week.');
     expect(facts).toContain('- Nothing notable on your holdings today.');
     expect(facts).toContain('- No new watchlist triggers.');
+  });
+
+  it('lists what needs attention verbatim, first among the per-name sections', () => {
+    const facts = buildDailyBriefContext(input({
+      queue: [{ title: 'NVDA is through its stop at $95.00', detail: 'Last $93.00. If the stop has not filled, act on it now.' }],
+      holdingNotes: [{ title: 'MSFT has good momentum', detail: 'd' }],
+    }));
+    expect(facts).toContain('Needs attention\n- NVDA is through its stop at $95.00: Last $93.00. If the stop has not filled, act on it now.');
+    expect(facts.indexOf('Needs attention')).toBeLessThan(facts.indexOf('Your holdings'));
+  });
+
+  it('says plainly when nothing needs attention', () => {
+    expect(buildDailyBriefContext(input())).toContain('- Nothing needs a decision today.');
   });
 });

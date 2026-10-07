@@ -15,13 +15,14 @@ function breakoutBars(instrumentId: string) {
 function deps(over: {
   positions?: unknown[];
   watched?: unknown[];
-  instruments?: { id: string; symbol: string }[];
+  instruments?: { id: string; symbol: string; nextEarningsDate?: string }[];
   bars?: unknown[];
   calendar?: { available: boolean; events: unknown[] };
   atRisk?: unknown;
+  stopTiers?: unknown[];
 } = {}) {
   return [
-    { getPortfolio: vi.fn().mockResolvedValue({ positions: over.positions ?? [], atRisk: over.atRisk ?? { positionsWithoutStop: { count: 0, symbols: [] } } }) } as any,
+    { getPortfolio: vi.fn().mockResolvedValue({ positions: over.positions ?? [], atRisk: over.atRisk ?? { positionsWithoutStop: { count: 0, symbols: [] } }, stopTiers: over.stopTiers ?? [] }) } as any,
     { list: vi.fn().mockResolvedValue(over.watched ?? []) } as any,
     { find: vi.fn().mockResolvedValue(over.bars ?? []) } as any,
     { find: vi.fn().mockResolvedValue(over.instruments ?? []) } as any,
@@ -191,24 +192,6 @@ describe('DailyBriefService', () => {
     expect(move?.detail).not.toContain('No stop is set');
   });
 
-  it('orders an earnings note ahead of a momentum note', async () => {
-    const realDates = Array.from({ length: 60 }, (_, i) => new Date(Date.UTC(2026, 5, i + 1)).toISOString().slice(0, 10));
-    const nvdaBars = realDates.map((date, i) => ({ instrumentId: 'nvda', date, close: 100 + i * 0.2, high: null, low: null, volume: 1_000_000 }));
-    const spyBars = realDates.map((date) => ({ instrumentId: 'spy', date, close: 100, high: null, low: null, volume: 1_000_000 }));
-    const price = 100 + 59 * 0.2;
-    const service = new DailyBriefService(...deps({
-      positions: [{ symbol: 'NVDA', price, regularPrice: price, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: 0 }],
-      instruments: [{ id: 'nvda', symbol: 'NVDA' }, { id: 'spy', symbol: 'SPY' }],
-      bars: [...nvdaBars, ...spyBars],
-    }));
-
-    const result = await service.get({ now: new Date(Date.UTC(2026, 5, 60)) });
-
-    const kinds = result.holdingNotes.map((note) => note.kind);
-    expect(kinds).toContain('MOMENTUM');
-    expect(kinds.indexOf('EARNINGS')).toBeLessThan(kinds.indexOf('MOMENTUM'));
-  });
-
   describe('the AI narrative', () => {
     const baseDeps = () => [
       { getPortfolio: vi.fn().mockResolvedValue({ positions: [], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } } }) } as any,
@@ -223,24 +206,25 @@ describe('DailyBriefService', () => {
       const complete = vi.fn().mockResolvedValue('Read.');
       const llm = { isConfigured: () => true, complete } as any;
       const getQuotes = vi.fn().mockResolvedValue(new Map([['SPY', quote(502, 500)]]));
-      const withNote = (daysUntilEarnings: number | null) => deps({
-        positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings }],
+      const withNote = (noStop: boolean) => deps({
+        positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null, marketValue: 10_000 }],
+        atRisk: { positionsWithoutStop: { count: noStop ? 1 : 0, symbols: noStop ? ['NVDA'] : [] } },
       });
-      const first = new DailyBriefService(...withNote(2), llm, undefined, { getQuotes } as any);
+      const first = new DailyBriefService(...withNote(true), llm, undefined, { getQuotes } as any);
 
       await first.get({ now: new Date('2026-09-16T15:00:00Z') });
 
       const prompt = complete.mock.calls[0][0].user as string;
       expect(prompt).toContain('- SPY:');
       expect(prompt).toContain('market session REGULAR');
-      expect(prompt).toContain('NVDA has earnings this week');
+      expect(prompt).toContain('NVDA has no stop');
 
       // Same service, same day: an unchanged brief is reused, a changed holding set is not.
       const holdings = { getPortfolio: vi.fn() };
       holdings.getPortfolio
-        .mockResolvedValueOnce({ positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: 2 }], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } } })
-        .mockResolvedValueOnce({ positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: 2 }], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } } })
-        .mockResolvedValue({ positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null }], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } } });
+        .mockResolvedValueOnce({ positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null, marketValue: 10_000 }], atRisk: { positionsWithoutStop: { count: 1, symbols: ['NVDA'] } }, stopTiers: [] })
+        .mockResolvedValueOnce({ positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null, marketValue: 10_000 }], atRisk: { positionsWithoutStop: { count: 1, symbols: ['NVDA'] } }, stopTiers: [] })
+        .mockResolvedValue({ positions: [{ symbol: 'NVDA', price: 100, regularPrice: 100, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null, marketValue: 10_000 }], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } }, stopTiers: [] });
       const [, ...rest] = deps();
       const service = new DailyBriefService(holdings as any, ...rest, llm, undefined, { getQuotes } as any);
       complete.mockClear();
@@ -374,6 +358,85 @@ describe('DailyBriefService', () => {
       const result = await service.get();
 
       expect(result.narrative).toBeNull();
+    });
+  });
+
+  describe('the decision queue', () => {
+    const position = (symbol: string, over: object = {}) => ({
+      symbol, price: 93, regularPrice: 93, stale: false, session: 'REGULAR', extended: false,
+      daysUntilEarnings: null, marketValue: 9_300, ...over,
+    });
+    const tradesStub = (entries: unknown[] = []) => ({ openTradeEntries: vi.fn().mockResolvedValue(entries) }) as any;
+
+    it('serves a crossed stop from the portfolio\'s own stop rows', async () => {
+      const service = new DailyBriefService(...deps({
+        positions: [position('NVDA')],
+        stopTiers: [{ symbol: 'NVDA', stopPrice: 95, currentPrice: 93, distance: -0.0215, passed: true, quantity: 100 }],
+      }));
+      const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      expect(result.queue).toEqual([expect.objectContaining({ kind: 'STOP_CROSSED', symbol: 'NVDA' })]);
+    });
+
+    it('lists a held position with no stop', async () => {
+      const service = new DailyBriefService(...deps({
+        positions: [position('PLTR')],
+        atRisk: { positionsWithoutStop: { count: 1, symbols: ['PLTR'] } },
+      }));
+      const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      expect(result.queue).toEqual([expect.objectContaining({ kind: 'NO_STOP', symbol: 'PLTR' })]);
+    });
+
+    it('reads the earnings date from the instrument and moves earnings out of holding notes', async () => {
+      const service = new DailyBriefService(...deps({
+        positions: [position('NVDA', { daysUntilEarnings: 1 })],
+        instruments: [{ id: 'i-nvda', symbol: 'NVDA', nextEarningsDate: '2026-10-08' }],
+      }));
+      const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      expect(result.queue).toEqual([expect.objectContaining({ kind: 'EARNINGS', symbol: 'NVDA', title: 'NVDA reports tomorrow' })]);
+      expect(result.holdingNotes.some((n) => (n.kind as string) === 'EARNINGS')).toBe(false);
+    });
+
+    it('checks the thesis from the opening entry\'s reasons and the symbol\'s bars', async () => {
+      const bars = Array.from({ length: 160 }, (_, i) => {
+        const date = new Date(Date.UTC(2026, 4, 1) + i * 86_400_000).toISOString().slice(0, 10);
+        const close = i === 159 ? 90 : 100;
+        return { instrumentId: 'i-nvda', date, close, adjClose: close, open: close, high: close + 1, low: close - 1, volume: 1_000_000 };
+      });
+      const service = new DailyBriefService(
+        ...deps({ positions: [position('NVDA', { price: 90 })], instruments: [{ id: 'i-nvda', symbol: 'NVDA' }], bars }),
+        undefined, undefined, undefined,
+        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-06-01T14:00:00Z'), reasons: ['ENTRY_SMA_150'] }]),
+      );
+      // After the close on the last bar's date, so that bar is a completed session.
+      const result = await service.get({ now: new Date(`${bars.at(-1)!.date}T22:00:00Z`) });
+      expect(result.queue).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'THESIS_BROKEN', symbol: 'NVDA' })]));
+    });
+
+    it('still serves the brief, without thesis items, when the trades read fails', async () => {
+      const trades = { openTradeEntries: vi.fn().mockRejectedValue(new Error('db down')) } as any;
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      try {
+        const service = new DailyBriefService(...deps({ positions: [position('NVDA')] }), undefined, undefined, undefined, trades);
+        await expect(service.get()).resolves.toMatchObject({ queue: [] });
+        expect(warn).toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('hands the queue to the AI and re-asks when it changes', async () => {
+      const complete = vi.fn().mockResolvedValue('Act on NVDA.');
+      const llm = { isConfigured: () => true, complete } as any;
+      const portfolio = { getPortfolio: vi.fn() };
+      portfolio.getPortfolio.mockResolvedValueOnce({ positions: [position('PLTR')], atRisk: { positionsWithoutStop: { count: 1, symbols: ['PLTR'] } }, stopTiers: [] });
+      portfolio.getPortfolio.mockResolvedValueOnce({ positions: [position('PLTR')], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } }, stopTiers: [] });
+      const [, ...rest] = deps();
+      const service = new DailyBriefService(portfolio as any, ...rest, llm);
+
+      await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      expect(complete.mock.calls[0][0].user).toContain('Needs attention\n- PLTR has no stop');
+      await service.get({ now: new Date('2026-10-07T15:05:00Z') });
+      expect(complete).toHaveBeenCalledTimes(2);
     });
   });
 });

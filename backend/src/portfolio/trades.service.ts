@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, MoreThanOrEqual, Repository } from 'typeorm';
+import { Between, In, MoreThanOrEqual, Repository } from 'typeorm';
 import { Transaction } from '../transactions/transaction.entity.js';
 import { StopLevel } from '../transactions/stop-level.entity.js';
 import { StopExecution } from '../transactions/stop-execution.entity.js';
@@ -144,6 +144,34 @@ export class TradesService {
         exitKind: t.exitKind,
       })),
     );
+  }
+
+  /**
+   * Each open trade with the entry reasons recorded on its OPENING fill's
+   * journal entry — what the Brief's thesis check reads. Fills are in
+   * execution order, so the first is the one that opened the position;
+   * later adds may carry their own reasons, but the thesis is the opening
+   * one.
+   */
+  async openTradeEntries(): Promise<
+    Array<{ symbol: string; direction: 'LONG' | 'SHORT'; enteredAt: Date; reasons: string[] }>
+  > {
+    const user = await this.users.currentUser();
+    const open = (await this.deriveAllTrades()).filter((t) => t.isOpen);
+    const entryIds = [
+      ...new Set(open.map((t) => t.fills[0]?.entryId).filter((id): id is string => !!id)),
+    ];
+    const entries =
+      entryIds.length === 0
+        ? []
+        : await this.entries.find({ where: { userId: user.id, id: In(entryIds) } });
+    const reasonsById = new Map(entries.map((e) => [e.id, e.reasons]));
+    return open.map((t) => ({
+      symbol: t.symbol,
+      direction: t.direction,
+      enteredAt: t.enteredAt,
+      reasons: reasonsById.get(t.fills[0]?.entryId ?? '') ?? [],
+    }));
   }
 
   /**

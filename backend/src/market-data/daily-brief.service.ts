@@ -7,7 +7,8 @@ import { DailyClose } from './daily-close.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { HistoryService } from './history.service.js';
 import { EconomicCalendarClient } from './economic-calendar.client.js';
-import { buildDailyBriefNotes, isWatchTrigger } from './daily-brief.js';
+import { buildDailyBriefNotes, isWatchTrigger, priorAtr } from './daily-brief.js';
+import { buildQueue, type QueueItem } from './brief-queue.js';
 import { MarketDataService } from './market-data.service.js';
 import { computeMarketSession, type MarketSession } from './market-session.js';
 import { buildMood, MOOD_INDICES, MOOD_QUOTE_SYMBOLS, type Mood, type MoodQuote } from './brief-mood.js';
@@ -17,9 +18,10 @@ import { buildDailyBriefUserPrompt } from '../llm/daily-brief-prompt.js';
 import { buildSystemPrompt } from '../llm/prompts.js';
 import { readTraderProfile } from '../llm/trader-profile.js';
 import { UsersService } from '../users/users.service.js';
+import { TradesService } from '../portfolio/trades.service.js';
 
 export interface BriefEvent { title: string; detail: string; eventAt: string }
-export interface HoldingNote { kind: 'ATR_MOVE' | 'MOMENTUM' | 'BREAKOUT' | 'EARNINGS'; symbol: string; title: string; detail: string }
+export interface HoldingNote { kind: 'ATR_MOVE' | 'MOMENTUM' | 'BREAKOUT'; symbol: string; title: string; detail: string }
 export interface WatchTrigger { kind: 'BREAKOUT' | 'MOMENTUM'; symbol: string; title: string; detail: string }
 
 export interface DailyBriefResponse {
@@ -29,6 +31,7 @@ export interface DailyBriefResponse {
   marketDataAvailable: boolean;
   mood: Mood;
   events: BriefEvent[];
+  queue: QueueItem[];
   /** Interim (Brief redesign slice 1): replaced by the decision queue and movers in slices 2–3. */
   holdingNotes: HoldingNote[];
   watchTriggers: WatchTrigger[];
@@ -49,7 +52,7 @@ export interface DailyBriefResponse {
 const NARRATIVE_MAX_AGE_MS = 30 * 60 * 1000;
 
 /** Read first, gets the reader's attention first — a loud move or an event risk outranks a slow-moving trend. */
-const HOLDING_NOTE_PRIORITY: Record<HoldingNote['kind'], number> = { EARNINGS: 0, ATR_MOVE: 1, BREAKOUT: 2, MOMENTUM: 3 };
+const HOLDING_NOTE_PRIORITY: Record<HoldingNote['kind'], number> = { ATR_MOVE: 1, BREAKOUT: 2, MOMENTUM: 3 };
 
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -68,6 +71,7 @@ interface BriefFacts {
   session: MarketSession;
   mood: Mood;
   events: BriefEvent[];
+  queue: QueueItem[];
   holdingNotes: HoldingNote[];
   watchTriggers: WatchTrigger[];
 }
@@ -95,6 +99,8 @@ export class DailyBriefService {
     // Optional for the same reason: existing positional call sites read as
     // "no mood" (an empty one), not as a missing dependency.
     private readonly marketData?: MarketDataService,
+    // Optional for the same reason: without it there are no thesis checks.
+    private readonly trades?: TradesService,
   ) {}
 
   /**
@@ -120,11 +126,12 @@ export class DailyBriefService {
     const weekStart = startOfWeek(now);
     const weekEnd = new Date(weekStart);
     weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
-    const [portfolio, watched, calendar, moodQuotes] = await Promise.all([
+    const [portfolio, watched, calendar, moodQuotes, openEntries] = await Promise.all([
       this.portfolio.getPortfolio({ refresh }),
       this.watchlist.list({ refresh }),
       this.calendar.week(isoDate(weekStart), isoDate(weekEnd)),
       this.moodQuotes(refresh),
+      this.openTradeEntries(),
     ]);
     const held = new Set<string>(portfolio.positions.map((position: { symbol: string }) => position.symbol));
     const watchOnly = watched.filter((row) => !held.has(row.symbol));
@@ -174,14 +181,6 @@ export class DailyBriefService {
           holdingNotes.push({ kind: note.kind, symbol: note.symbol, title: note.title, detail });
         }
       }
-      const days = position.daysUntilEarnings;
-      if (days !== null && days !== undefined && days >= 0 && days <= 6) {
-        holdingNotes.push({
-          kind: 'EARNINGS', symbol: position.symbol,
-          title: `${position.symbol} has earnings this week`,
-          detail: days === 0 ? 'Earnings are today.' : `Earnings are in ${days} days.`,
-        });
-      }
     }
     holdingNotes.sort((a, b) => HOLDING_NOTE_PRIORITY[a.kind] - HOLDING_NOTE_PRIORITY[b.kind]);
 
@@ -199,13 +198,54 @@ export class DailyBriefService {
     const events: BriefEvent[] = calendar.events.map((event) => ({ title: event.title, detail: event.detail, eventAt: event.date }));
     const mood = buildMood({ quotes: moodQuotes, indexBars: { SPY: barsFor('SPY'), QQQ: barsFor('QQQ') } });
     const session = computeMarketSession(now);
-    const narrative = await this.buildNarrative(now, { session, mood, events, holdingNotes, watchTriggers });
+    const queue = buildQueue({
+      now,
+      session,
+      positions: portfolio.positions.map((p: { symbol: string; marketValue: number | null; stale: boolean }) => ({
+        symbol: p.symbol, marketValue: p.marketValue ?? null, stale: p.stale,
+      })),
+      stopTiers: portfolio.stopTiers ?? [],
+      symbolsWithoutStop: portfolio.atRisk?.positionsWithoutStop?.symbols ?? [],
+      atrBySymbol: new Map(
+        [...held].flatMap((symbol) => {
+          const atr = priorAtr(barsFor(symbol));
+          return atr === null ? [] : [[symbol, atr] as const];
+        }),
+      ),
+      earningsDateBySymbol: new Map(
+        [...held].flatMap((symbol) => {
+          const date = instrumentBySymbol.get(symbol)?.nextEarningsDate;
+          return date ? [[symbol, date] as const] : [];
+        }),
+      ),
+      theses: openEntries
+        .filter((entry) => held.has(entry.symbol))
+        .map((entry) => ({
+          symbol: entry.symbol,
+          direction: entry.direction,
+          reasons: entry.reasons,
+          entryDate: entry.enteredAt.toISOString().slice(0, 10),
+          bars: barsFor(entry.symbol),
+        })),
+    });
+    const narrative = await this.buildNarrative(now, { session, mood, events, queue, holdingNotes, watchTriggers });
 
     return {
       generatedAt: now.toISOString(), refreshAfterSeconds: 300, session,
-      marketDataAvailable: calendar.available, mood, events, holdingNotes, watchTriggers,
+      marketDataAvailable: calendar.available, mood, events, queue, holdingNotes, watchTriggers,
       narrative: narrative?.text ?? null, narrativeAt: narrative?.at.toISOString() ?? null,
     };
+  }
+
+  /** Never throws: thesis checks are an extra, not something the brief depends on. */
+  private async openTradeEntries(): Promise<Awaited<ReturnType<TradesService['openTradeEntries']>>> {
+    if (!this.trades) return [];
+    try {
+      return await this.trades.openTradeEntries();
+    } catch (err) {
+      this.logger.warn(`daily brief thesis read failed: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
   }
 
   /**
@@ -239,6 +279,7 @@ export class DailyBriefService {
       session: facts.session,
       day: now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
       events: [...facts.holdingNotes, ...facts.watchTriggers].map((n) => [n.kind, n.symbol]),
+      queue: facts.queue.map((q) => [q.kind, q.symbol]),
       macro: facts.events.map((e) => e.title),
     });
     const cached = this.narratives.get(userKey);

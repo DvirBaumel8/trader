@@ -17,6 +17,7 @@ export interface DailyBriefContextInput {
   session: MarketSession;
   mood: Mood;
   events: ContextLine[];
+  queue: ContextLine[];
   holdingNotes: ContextLine[];
   watchTriggers: ContextLine[];
 }
@@ -63,6 +64,7 @@ export function buildDailyBriefContext(input: DailyBriefContextInput): string {
     ...moodLines(input.mood),
     '',
     ...section('Economic events this week', input.events, 'No economic events this week.'),
+    ...section('Needs attention', input.queue, 'Nothing needs a decision today.'),
     ...section('Your holdings', input.holdingNotes, 'Nothing notable on your holdings today.'),
     ...section('Watchlist triggers', input.watchTriggers, 'No new watchlist triggers.'),
   ].join('\n').trimEnd();
