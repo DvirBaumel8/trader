@@ -51,6 +51,7 @@ import { InstrumentsModule } from '../instruments/instruments.module.js';
     HistoryService,
     TickerFactsService,
     FundamentalsService,
+    NewsService,
     EarningsService,
   ],
 })

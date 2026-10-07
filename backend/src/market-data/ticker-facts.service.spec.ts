@@ -304,6 +304,7 @@ describe('TickerFactsService.get — recent news', () => {
     summary: 'A multi-year partnership.',
     source: 'Reuters',
     publishedOn: '2026-09-16',
+    publishedAt: '2026-09-16T00:00:00.000Z',
     url: 'https://example.com/1',
   };
 

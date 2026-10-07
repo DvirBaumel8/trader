@@ -20,6 +20,8 @@ export interface NewsHeadline {
   source: string;
   /** The day it was published, as YYYY-MM-DD. */
   publishedOn: string;
+  /** The exact publication time, as an ISO timestamp. */
+  publishedAt: string;
   url: string;
 }
 
@@ -66,6 +68,7 @@ export class NewsService {
         summary: r.summary,
         source: r.source,
         publishedOn: new Date(r.datetime * 1000).toISOString().slice(0, 10),
+        publishedAt: new Date(r.datetime * 1000).toISOString(),
         url: r.url,
       }));
 
@@ -73,5 +76,22 @@ export class NewsService {
       this.cache.set(key, { headlines, fetchedAt: Date.now() });
     }
     return headlines;
+  }
+
+  /**
+   * The newest headline published since `since`, for the Brief's movers —
+   * "why did it move" wants today's news, not last week's. Never throws:
+   * `recentHeadlines` already swallows provider failures into an empty list.
+   */
+  async latestHeadline(
+    symbol: string,
+    since: Date,
+  ): Promise<{ title: string; source: string; url: string; at: string } | null> {
+    const newest = (await this.recentHeadlines(symbol)).find(
+      (h) => Date.parse(h.publishedAt) >= since.getTime(),
+    );
+    return newest
+      ? { title: newest.headline, source: newest.source, url: newest.url, at: newest.publishedAt }
+      : null;
   }
 }

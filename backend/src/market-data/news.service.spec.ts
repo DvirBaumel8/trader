@@ -33,6 +33,7 @@ describe('recentHeadlines', () => {
         summary: 'The companies announced a multi-year partnership.',
         source: 'Reuters',
         publishedOn: '2025-09-08',
+        publishedAt: '2025-09-08T00:00:00.000Z',
         url: 'https://example.com/1',
       },
     ]);
@@ -108,5 +109,29 @@ describe('recentHeadlines', () => {
     expect(await service.recentHeadlines('NVO')).toEqual([]);
     expect(await service.recentHeadlines('NVO')).toHaveLength(1);
     expect(companyNews).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('latestHeadline', () => {
+  const now = Date.parse('2026-10-07T12:00:00Z') / 1000;
+  const recent = (headline: string, hoursAgo: number) => ({
+    headline, summary: 's', source: 'Reuters', datetime: now - hoursAgo * 3600, url: `https://x.test/${headline}`,
+  });
+
+  it('is the newest headline inside the window, with its time', async () => {
+    const { service } = serviceWith([recent('older', 5), recent('newest', 1), recent('stale', 30)]);
+    await expect(service.latestHeadline('NVDA', new Date('2026-10-06T12:00:00Z'))).resolves.toEqual({
+      title: 'newest', source: 'Reuters', url: 'https://x.test/newest', at: '2026-10-07T11:00:00.000Z',
+    });
+  });
+
+  it('is null when every headline is older than the window', async () => {
+    const { service } = serviceWith([recent('stale', 30)]);
+    await expect(service.latestHeadline('NVDA', new Date('2026-10-06T12:00:00Z'))).resolves.toBeNull();
+  });
+
+  it('is null, not an error, when the provider gives nothing', async () => {
+    const { service } = serviceWith([]);
+    await expect(service.latestHeadline('NVDA', new Date('2026-10-06T12:00:00Z'))).resolves.toBeNull();
   });
 });
