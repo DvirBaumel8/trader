@@ -18,6 +18,7 @@ import { buildMood, MOOD_INDICES, MOOD_QUOTE_SYMBOLS, type Mood, type MoodQuote 
 import { LlmClient } from '../llm/llm.client.js';
 import { buildDailyBriefContext } from '../llm/daily-brief-context.js';
 import { buildDailyBriefUserPrompt } from '../llm/daily-brief-prompt.js';
+import { parseDailyBriefAnswer } from '../llm/daily-brief-answer.js';
 import { buildSystemPrompt } from '../llm/prompts.js';
 import { readTraderProfile } from '../llm/trader-profile.js';
 import { UsersService } from '../users/users.service.js';
@@ -37,20 +38,21 @@ export interface DailyBriefResponse {
   movers: MoverRow[];
   watchTriggers: WatchTrigger[];
   /**
-   * A short, prioritized read over the facts above, from the same
-   * app-computed facts — never a source of numbers itself, only judgement
-   * and prioritization on top of them (see prompts.ts's governing rule).
-   * Null whenever there is nothing to show it: no LLM configured, or the
-   * call failed — silent by design, the same as an unconfigured Finnhub or
-   * Twelve Data key, since the facts above stand on their own.
+   * The summary half of the AI take: a short, prioritized read over the
+   * facts above, from the same app-computed facts — never a source of
+   * numbers itself, only judgement and prioritization on top of them (see
+   * prompts.ts's governing rule). The thesis half lands on each mover's
+   * `thesis`. Null whenever there is nothing to show it: no LLM configured,
+   * or the call failed — silent by design, the same as an unconfigured
+   * Finnhub or Twelve Data key, since the facts above stand on their own.
    */
-  narrative: string | null;
-  /** When the narrative was written — earlier than generatedAt when reused. */
-  narrativeAt: string | null;
+  summary: string | null;
+  /** When the AI take was written — earlier than generatedAt when reused. */
+  summaryAt: string | null;
 }
 
-/** How long a narrative is reused while the same events stand. */
-const NARRATIVE_MAX_AGE_MS = 30 * 60 * 1000;
+/** How long an AI take is reused while the same events stand. */
+const AI_TAKE_MAX_AGE_MS = 30 * 60 * 1000;
 
 /** Longest a mover's headline lookup may hold up the Brief. */
 const HEADLINE_TIMEOUT_MS = 4000;
@@ -85,7 +87,7 @@ function startOfWeek(now: Date): Date {
   return start;
 }
 
-/** What the narrative is written from: the response's facts, before they are serialised. */
+/** What the AI take is written from: the response's facts, before they are serialised. */
 interface BriefFacts {
   session: MarketSession;
   mood: Mood;
@@ -94,6 +96,9 @@ interface BriefFacts {
   movers: MoverRow[];
   watchTriggers: WatchTrigger[];
 }
+
+/** The parsed AI answer: the summary and the thesis check per mover symbol. */
+interface AiTake { summary: string | null; thesis: Record<string, string>; at: Date }
 
 @Injectable()
 export class DailyBriefService {
@@ -109,7 +114,7 @@ export class DailyBriefService {
     private readonly history: HistoryService,
     private readonly calendar: EconomicCalendarClient,
     // Optional, defaulting to "no client": every constructor call site that
-    // predates the AI narrative (all of this file's own tests included)
+    // predates the AI take (all of this file's own tests included)
     // keeps working unchanged, reading as "unconfigured" — the same
     // first-class state a missing API key already produces.
     private readonly llm?: LlmClient,
@@ -125,19 +130,19 @@ export class DailyBriefService {
   ) {}
 
   /**
-   * Last narrative per user, with the events it was written from and when.
+   * Last AI take per user, with the events it was written from and when.
    * The brief is prefetched on every app open and refetched every five
    * minutes; asking the model each time spent the free tier's ~20 requests
    * a day on repeats, and the features the owner asks for on purpose then
-   * failed on quota. A narrative is reused while the same events stand, for
-   * at most NARRATIVE_MAX_AGE_MS — note details carry live percentages that
+   * failed on quota. An AI take is reused while the same events stand, for
+   * at most AI_TAKE_MAX_AGE_MS — note details carry live percentages that
    * change every refresh in session, so matching on them would never hit.
    * Its own timestamp goes out with it, so the screen can say how old its
    * figures are. One entry per user, so it cannot grow unbounded.
    */
-  private readonly narratives = new Map<
+  private readonly aiTakes = new Map<
     string,
-    { signature: string; text: string; at: Date }
+    { signature: string; summary: string | null; thesis: Record<string, string>; at: Date }
   >();
 
   async get(options: { refresh?: boolean; now?: Date } = {}): Promise<DailyBriefResponse> {
@@ -229,13 +234,15 @@ export class DailyBriefService {
       atrBySymbol,
       new Map(openEntries.map((e) => [e.symbol, e.reasons])),
     );
-    const movers = await this.attachHeadlines(ranked, now);
-    const narrative = await this.buildNarrative(now, { session, mood, events, queue, movers, watchTriggers });
+    const withHeadlines = await this.attachHeadlines(ranked, now);
+    const noteBySymbol = new Map(openEntries.map((e) => [e.symbol, e.note]));
+    const take = await this.buildAiTake(now, { session, mood, events, queue, movers: withHeadlines, watchTriggers }, noteBySymbol);
+    const movers = withHeadlines.map((m) => ({ ...m, thesis: take?.thesis[m.symbol] ?? null }));
 
     return {
       generatedAt: now.toISOString(), refreshAfterSeconds: 300, session,
       marketDataAvailable: calendar.available, mood, events, queue, movers, watchTriggers,
-      narrative: narrative?.text ?? null, narrativeAt: narrative?.at.toISOString() ?? null,
+      summary: take?.summary ?? null, summaryAt: take ? take.at.toISOString() : null,
     };
   }
 
@@ -291,10 +298,11 @@ export class DailyBriefService {
    * brief's facts are the source of truth and stand on their own
    * whether or not this succeeds.
    */
-  private async buildNarrative(
+  private async buildAiTake(
     now: Date,
     facts: BriefFacts,
-  ): Promise<{ text: string; at: Date } | null> {
+    noteBySymbol: ReadonlyMap<string, string>,
+  ): Promise<AiTake | null> {
     if (!this.llm || !this.llm.isConfigured()) return null;
     const userKey = this.users ? (await this.users.currentUser()).id : 'default';
     const signature = JSON.stringify({
@@ -306,12 +314,12 @@ export class DailyBriefService {
       movers: facts.movers.map((m) => [m.symbol, m.headline?.url ?? null]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
       macro: facts.events.map((e) => e.title),
     });
-    const cached = this.narratives.get(userKey);
+    const cached = this.aiTakes.get(userKey);
     if (
       cached?.signature === signature &&
-      now.getTime() - cached.at.getTime() < NARRATIVE_MAX_AGE_MS
+      now.getTime() - cached.at.getTime() < AI_TAKE_MAX_AGE_MS
     ) {
-      return { text: cached.text, at: cached.at };
+      return { summary: cached.summary, thesis: cached.thesis, at: cached.at };
     }
     try {
       const context = buildDailyBriefContext({
@@ -321,17 +329,21 @@ export class DailyBriefService {
           symbol: m.symbol, changePct: m.changePct, atrMultiple: m.atrMultiple, dollarChange: m.dollarChange,
           extended: m.extended, stale: m.stale,
           headline: m.headline ? { title: m.headline.title, source: m.headline.source } : null,
+          reasons: m.reasons.map((r) => r.label),
+          note: noteBySymbol.get(m.symbol) ?? '',
         })),
       });
       const profile = await readTraderProfile(this.users);
       const system = buildSystemPrompt(profile);
-      const user = buildDailyBriefUserPrompt(context);
+      const moverSymbols = facts.movers.map((m) => m.symbol);
+      const user = buildDailyBriefUserPrompt(context, moverSymbols);
       const text = await this.llm.complete({ system, user, grounded: false });
-      this.narratives.set(userKey, { signature, text, at: now });
-      return { text, at: now };
+      const { summary, thesis } = parseDailyBriefAnswer(text, moverSymbols);
+      this.aiTakes.set(userKey, { signature, summary, thesis, at: now });
+      return { summary, thesis, at: now };
     } catch (err) {
       this.logger.warn(
-        `daily brief narrative failed: ${err instanceof Error ? err.message : String(err)}`,
+        `daily brief AI take failed: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
     }

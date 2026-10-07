@@ -216,7 +216,7 @@ describe('DailyBriefService', () => {
     it('is null when no LLM client was given, the same as an unconfigured one', async () => {
       const service = new DailyBriefService(...baseDeps());
       const result = await service.get();
-      expect(result.narrative).toBeNull();
+      expect(result.summary).toBeNull();
     });
 
     it('is null and makes no call when the client is not configured', async () => {
@@ -226,7 +226,7 @@ describe('DailyBriefService', () => {
 
       const result = await service.get();
 
-      expect(result.narrative).toBeNull();
+      expect(result.summary).toBeNull();
       expect(complete).not.toHaveBeenCalled();
     });
 
@@ -239,7 +239,7 @@ describe('DailyBriefService', () => {
 
       const result = await service.get();
 
-      expect(result.narrative).toBe('Nothing urgent today.');
+      expect(result.summary).toBe('Nothing urgent today.');
     });
 
     /**
@@ -257,9 +257,9 @@ describe('DailyBriefService', () => {
       await service.get({ now });
       const again = await service.get({ now: new Date('2026-09-28T14:05:00Z') });
 
-      expect(again.narrative).toBe('Nothing urgent today.');
+      expect(again.summary).toBe('Nothing urgent today.');
       // Its own time, so the screen can say how old its figures are.
-      expect(again.narrativeAt).toBe('2026-09-28T14:00:00.000Z');
+      expect(again.summaryAt).toBe('2026-09-28T14:00:00.000Z');
       expect(complete).toHaveBeenCalledTimes(1);
 
       // Past the age limit it is written afresh even with the same events.
@@ -294,8 +294,8 @@ describe('DailyBriefService', () => {
       const service = new DailyBriefService(...baseDeps(), llm);
       const now = new Date('2026-09-28T14:00:00Z');
 
-      expect((await service.get({ now })).narrative).toBeNull();
-      expect((await service.get({ now })).narrative).toBe('Back.');
+      expect((await service.get({ now })).summary).toBeNull();
+      expect((await service.get({ now })).summary).toBe('Back.');
     });
 
     it('is null rather than throwing when the model call fails', async () => {
@@ -307,7 +307,7 @@ describe('DailyBriefService', () => {
 
       const result = await service.get();
 
-      expect(result.narrative).toBeNull();
+      expect(result.summary).toBeNull();
     });
   });
 
@@ -367,7 +367,7 @@ describe('DailyBriefService', () => {
       const service = new DailyBriefService(
         ...deps({ positions: [position('NVDA', { price: 90 })], instruments: [{ id: 'i-nvda', symbol: 'NVDA' }], bars }),
         undefined, undefined, undefined,
-        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-06-02T03:00:00Z'), reasons: ['ENTRY_BREAKOUT'] }]),
+        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-06-02T03:00:00Z'), reasons: ['ENTRY_BREAKOUT'], note: 'Base breakout.' }]),
       );
       const result = await service.get({ now: new Date('2026-06-01T23:30:00Z') });
       // Entered on 06-01 and the 06-01 bar is the last completed one: it is judged, with 20 bars before it.
@@ -418,7 +418,7 @@ describe('DailyBriefService', () => {
       const service = new DailyBriefService(
         ...deps({ positions: [position('NVDA', { price: 90 })], instruments: [{ id: 'i-nvda', symbol: 'NVDA' }], bars }),
         undefined, undefined, undefined,
-        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-06-01T14:00:00Z'), reasons: ['ENTRY_SMA_150'] }]),
+        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-06-01T14:00:00Z'), reasons: ['ENTRY_SMA_150'], note: '' }]),
       );
       // After the close on the last bar's date, so that bar is a completed session.
       const result = await service.get({ now: new Date(`${bars.at(-1)!.date}T22:00:00Z`) });
@@ -470,7 +470,7 @@ describe('DailyBriefService', () => {
       const service = new DailyBriefService(
         ...deps({ positions: [position('NVDA', 5), position('QUIET', 1)], instruments: [{ id: 'i-n', symbol: 'NVDA' }, { id: 'i-q', symbol: 'QUIET' }], bars: [...flat('i-n'), ...flat('i-q')] }),
         undefined, undefined, undefined,
-        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-09-01T14:00:00Z'), reasons: ['ENTRY_BREAKOUT'] }]),
+        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-09-01T14:00:00Z'), reasons: ['ENTRY_BREAKOUT'], note: 'Base breakout.' }]),
         news as any,
       );
       const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
@@ -514,6 +514,53 @@ describe('DailyBriefService', () => {
       expect(complete.mock.calls[0][0].user).toContain('Movers\n- NVDA:');
       await service.get({ now: new Date('2026-10-07T15:05:00Z') });
       expect(complete).toHaveBeenCalledTimes(2);
+    });
+
+    describe('the one AI answer', () => {
+      const ANSWER = 'SUMMARY: NVDA is running on the deal.\nTHESIS NVDA: The deal confirms your breakout thesis.';
+      const dealNews = () => ({ latestHeadline: vi.fn().mockResolvedValue({ title: 'Deal', source: 'Reuters', url: 'https://x.test', at: '2026-10-07T13:00:00.000Z' }) });
+      const build = (complete: ReturnType<typeof vi.fn>) => new DailyBriefService(
+        ...deps({ positions: [position('NVDA', 5)], instruments: [{ id: 'i-n', symbol: 'NVDA' }], bars: flat('i-n') }),
+        { isConfigured: () => true, complete } as any, undefined, undefined,
+        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-09-01T14:00:00Z'), reasons: ['ENTRY_BREAKOUT'], note: 'Base breakout.' }]),
+        dealNews() as any,
+      );
+
+      it('fills each mover\'s thesis from the one AI answer and the summary from its SUMMARY line', async () => {
+        const complete = vi.fn().mockResolvedValue(ANSWER);
+        const result = await build(complete).get({ now: new Date('2026-10-07T15:00:00Z') });
+        expect(result.summary).toBe('NVDA is running on the deal.');
+        expect(result.movers[0].thesis).toBe('The deal confirms your breakout thesis.');
+        expect(complete).toHaveBeenCalledTimes(1);
+        expect(complete.mock.calls[0][0].user).toContain('THESIS NVDA:');
+        expect(complete.mock.calls[0][0].user).toContain('Entry note: "Base breakout."');
+      });
+
+      it('reuses the cached thesis lines with the cached summary', async () => {
+        const complete = vi.fn().mockResolvedValue(ANSWER);
+        const service = build(complete);
+        await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+        const again = await service.get({ now: new Date('2026-10-07T15:05:00Z') });
+        expect(complete).toHaveBeenCalledTimes(1);
+        expect(again.summary).toBe('NVDA is running on the deal.');
+        expect(again.summaryAt).toBe('2026-10-07T15:00:00.000Z');
+        expect(again.movers[0].thesis).toBe('The deal confirms your breakout thesis.');
+      });
+
+      it('keeps thesis null and the brief served when the AI fails', async () => {
+        const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+        try {
+          const complete = vi.fn().mockRejectedValue(new Error('provider down'));
+          const result = await build(complete).get({ now: new Date('2026-10-07T15:00:00Z') });
+          expect(result.summary).toBeNull();
+          expect(result.summaryAt).toBeNull();
+          expect(result.movers).toHaveLength(1);
+          expect(result.movers.every((m) => m.thesis === null)).toBe(true);
+          expect(result.movers[0].headline).toEqual(expect.objectContaining({ title: 'Deal' }));
+        } finally {
+          warn.mockRestore();
+        }
+      });
     });
 
     it('keeps the narrative cached when two movers merely swap rank', async () => {
