@@ -16,9 +16,10 @@ const WINDOW_MS = 60_000;
  *
  * It exists for one reason: Yahoo's quote endpoint (the one carrying
  * pre/post-market prints) needs a crumb token, and that request is refused
- * with 429 from Render's shared datacenter IP. The crumb-free fallback has
- * no extended print at all, so production silently shows the regular close
- * during pre-market and after-hours. Twelve Data's free tier answers
+ * with 429 from Render's shared datacenter IP. The crumb-free chart fallback
+ * now reads pre/post prints from intraday candles, but a thin name can have
+ * none, and then production would show the regular close during pre-market
+ * and after-hours. Twelve Data's free tier answers
  * `prepost=true` with a real extended print (`extended_price`) — confirmed
  * against a live account, not assumed from documentation, since Finnhub's
  * equivalent free-tier field turned out NOT to carry a real extended price
