@@ -23,6 +23,14 @@ export interface BriefMood {
 export interface BriefEvent { title: string; detail: string; eventAt: string }
 export interface BriefLine { kind: string; symbol: string; title: string; detail: string }
 
+export interface BriefMover {
+  symbol: string; changePct: number; atrMultiple: number; dollarChange: number | null;
+  extended: boolean; stale: boolean; session: MarketSession | null;
+  reasons: { code: string; label: string }[];
+  headline: { title: string; source: string; url: string; at: string } | null;
+  thesis: string | null;
+}
+
 export interface BriefResponse {
   generatedAt: string;
   refreshAfterSeconds: number;
@@ -30,7 +38,7 @@ export interface BriefResponse {
   marketDataAvailable: boolean;
   mood: BriefMood;
   events: BriefEvent[];
-  holdingNotes: BriefLine[];
+  movers: BriefMover[];
   watchTriggers: BriefLine[];
   queue: BriefLine[];
   /** Null whenever there is nothing to show — no AI configured, or the call failed. Silent by design. */

@@ -25,7 +25,12 @@ const initialBrief = {
     laggard: { symbol: 'XLK', name: 'Technology', changePct: -0.009 },
   },
   events: [{ title: 'Fed rate decision', detail: 'Fed raised rates 25 bp to 3.75–4.00%.', eventAt: '2026-09-17' }],
-  holdingNotes: [{ kind: 'MOMENTUM', symbol: 'NVDA', title: 'NVDA has good momentum', detail: 'Above rising averages.' }],
+  movers: [{
+    symbol: 'NVDA', changePct: 0.042, atrMultiple: 2.31, dollarChange: 1234.5, extended: false, stale: false, session: 'REGULAR',
+    reasons: [{ code: 'ENTRY_BREAKOUT', label: 'Breakout' }],
+    headline: { title: 'Nvidia wins deal', source: 'Reuters', url: 'https://news.test/nvda', at: '2026-09-17T07:00:00.000Z' },
+    thesis: null,
+  }],
   watchTriggers: [],
   queue: [],
   narrative: null,
@@ -72,14 +77,14 @@ describe('Brief', () => {
     expect(section).toHaveTextContent('Nothing needs a decision today.');
   });
 
-  it('shows the queue after the market line and before holdings', async () => {
+  it('shows the queue after the market line and before movers', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
     const queue = await screen.findByRole('region', { name: 'Needs attention' });
     const market = screen.getByRole('region', { name: 'Market' });
-    const holdings = screen.getByRole('region', { name: 'Holdings' });
+    const movers = screen.getByRole('region', { name: 'Movers' });
     expect(market.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(queue.compareDocumentPosition(holdings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(queue.compareDocumentPosition(movers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   /** A reused take's figures are older than the notes under it; say so. */
@@ -185,24 +190,62 @@ describe('Brief', () => {
     expect(screen.queryByRole('region', { name: 'Current coverage' })).not.toBeInTheDocument();
   });
 
-  it('links a holding note to the holding and a watch trigger to its watch row', async () => {
+  it('links a watch trigger to its watch row', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...initialBrief,
       watchTriggers: [{ kind: 'BREAKOUT', symbol: 'FSLR', title: 'FSLR confirmed a breakout', detail: 'Closed above its prior 20-day high on 2.1× average volume.' }],
     });
     renderBrief();
-    const holding = await screen.findByRole('link', { name: /NVDA has good momentum/ });
-    expect(holding).toHaveAttribute('href', '/?symbol=NVDA');
-    const trigger = screen.getByRole('link', { name: /FSLR confirmed a breakout/ });
+    const trigger = await screen.findByRole('link', { name: /FSLR confirmed a breakout/ });
     expect(trigger).toHaveAttribute('href', '/watchlist?symbol=FSLR');
   });
 
-  it('hides empty sections and says once that there is nothing to act on', async () => {
-    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ ...initialBrief, holdingNotes: [], watchTriggers: [] });
+  it('shows each mover with its move, dollars, reasons and today\'s headline', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
-    expect(await screen.findByText('No holding or watch signals right now.')).toBeInTheDocument();
+    const movers = await screen.findByRole('region', { name: 'Movers' });
+    expect(movers).toHaveTextContent('NVDA');
+    expect(movers).toHaveTextContent('+4.20%');
+    expect(movers).toHaveTextContent('2.3× ATR');
+    expect(movers).toHaveTextContent('+$1,234.50');
+    expect(within(movers).getByText('Breakout')).toBeInTheDocument();
+    const headline = within(movers).getByRole('link', { name: /Nvidia wins deal/ });
+    expect(headline).toHaveAttribute('href', 'https://news.test/nvda');
+    expect(headline).toHaveAttribute('target', '_blank');
+    expect(headline).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(movers).toHaveTextContent('Reuters');
+    expect(within(movers).getByRole('link', { name: 'NVDA' })).toHaveAttribute('href', '/?symbol=NVDA');
+  });
+
+  it('says when a mover has no news', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ ...initialBrief, movers: [{ ...initialBrief.movers[0], headline: null }] });
+    renderBrief();
+    const movers = await screen.findByRole('region', { name: 'Movers' });
+    expect(movers).toHaveTextContent('No news found');
+  });
+
+  it('shows a short\'s signs as served: price up, position down', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ ...initialBrief, movers: [{ ...initialBrief.movers[0], changePct: 0.03, dollarChange: -600 }] });
+    renderBrief();
+    const movers = await screen.findByRole('region', { name: 'Movers' });
+    expect(movers).toHaveTextContent('+3.00%');
+    expect(movers).toHaveTextContent('-$600.00');
+  });
+
+  it('labels a stale or extended-hours mover', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ ...initialBrief, movers: [{ ...initialBrief.movers[0], stale: true, extended: true, session: 'POST' }] });
+    renderBrief();
+    const movers = await screen.findByRole('region', { name: 'Movers' });
+    expect(within(movers).getByText('STALE')).toBeInTheDocument();
+    expect(within(movers).getByText('AFTER HOURS')).toBeInTheDocument();
+  });
+
+  it('hides Movers when nothing moved enough, and no longer shows a Holdings list', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({ ...initialBrief, movers: [] });
+    renderBrief();
+    await screen.findByRole('region', { name: 'Market' });
+    expect(screen.queryByRole('region', { name: 'Movers' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Holdings' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Watch triggers' })).not.toBeInTheDocument();
   });
 
   it('states the session in the header, and again only on an extended-hours index print', async () => {
@@ -297,15 +340,15 @@ describe('Brief', () => {
     );
     renderBrief();
     await screen.findByRole('region', { name: 'Market' });
-    expect(screen.getByRole('link', { name: /NVDA has good momentum/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'NVDA' })).toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh brief' }));
-    expect(screen.getByRole('link', { name: /NVDA has good momentum/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'NVDA' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Refresh brief' })).toBeDisabled();
 
     rejectRefresh(new Error('provider unavailable'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Refresh did not complete');
-    expect(screen.getByRole('link', { name: /NVDA has good momentum/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'NVDA' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Refresh brief' })).toBeEnabled();
   });
 

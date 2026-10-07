@@ -6,6 +6,7 @@ import { formatTimestamp } from '../components/format';
 import { RefreshButton } from '../components/RefreshButton';
 import { Markdown } from '../components/Markdown';
 import { MoodLine } from '../components/brief/MoodLine';
+import { MoverList } from '../components/brief/MoverList';
 import { BriefNoteList } from '../components/brief/BriefNoteList';
 import { DAILY_BRIEF_QUERY_KEY, fetchDailyBrief, type BriefResponse } from '../api/dailyBrief';
 
@@ -90,11 +91,8 @@ export function Brief() {
         )}
         <MoodLine mood={brief.mood} events={brief.events} />
         <BriefNoteList label="Needs attention" notes={brief.queue} destination={holdingDestination} empty="Nothing needs a decision today." />
-        <BriefNoteList label="Holdings" notes={brief.holdingNotes} destination={holdingDestination} />
+        <MoverList movers={brief.movers} />
         <BriefNoteList label="Watch triggers" notes={brief.watchTriggers} destination={watchDestination} />
-        {brief.holdingNotes.length === 0 && brief.watchTriggers.length === 0 && (
-          <p className="text-sm text-muted">No holding or watch signals right now.</p>
-        )}
       </>}
     </div>
   );
