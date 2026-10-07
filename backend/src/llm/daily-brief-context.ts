@@ -12,13 +12,23 @@ export interface ContextLine {
   detail: string;
 }
 
+export interface ContextMover {
+  symbol: string;
+  changePct: number;
+  atrMultiple: number;
+  dollarChange: number | null;
+  extended: boolean;
+  stale: boolean;
+  headline: { title: string; source: string } | null;
+}
+
 export interface DailyBriefContextInput {
   generatedAt: string;
   session: MarketSession;
   mood: Mood;
   events: ContextLine[];
   queue: ContextLine[];
-  holdingNotes: ContextLine[];
+  movers: ContextMover[];
   watchTriggers: ContextLine[];
 }
 
@@ -28,6 +38,23 @@ function percent(fraction: number): string {
 
 function points(value: number): string {
   return `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(2)}`;
+}
+
+function money(value: number): string {
+  return `${value >= 0 ? '+' : '-'}$${Math.abs(value).toFixed(2)}`;
+}
+
+function moverLines(movers: ContextMover[]): string[] {
+  if (movers.length === 0) return ['- No holding moved 1 ATR or more.'];
+  return movers.map((m) => {
+    let line = `- ${m.symbol}: ${percent(m.changePct)} since prior close (${m.atrMultiple.toFixed(1)}× ATR)`;
+    if (m.dollarChange !== null) line += `, ${money(m.dollarChange)} on the position`;
+    if (m.extended) line += ' (extended-hours print)';
+    if (m.stale) line += ' (stale)';
+    line += '. ';
+    line += m.headline ? `Headline: "${m.headline.title}" (${m.headline.source})` : 'No headline found.';
+    return line;
+  });
 }
 
 function moodLines(mood: Mood): string[] {
@@ -65,7 +92,9 @@ export function buildDailyBriefContext(input: DailyBriefContextInput): string {
     '',
     ...section('Economic events this week', input.events, 'No economic events this week.'),
     ...section('Needs attention', input.queue, 'Nothing needs a decision today.'),
-    ...section('Your holdings', input.holdingNotes, 'Nothing notable on your holdings today.'),
+    'Movers',
+    ...moverLines(input.movers),
+    '',
     ...section('Watchlist triggers', input.watchTriggers, 'No new watchlist triggers.'),
   ].join('\n').trimEnd();
 }

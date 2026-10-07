@@ -9,6 +9,8 @@ import { HistoryService } from './history.service.js';
 import { EconomicCalendarClient } from './economic-calendar.client.js';
 import { buildDailyBriefNotes, isWatchTrigger, priorAtr } from './daily-brief.js';
 import { buildQueue, type QueueItem } from './brief-queue.js';
+import { rankMovers, type MoverRow } from './brief-movers.js';
+import { NewsService } from './news.service.js';
 import { MarketDataService } from './market-data.service.js';
 import { marketDate } from './trading-day.js';
 import { computeMarketSession, type MarketSession } from './market-session.js';
@@ -22,7 +24,6 @@ import { UsersService } from '../users/users.service.js';
 import { TradesService } from '../portfolio/trades.service.js';
 
 export interface BriefEvent { title: string; detail: string; eventAt: string }
-export interface HoldingNote { kind: 'ATR_MOVE' | 'MOMENTUM' | 'BREAKOUT'; symbol: string; title: string; detail: string }
 export interface WatchTrigger { kind: 'BREAKOUT' | 'MOMENTUM'; symbol: string; title: string; detail: string }
 
 export interface DailyBriefResponse {
@@ -33,8 +34,7 @@ export interface DailyBriefResponse {
   mood: Mood;
   events: BriefEvent[];
   queue: QueueItem[];
-  /** Interim (Brief redesign slice 1): replaced by the decision queue and movers in slices 2–3. */
-  holdingNotes: HoldingNote[];
+  movers: MoverRow[];
   watchTriggers: WatchTrigger[];
   /**
    * A short, prioritized read over the facts above, from the same
@@ -51,9 +51,6 @@ export interface DailyBriefResponse {
 
 /** How long a narrative is reused while the same events stand. */
 const NARRATIVE_MAX_AGE_MS = 30 * 60 * 1000;
-
-/** Read first, gets the reader's attention first — a loud move or an event risk outranks a slow-moving trend. */
-const HOLDING_NOTE_PRIORITY: Record<HoldingNote['kind'], number> = { ATR_MOVE: 1, BREAKOUT: 2, MOMENTUM: 3 };
 
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -73,7 +70,7 @@ interface BriefFacts {
   mood: Mood;
   events: BriefEvent[];
   queue: QueueItem[];
-  holdingNotes: HoldingNote[];
+  movers: MoverRow[];
   watchTriggers: WatchTrigger[];
 }
 
@@ -102,6 +99,8 @@ export class DailyBriefService {
     private readonly marketData?: MarketDataService,
     // Optional for the same reason: without it there are no thesis checks.
     private readonly trades?: TradesService,
+    // Optional for the same reason: without it movers carry no headline.
+    private readonly news?: NewsService,
   ) {}
 
   /**
@@ -152,39 +151,6 @@ export class DailyBriefService {
     }
     const barsFor = (symbol: string) => barsByInstrument.get(instrumentBySymbol.get(symbol)?.id ?? '') ?? [];
     const spyBars = barsFor('SPY');
-    // Positions with a notable move but nothing protecting them are exactly
-    // what a margin trader most needs flagged, not left for the Stops page
-    // to surface separately — this is already computed there, just reused.
-    const symbolsWithoutStop = new Set<string>(
-      portfolio.atRisk?.positionsWithoutStop?.symbols ?? [],
-    );
-    // A healthy plan that simply covers fewer shares than are held — the
-    // uncovered remainder is exactly as unbounded a risk as no stop at
-    // all, so a notable move on it deserves the same callout, worded for
-    // what's actually true of it.
-    const partialStopBySymbol = new Map<string, { coveredQuantity: number; heldQuantity: number }>(
-      (portfolio.atRisk?.positionsWithPartialStop?.positions ?? []).map(
-        (p: { symbol: string; coveredQuantity: number; heldQuantity: number }) => [
-          p.symbol,
-          { coveredQuantity: p.coveredQuantity, heldQuantity: p.heldQuantity },
-        ],
-      ),
-    );
-    const holdingNotes: HoldingNote[] = [];
-    for (const position of portfolio.positions) {
-      if (position.price !== null && position.price !== undefined && instrumentBySymbol.has(position.symbol)) {
-        const notes = buildDailyBriefNotes({ symbol: position.symbol, source: 'PORTFOLIO', price: position.price, bars: barsFor(position.symbol), spyBars });
-        const partialStop = partialStopBySymbol.get(position.symbol);
-        for (const note of notes) {
-          let detail = note.detail;
-          if (symbolsWithoutStop.has(position.symbol)) detail = `${detail} No stop is set on this position.`;
-          else if (partialStop) detail = `${detail} Partial stop: only ${partialStop.coveredQuantity} of ${partialStop.heldQuantity} shares are covered.`;
-          holdingNotes.push({ kind: note.kind, symbol: note.symbol, title: note.title, detail });
-        }
-      }
-    }
-    holdingNotes.sort((a, b) => HOLDING_NOTE_PRIORITY[a.kind] - HOLDING_NOTE_PRIORITY[b.kind]);
-
     const watchTriggers: WatchTrigger[] = [];
     for (const row of watchOnly) {
       if (row.price === null || row.price === undefined || !instrumentBySymbol.has(row.symbol)) continue;
@@ -199,6 +165,12 @@ export class DailyBriefService {
     const events: BriefEvent[] = calendar.events.map((event) => ({ title: event.title, detail: event.detail, eventAt: event.date }));
     const mood = buildMood({ quotes: moodQuotes, indexBars: { SPY: barsFor('SPY'), QQQ: barsFor('QQQ') } });
     const session = computeMarketSession(now);
+    const atrBySymbol = new Map<string, number>(
+      [...held].flatMap((symbol) => {
+        const atr = priorAtr(barsFor(symbol));
+        return atr === null ? [] : [[symbol, atr] as const];
+      }),
+    );
     const queue = buildQueue({
       now,
       session,
@@ -211,12 +183,7 @@ export class DailyBriefService {
       ),
       symbolsWithoutStop: portfolio.atRisk?.positionsWithoutStop?.symbols ?? [],
       partialStops: portfolio.atRisk?.positionsWithPartialStop?.positions ?? [],
-      atrBySymbol: new Map(
-        [...held].flatMap((symbol) => {
-          const atr = priorAtr(barsFor(symbol));
-          return atr === null ? [] : [[symbol, atr] as const];
-        }),
-      ),
+      atrBySymbol,
       earningsDateBySymbol: new Map(
         [...held].flatMap((symbol) => {
           const date = instrumentBySymbol.get(symbol)?.nextEarningsDate;
@@ -233,13 +200,36 @@ export class DailyBriefService {
           bars: barsFor(entry.symbol),
         })),
     });
-    const narrative = await this.buildNarrative(now, { session, mood, events, queue, holdingNotes, watchTriggers });
+    const ranked = rankMovers(
+      portfolio.positions.map((p) => ({
+        symbol: p.symbol, dayChange: p.dayChange ?? null, dayChangePct: p.dayChangePct ?? null,
+        dayPnl: p.dayPnl ?? null, extended: p.extended ?? false, stale: p.stale ?? true, session: p.session ?? null,
+      })),
+      atrBySymbol,
+      new Map(openEntries.map((e) => [e.symbol, e.reasons])),
+    );
+    const movers = await this.attachHeadlines(ranked, now);
+    const narrative = await this.buildNarrative(now, { session, mood, events, queue, movers, watchTriggers });
 
     return {
       generatedAt: now.toISOString(), refreshAfterSeconds: 300, session,
-      marketDataAvailable: calendar.available, mood, events, queue, holdingNotes, watchTriggers,
+      marketDataAvailable: calendar.available, mood, events, queue, movers, watchTriggers,
       narrative: narrative?.text ?? null, narrativeAt: narrative?.at.toISOString() ?? null,
     };
+  }
+
+  /** One headline per mover from the last 24 hours. Never throws: news is enrichment. */
+  private async attachHeadlines(movers: MoverRow[], now: Date): Promise<MoverRow[]> {
+    if (!this.news || movers.length === 0) return movers;
+    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    return Promise.all(movers.map(async (m) => {
+      try {
+        return { ...m, headline: await this.news!.latestHeadline(m.symbol, since) };
+      } catch (err) {
+        this.logger.warn(`daily brief headline for ${m.symbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+        return m;
+      }
+    }));
   }
 
   /** Never throws: thesis checks are an extra, not something the brief depends on. */
@@ -283,8 +273,9 @@ export class DailyBriefService {
     const signature = JSON.stringify({
       session: facts.session,
       day: now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
-      events: [...facts.holdingNotes, ...facts.watchTriggers].map((n) => [n.kind, n.symbol]),
+      events: facts.watchTriggers.map((n) => [n.kind, n.symbol]),
       queue: facts.queue.map((q) => [q.kind, q.symbol]),
+      movers: facts.movers.map((m) => [m.symbol, m.headline?.url ?? null]),
       macro: facts.events.map((e) => e.title),
     });
     const cached = this.narratives.get(userKey);
@@ -295,7 +286,15 @@ export class DailyBriefService {
       return { text: cached.text, at: cached.at };
     }
     try {
-      const context = buildDailyBriefContext({ generatedAt: now.toISOString(), ...facts });
+      const context = buildDailyBriefContext({
+        generatedAt: now.toISOString(),
+        ...facts,
+        movers: facts.movers.map((m) => ({
+          symbol: m.symbol, changePct: m.changePct, atrMultiple: m.atrMultiple, dollarChange: m.dollarChange,
+          extended: m.extended, stale: m.stale,
+          headline: m.headline ? { title: m.headline.title, source: m.headline.source } : null,
+        })),
+      });
       const profile = await readTraderProfile(this.users);
       const system = buildSystemPrompt(profile);
       const user = buildDailyBriefUserPrompt(context);

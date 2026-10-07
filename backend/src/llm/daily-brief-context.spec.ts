@@ -9,7 +9,7 @@ function input(over: Partial<DailyBriefContextInput> = {}): DailyBriefContextInp
     mood: EMPTY_MOOD,
     events: [],
     queue: [],
-    holdingNotes: [],
+    movers: [],
     watchTriggers: [],
     ...over,
   };
@@ -44,31 +44,42 @@ describe('buildDailyBriefContext', () => {
     expect(buildDailyBriefContext(input())).toContain('- Market mood unavailable.');
   });
 
-  it('quotes events, holding notes and watch triggers verbatim, each in its own section', () => {
+  it('quotes events and watch triggers verbatim, each in its own section', () => {
     const facts = buildDailyBriefContext(input({
       events: [{ title: 'Fed raised rates 25 bp', detail: 'Target range is now 3.75–4.00%.' }],
-      holdingNotes: [{ title: 'MSFT has good momentum', detail: 'Above rising trend averages and outperforming SPY by 2.7%.' }],
       watchTriggers: [{ title: 'FSLR confirmed a breakout', detail: 'Closed above its prior 20-day high on 2.1× average volume.' }],
     }));
     expect(facts).toContain('Economic events this week\n- Fed raised rates 25 bp: Target range is now 3.75–4.00%.');
-    expect(facts).toContain('Your holdings\n- MSFT has good momentum: Above rising trend averages and outperforming SPY by 2.7%.');
     expect(facts).toContain('Watchlist triggers\n- FSLR confirmed a breakout: Closed above its prior 20-day high on 2.1× average volume.');
   });
 
   it('says plainly when a section is empty, rather than leaving it blank', () => {
     const facts = buildDailyBriefContext(input());
     expect(facts).toContain('- No economic events this week.');
-    expect(facts).toContain('- Nothing notable on your holdings today.');
     expect(facts).toContain('- No new watchlist triggers.');
   });
 
   it('lists what needs attention verbatim, first among the per-name sections', () => {
     const facts = buildDailyBriefContext(input({
       queue: [{ title: 'NVDA is through its stop at $95.00', detail: 'Last $93.00. If the stop has not filled, act on it now.' }],
-      holdingNotes: [{ title: 'MSFT has good momentum', detail: 'd' }],
     }));
     expect(facts).toContain('Needs attention\n- NVDA is through its stop at $95.00: Last $93.00. If the stop has not filled, act on it now.');
-    expect(facts.indexOf('Needs attention')).toBeLessThan(facts.indexOf('Your holdings'));
+    expect(facts.indexOf('Needs attention')).toBeLessThan(facts.indexOf('Movers'));
+  });
+
+  it('writes each mover with figures as given and its headline', () => {
+    const facts = buildDailyBriefContext(input({
+      movers: [
+        { symbol: 'NVDA', changePct: 0.042, atrMultiple: 2.31, dollarChange: 1234.5, extended: false, stale: false, headline: { title: 'Nvidia wins deal', source: 'Reuters' } },
+        { symbol: 'MRNA', changePct: 0.03, atrMultiple: 1.2, dollarChange: -600, extended: true, stale: false, headline: null },
+      ],
+    }));
+    expect(facts).toContain('Movers\n- NVDA: +4.20% since prior close (2.3× ATR), +$1234.50 on the position. Headline: "Nvidia wins deal" (Reuters)');
+    expect(facts).toContain('- MRNA: +3.00% since prior close (1.2× ATR), -$600.00 on the position (extended-hours print). No headline found.');
+  });
+
+  it('says plainly when nothing moved enough', () => {
+    expect(buildDailyBriefContext(input())).toContain('- No holding moved 1 ATR or more.');
   });
 
   it('says plainly when nothing needs attention', () => {

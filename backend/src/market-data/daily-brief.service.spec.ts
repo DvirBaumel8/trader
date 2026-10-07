@@ -46,7 +46,6 @@ function atrJumpBars() {
     volume: 1_000_000,
   }));
 }
-const nvdaPosition = { symbol: 'NVDA', price: 103, regularPrice: 103, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null };
 
 describe('DailyBriefService', () => {
   it('serves the mood from the market-data quotes, without spending the Twelve Data budget', async () => {
@@ -134,7 +133,6 @@ describe('DailyBriefService', () => {
     const result = await service.get();
 
     expect(result.watchTriggers).toEqual([]);
-    expect(result.holdingNotes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'BREAKOUT', symbol: 'FSLR' })]));
   });
 
   it('drops earnings on a watch row, which is no longer a Brief item', async () => {
@@ -143,53 +141,6 @@ describe('DailyBriefService', () => {
     }));
     const result = await service.get();
     expect(result.watchTriggers).toEqual([]);
-    expect(result.holdingNotes).toEqual([]);
-  });
-
-  it('mentions a missing stop on a held position with a notable move', async () => {
-    const service = new DailyBriefService(...deps({
-      positions: [nvdaPosition],
-      atRisk: { positionsWithoutStop: { count: 1, symbols: ['NVDA'] } },
-      instruments: [{ id: 'nvda', symbol: 'NVDA' }],
-      bars: atrJumpBars(),
-    }));
-
-    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
-
-    const move = result.holdingNotes.find((note) => note.kind === 'ATR_MOVE' && note.symbol === 'NVDA');
-    expect(move?.detail.endsWith(' No stop is set on this position.')).toBe(true);
-  });
-
-  it('does not mention a missing stop when the position has one', async () => {
-    const service = new DailyBriefService(...deps({
-      positions: [nvdaPosition],
-      instruments: [{ id: 'nvda', symbol: 'NVDA' }],
-      bars: atrJumpBars(),
-    }));
-
-    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
-
-    const move = result.holdingNotes.find((note) => note.kind === 'ATR_MOVE' && note.symbol === 'NVDA');
-    expect(move).toBeDefined();
-    expect(move?.detail).not.toContain('No stop is set on this position.');
-  });
-
-  it('mentions a partial stop on a held position with a notable move', async () => {
-    const service = new DailyBriefService(...deps({
-      positions: [nvdaPosition],
-      atRisk: {
-        positionsWithoutStop: { count: 0, symbols: [] },
-        positionsWithPartialStop: { count: 1, positions: [{ symbol: 'NVDA', coveredQuantity: 40, heldQuantity: 100 }] },
-      },
-      instruments: [{ id: 'nvda', symbol: 'NVDA' }],
-      bars: atrJumpBars(),
-    }));
-
-    const result = await service.get({ now: new Date('2026-08-20T16:00:00Z') });
-
-    const move = result.holdingNotes.find((note) => note.kind === 'ATR_MOVE' && note.symbol === 'NVDA');
-    expect(move?.detail).toContain('Partial stop: only 40 of 100 shares are covered.');
-    expect(move?.detail).not.toContain('No stop is set');
   });
 
   describe('the AI narrative', () => {
@@ -450,14 +401,13 @@ describe('DailyBriefService', () => {
       }]);
     });
 
-    it('reads the earnings date from the instrument and moves earnings out of holding notes', async () => {
+    it('reads the earnings date from the instrument', async () => {
       const service = new DailyBriefService(...deps({
         positions: [position('NVDA', { daysUntilEarnings: 1 })],
         instruments: [{ id: 'i-nvda', symbol: 'NVDA', nextEarningsDate: '2026-10-08' }],
       }));
       const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
       expect(result.queue).toEqual([expect.objectContaining({ kind: 'EARNINGS', symbol: 'NVDA', title: 'NVDA reports tomorrow' })]);
-      expect(result.holdingNotes.some((n) => (n.kind as string) === 'EARNINGS')).toBe(false);
     });
 
     it('checks the thesis from the opening entry\'s reasons and the symbol\'s bars', async () => {
@@ -499,6 +449,70 @@ describe('DailyBriefService', () => {
 
       await service.get({ now: new Date('2026-10-07T15:00:00Z') });
       expect(complete.mock.calls[0][0].user).toContain('Needs attention\n- PLTR has no stop');
+      await service.get({ now: new Date('2026-10-07T15:05:00Z') });
+      expect(complete).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('movers', () => {
+    // 15 bars at 100 with high 101 / low 99 give priorAtr = 2.
+    const flat = (instrumentId: string) => Array.from({ length: 16 }, (_, i) => ({
+      instrumentId, date: `2026-09-${String(i + 10).padStart(2, '0')}`,
+      close: 100, adjClose: 100, open: 100, high: 101, low: 99, volume: 1_000_000,
+    }));
+    const position = (symbol: string, dayChange: number) => ({
+      symbol, price: 100 + dayChange, regularPrice: 100, stale: false, session: 'REGULAR', extended: false,
+      daysUntilEarnings: null, marketValue: 10_000, dayChange, dayChangePct: dayChange / 100, dayPnl: dayChange * 100,
+    });
+    const tradesStub = (entries: unknown[] = []) => ({ openTradeEntries: vi.fn().mockResolvedValue(entries) }) as any;
+
+    it('serves holdings that moved 1 ATR or more, with a headline and entry reasons', async () => {
+      const news = { latestHeadline: vi.fn().mockResolvedValue({ title: 'Deal', source: 'Reuters', url: 'https://x.test', at: '2026-10-07T13:00:00.000Z' }) };
+      const service = new DailyBriefService(
+        ...deps({ positions: [position('NVDA', 5), position('QUIET', 1)], instruments: [{ id: 'i-n', symbol: 'NVDA' }, { id: 'i-q', symbol: 'QUIET' }], bars: [...flat('i-n'), ...flat('i-q')] }),
+        undefined, undefined, undefined,
+        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-09-01T14:00:00Z'), reasons: ['ENTRY_BREAKOUT'] }]),
+        news as any,
+      );
+      const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      expect(result.movers).toEqual([expect.objectContaining({
+        symbol: 'NVDA', atrMultiple: 2.5, dollarChange: 500,
+        reasons: [{ code: 'ENTRY_BREAKOUT', label: 'Breakout' }],
+        headline: { title: 'Deal', source: 'Reuters', url: 'https://x.test', at: '2026-10-07T13:00:00.000Z' },
+        thesis: null,
+      })]);
+      expect(news.latestHeadline).toHaveBeenCalledWith('NVDA', new Date('2026-10-06T15:00:00Z'));
+      expect(news.latestHeadline).toHaveBeenCalledTimes(1); // only movers ask for news
+      expect(result).not.toHaveProperty('holdingNotes');
+    });
+
+    it('serves movers without headlines when the news lookup fails', async () => {
+      const news = { latestHeadline: vi.fn().mockRejectedValue(new Error('finnhub down')) };
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      try {
+        const service = new DailyBriefService(
+          ...deps({ positions: [position('NVDA', 5)], instruments: [{ id: 'i-n', symbol: 'NVDA' }], bars: flat('i-n') }),
+          undefined, undefined, undefined, undefined, news as any,
+        );
+        const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+        expect(result.movers).toEqual([expect.objectContaining({ symbol: 'NVDA', headline: null })]);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('hands movers to the AI and re-asks when a new headline arrives', async () => {
+      const complete = vi.fn().mockResolvedValue('NVDA is moving on news.');
+      const llm = { isConfigured: () => true, complete } as any;
+      const news = { latestHeadline: vi.fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ title: 'Deal', source: 'Reuters', url: 'https://x.test', at: '2026-10-07T13:00:00.000Z' }) };
+      const service = new DailyBriefService(
+        ...deps({ positions: [position('NVDA', 5)], instruments: [{ id: 'i-n', symbol: 'NVDA' }], bars: flat('i-n') }),
+        llm, undefined, undefined, undefined, news as any,
+      );
+      await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      expect(complete.mock.calls[0][0].user).toContain('Movers\n- NVDA:');
       await service.get({ now: new Date('2026-10-07T15:05:00Z') });
       expect(complete).toHaveBeenCalledTimes(2);
     });
