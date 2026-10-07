@@ -29,6 +29,8 @@ export interface QueueStopTier {
   /** Signed fraction of price: positive is room, negative is already passed. */
   distance: number;
   passed: boolean;
+  /** True when the price is an extended-hours print rather than the regular close. */
+  extended: boolean;
 }
 
 export interface QueuePosition {
@@ -52,6 +54,8 @@ export interface QueueInput {
   session: MarketSession;
   positions: QueuePosition[];
   stopTiers: QueueStopTier[];
+  /** Stop-plan problems from the portfolio's at-risk summary (`stopPlanNeedsUpdate.positions`). */
+  stopPlanIssues: ReadonlyArray<{ symbol: string; issue: string }>;
   symbolsWithoutStop: readonly string[];
   atrBySymbol: ReadonlyMap<string, number>;
   earningsDateBySymbol: ReadonlyMap<string, string>;
@@ -74,6 +78,15 @@ function percent(fraction: number): string {
   return `${(Math.abs(fraction) * 100).toFixed(1)}%`;
 }
 
+function crossedDetail(t: QueueStopTier, session: MarketSession): string {
+  if (session === 'REGULAR') return `Last ${money(t.currentPrice)}. If the stop has not filled, act on it now.`;
+  // Stops do not fire outside regular hours; a gap past one on an
+  // extended-hours print fills at the open, not at the stop.
+  if (t.extended) return `Last ${money(t.currentPrice)} outside regular hours. The stop will not fire until the open.`;
+  // The regular close itself is through the stop: it was crossed in-session.
+  return `Closed ${money(t.currentPrice)} through the stop. If it has not filled, act on it at the open.`;
+}
+
 function stopItems(input: QueueInput, held: ReadonlyMap<string, QueuePosition>): QueueItem[] {
   const tiersBySymbol = new Map<string, QueueStopTier[]>();
   for (const t of input.stopTiers) {
@@ -92,12 +105,7 @@ function stopItems(input: QueueInput, held: ReadonlyMap<string, QueuePosition>):
         kind: 'STOP_CROSSED',
         symbol,
         title: `${symbol} is through its stop at ${money(t.stopPrice)}`,
-        detail:
-          input.session === 'REGULAR'
-            ? `Last ${money(t.currentPrice)}. If the stop has not filled, act on it now.`
-            // Stops do not fire outside regular hours; a gap past one
-            // fills at the open, not at the stop.
-            : `Last ${money(t.currentPrice)} outside regular hours. The stop will not fire until the open.`,
+        detail: crossedDetail(t, input.session),
       });
       continue; // A crossed stop is not also "near".
     }
@@ -119,14 +127,36 @@ function stopItems(input: QueueInput, held: ReadonlyMap<string, QueuePosition>):
 }
 
 function noStopItems(input: QueueInput, held: ReadonlyMap<string, QueuePosition>): QueueItem[] {
-  return input.symbolsWithoutStop
-    .filter((symbol) => held.has(symbol))
-    .map((symbol) => ({
-      kind: 'NO_STOP' as const,
+  const items = new Map<string, QueueItem>();
+  for (const symbol of input.symbolsWithoutStop) {
+    if (!held.has(symbol)) continue;
+    items.set(symbol, {
+      kind: 'NO_STOP',
       symbol,
       title: `${symbol} has no stop`,
       detail: 'Nothing limits the loss on this position.',
-    }));
+    });
+  }
+  const priced = new Set(input.stopTiers.map((t) => t.symbol));
+  for (const { symbol, issue } of input.stopPlanIssues) {
+    if (!held.has(symbol) || items.has(symbol)) continue;
+    if (issue === 'DIRECTION_MISMATCH') {
+      items.set(symbol, {
+        kind: 'NO_STOP',
+        symbol,
+        title: `${symbol}'s stop does not fit this position`,
+        detail: 'The stop on record was set for the other direction. Nothing valid limits the loss.',
+      });
+    } else if (issue === 'UNRESOLVED_TRAILING' && !priced.has(symbol)) {
+      items.set(symbol, {
+        kind: 'NO_STOP',
+        symbol,
+        title: `${symbol}'s trailing stop cannot be priced`,
+        detail: 'There is no high-water price to trail from. Check the stop.',
+      });
+    }
+  }
+  return [...items.values()];
 }
 
 function addDays(date: string, days: number): string {
@@ -155,8 +185,9 @@ function whenLabel(date: string, today: string): string {
   return WEEKDAYS[new Date(`${date}T00:00:00Z`).getUTCDay()];
 }
 
-function stopStatus(tiers: QueueStopTier[], noStop: boolean): string {
+function stopStatus(tiers: QueueStopTier[], noStop: boolean, planInvalid: boolean): string {
   if (noStop) return 'No stop.';
+  if (planInvalid) return 'Stop plan needs updating.';
   if (tiers.length === 0) return 'Stop distance unknown.';
   if (tiers.some((t) => t.passed)) return 'Stop already crossed.';
   const nearest = tiers.reduce((a, b) => (b.distance < a.distance ? b : a));
@@ -173,10 +204,13 @@ function earningsItems(input: QueueInput, held: ReadonlyMap<string, QueuePositio
       kind: 'EARNINGS',
       symbol,
       title: `${symbol} reports ${whenLabel(date, today)}`,
-      detail: `Earnings before the next session. ${stopStatus(
+      detail: stopStatus(
         input.stopTiers.filter((t) => t.symbol === symbol),
         input.symbolsWithoutStop.includes(symbol),
-      )}`,
+        input.stopPlanIssues.some(
+          (i) => i.symbol === symbol && (i.issue === 'DIRECTION_MISMATCH' || i.issue === 'UNRESOLVED_TRAILING'),
+        ),
+      ),
     });
   }
   return items;
@@ -200,7 +234,9 @@ function completedBars(bars: RawBar[], session: MarketSession, today: string): R
 function thesisItem(thesis: QueueThesis, session: MarketSession, today: string): QueueItem | null {
   const bars = completedBars(thesis.bars, session, today);
   const last = bars.at(-1);
-  if (!last) return null;
+  // No completed close since entry: judging the thesis on an earlier bar
+  // would read a pre-entry price as a break.
+  if (!last || last.date < thesis.entryDate) return null;
   const long = thesis.direction === 'LONG';
   const { symbol } = thesis;
 
@@ -219,9 +255,10 @@ function thesisItem(thesis: QueueThesis, session: MarketSession, today: string):
   if (thesis.reasons.includes('ENTRY_BREAKOUT')) {
     const before = bars.filter((bar) => bar.date < thesis.entryDate).slice(-BREAKOUT_LOOKBACK);
     if (before.length === BREAKOUT_LOOKBACK) {
-      const level = long
-        ? Math.max(...before.map((bar) => bar.high ?? bar.close))
-        : Math.min(...before.map((bar) => bar.low ?? bar.close));
+      // A missing high/low is not the close: no level, no item.
+      const edges = before.map((bar) => (long ? bar.high : bar.low));
+      if (edges.some((edge) => edge === null || edge === undefined)) return null;
+      const level = long ? Math.max(...(edges as number[])) : Math.min(...(edges as number[]));
       if (long ? last.close < level : last.close > level) {
         return {
           kind: 'THESIS_BROKEN',

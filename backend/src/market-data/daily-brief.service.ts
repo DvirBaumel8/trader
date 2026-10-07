@@ -10,6 +10,7 @@ import { EconomicCalendarClient } from './economic-calendar.client.js';
 import { buildDailyBriefNotes, isWatchTrigger, priorAtr } from './daily-brief.js';
 import { buildQueue, type QueueItem } from './brief-queue.js';
 import { MarketDataService } from './market-data.service.js';
+import { marketDate } from './trading-day.js';
 import { computeMarketSession, type MarketSession } from './market-session.js';
 import { buildMood, MOOD_INDICES, MOOD_QUOTE_SYMBOLS, type Mood, type MoodQuote } from './brief-mood.js';
 import { LlmClient } from '../llm/llm.client.js';
@@ -205,6 +206,9 @@ export class DailyBriefService {
         symbol: p.symbol, marketValue: p.marketValue ?? null, stale: p.stale,
       })),
       stopTiers: portfolio.stopTiers ?? [],
+      stopPlanIssues: (portfolio.atRisk?.stopPlanNeedsUpdate?.positions ?? []).map(
+        (p: { symbol: string; issue: string }) => ({ symbol: p.symbol, issue: p.issue }),
+      ),
       symbolsWithoutStop: portfolio.atRisk?.positionsWithoutStop?.symbols ?? [],
       atrBySymbol: new Map(
         [...held].flatMap((symbol) => {
@@ -224,7 +228,7 @@ export class DailyBriefService {
           symbol: entry.symbol,
           direction: entry.direction,
           reasons: entry.reasons,
-          entryDate: entry.enteredAt.toISOString().slice(0, 10),
+          entryDate: marketDate(entry.enteredAt),
           bars: barsFor(entry.symbol),
         })),
     });

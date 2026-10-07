@@ -11,6 +11,7 @@ function input(over: Partial<QueueInput> = {}): QueueInput {
     session: 'REGULAR',
     positions: [],
     stopTiers: [],
+    stopPlanIssues: [],
     symbolsWithoutStop: [],
     atrBySymbol: new Map(),
     earningsDateBySymbol: new Map(),
@@ -20,7 +21,7 @@ function input(over: Partial<QueueInput> = {}): QueueInput {
 }
 
 function tier(over: Partial<QueueStopTier> = {}): QueueStopTier {
-  return { symbol: 'NVDA', stopPrice: 95, currentPrice: 100, distance: 0.05, passed: false, ...over };
+  return { symbol: 'NVDA', stopPrice: 95, currentPrice: 100, distance: 0.05, passed: false, extended: false, ...over };
 }
 
 const nvda = { symbol: 'NVDA', marketValue: 10_000, stale: false };
@@ -39,15 +40,78 @@ describe('buildQueue — stops', () => {
     }]);
   });
 
-  it('says a stop crossed outside regular hours will not fire until the open', () => {
+  it('says a gap through a stop outside regular hours will not fire until the open', () => {
     for (const session of ['PRE', 'POST', 'OVERNIGHT', 'CLOSED'] as const) {
       const [item] = buildQueue(input({
         session,
         positions: [nvda],
-        stopTiers: [tier({ stopPrice: 95, currentPrice: 93, distance: -0.0215, passed: true })],
+        stopTiers: [tier({ stopPrice: 95, currentPrice: 93, distance: -0.0215, passed: true, extended: true })],
       }));
       expect(item.detail).toBe('Last $93.00 outside regular hours. The stop will not fire until the open.');
     }
+  });
+
+  it('says a stop crossed at the regular close closed through it, not that it gapped', () => {
+    for (const session of ['POST', 'CLOSED'] as const) {
+      const [item] = buildQueue(input({
+        session,
+        positions: [nvda],
+        stopTiers: [tier({ stopPrice: 95, currentPrice: 93, distance: -0.0215, passed: true, extended: false })],
+      }));
+      expect(item.detail).toBe('Closed $93.00 through the stop. If it has not filled, act on it at the open.');
+    }
+  });
+
+  it('keeps the regular-hours copy in REGULAR whatever the extended flag', () => {
+    for (const extended of [true, false]) {
+      const [item] = buildQueue(input({
+        positions: [nvda],
+        stopTiers: [tier({ stopPrice: 95, currentPrice: 93, distance: -0.0215, passed: true, extended })],
+      }));
+      expect(item.detail).toBe('Last $93.00. If the stop has not filled, act on it now.');
+    }
+  });
+
+  describe('invalid stop plans', () => {
+    it('flags a direction-mismatched stop plan as NO_STOP', () => {
+      const queue = buildQueue(input({
+        positions: [nvda],
+        stopPlanIssues: [{ symbol: 'NVDA', issue: 'DIRECTION_MISMATCH' }],
+      }));
+      expect(queue).toEqual([{
+        kind: 'NO_STOP',
+        symbol: 'NVDA',
+        title: "NVDA's stop does not fit this position",
+        detail: 'The stop on record was set for the other direction. Nothing valid limits the loss.',
+      }]);
+    });
+
+    it('flags an unresolved trailing stop only when it has no priced row', () => {
+      const issues = [{ symbol: 'NVDA', issue: 'UNRESOLVED_TRAILING' }];
+      expect(buildQueue(input({ positions: [nvda], stopPlanIssues: issues }))).toEqual([{
+        kind: 'NO_STOP',
+        symbol: 'NVDA',
+        title: "NVDA's trailing stop cannot be priced",
+        detail: 'There is no high-water price to trail from. Check the stop.',
+      }]);
+      expect(buildQueue(input({ positions: [nvda], stopPlanIssues: issues, stopTiers: [tier()] }))).toEqual([]);
+    });
+
+    it('ignores other issues and symbols that are not held', () => {
+      expect(buildQueue(input({
+        positions: [nvda],
+        stopPlanIssues: [{ symbol: 'NVDA', issue: 'OVER_COVERED' }, { symbol: 'GONE', issue: 'DIRECTION_MISMATCH' }],
+      }))).toEqual([]);
+    });
+
+    it('never emits two NO_STOP items for one symbol', () => {
+      const queue = buildQueue(input({
+        positions: [nvda],
+        symbolsWithoutStop: ['NVDA'],
+        stopPlanIssues: [{ symbol: 'NVDA', issue: 'DIRECTION_MISMATCH' }, { symbol: 'NVDA', issue: 'UNRESOLVED_TRAILING' }],
+      }));
+      expect(queue.filter((i) => i.kind === 'NO_STOP')).toHaveLength(1);
+    });
   });
 
   it('names the crossed tier nearest the price when several are crossed, and adds no near-stop item', () => {
@@ -172,7 +236,7 @@ describe('buildQueue — earnings', () => {
       kind: 'EARNINGS',
       symbol: 'NVDA',
       title: 'NVDA reports today',
-      detail: 'Earnings before the next session. Nearest stop 8.2% away.',
+      detail: 'Nearest stop 8.2% away.',
     });
   });
 
@@ -183,7 +247,7 @@ describe('buildQueue — earnings', () => {
       earningsDateBySymbol: new Map([['NVDA', '2026-10-08']]),
     })).find((i) => i.kind === 'EARNINGS');
     expect(item?.title).toBe('NVDA reports tomorrow');
-    expect(item?.detail).toBe('Earnings before the next session. No stop.');
+    expect(item?.detail).toBe('No stop.');
   });
 
   // A stop with no priced row (no quote yet) is not "no stop".
@@ -192,7 +256,18 @@ describe('buildQueue — earnings', () => {
       positions: held,
       earningsDateBySymbol: new Map([['NVDA', '2026-10-08']]),
     }));
-    expect(item.detail).toBe('Earnings before the next session. Stop distance unknown.');
+    expect(item.detail).toBe('Stop distance unknown.');
+  });
+
+  it('says the stop plan needs updating for either invalid-plan issue', () => {
+    for (const issue of ['DIRECTION_MISMATCH', 'UNRESOLVED_TRAILING']) {
+      const item = buildQueue(input({
+        positions: held,
+        earningsDateBySymbol: new Map([['NVDA', '2026-10-07']]),
+        stopPlanIssues: [{ symbol: 'NVDA', issue }],
+      })).find((i) => i.kind === 'EARNINGS');
+      expect(item?.detail).toBe('Stop plan needs updating.');
+    }
   });
 
   it('on a Friday, counts Monday as the next session and names the day', () => {
@@ -226,7 +301,7 @@ describe('buildQueue — earnings', () => {
       earningsDateBySymbol: new Map([['NVDA', '2026-10-07']]),
       stopTiers: [tier({ distance: -0.02, currentPrice: 93, passed: true })],
     }));
-    expect(items.find((i) => i.kind === 'EARNINGS')?.detail).toBe('Earnings before the next session. Stop already crossed.');
+    expect(items.find((i) => i.kind === 'EARNINGS')?.detail).toBe('Stop already crossed.');
   });
 });
 
@@ -309,6 +384,49 @@ describe('buildQueue — thesis', () => {
       session: 'POST',
       positions: held,
       theses: [thesis({ reasons: ['ENTRY_BREAKOUT'], entryDate: '2026-09-28', bars })],
+    }))).toEqual([]);
+  });
+
+  it('ignores a breakout entered today: there is no completed close since entry', () => {
+    const bars = series([...Array(20).fill(100), 99, 99], '2026-10-06');
+    expect(buildQueue(input({
+      session: 'REGULAR',
+      positions: held,
+      theses: [thesis({ reasons: ['ENTRY_BREAKOUT'], entryDate: '2026-10-07', bars })],
+    }))).toEqual([]);
+    // POST, but today's bar has not been stored yet.
+    expect(buildQueue(input({
+      session: 'POST',
+      positions: held,
+      theses: [thesis({ reasons: ['ENTRY_BREAKOUT'], entryDate: '2026-10-07', bars })],
+    }))).toEqual([]);
+  });
+
+  it('judges a breakout entered today once today\'s completed bar is in, after the close', () => {
+    const bars = series([...Array(20).fill(100), 99, 99]); // last bar dated 2026-10-07
+    const [item] = buildQueue(input({
+      session: 'POST',
+      positions: held,
+      theses: [thesis({ reasons: ['ENTRY_BREAKOUT'], entryDate: '2026-10-07', bars })],
+    }));
+    expect(item.title).toBe('NVDA closed back under its breakout level');
+  });
+
+  it('gives no breakout item when a pre-entry bar has no high (or low for a short)', () => {
+    const closes = [...Array(20).fill(100), ...Array(9).fill(105), 99];
+    const longBars = series(closes);
+    longBars[5] = { ...longBars[5], high: null };
+    expect(buildQueue(input({
+      session: 'POST',
+      positions: held,
+      theses: [thesis({ reasons: ['ENTRY_BREAKOUT'], entryDate: '2026-09-28', bars: longBars })],
+    }))).toEqual([]);
+    const shortBars = series([...Array(20).fill(100), ...Array(9).fill(95), 101]);
+    shortBars[5] = { ...shortBars[5], low: null };
+    expect(buildQueue(input({
+      session: 'POST',
+      positions: held,
+      theses: [thesis({ direction: 'SHORT', reasons: ['ENTRY_BREAKOUT'], entryDate: '2026-09-28', bars: shortBars })],
     }))).toEqual([]);
   });
 

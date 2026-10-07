@@ -377,6 +377,53 @@ describe('DailyBriefService', () => {
       expect(result.queue).toEqual([expect.objectContaining({ kind: 'STOP_CROSSED', symbol: 'NVDA' })]);
     });
 
+    it('serves a near-stop item using the ATR from the symbol\'s bars', async () => {
+      // atrJumpBars give a prior ATR of 2.00; a stop $1 below the price is 0.5 ATR away.
+      const service = new DailyBriefService(...deps({
+        positions: [position('NVDA', { price: 100 })],
+        instruments: [{ id: 'nvda', symbol: 'NVDA' }],
+        bars: atrJumpBars(),
+        stopTiers: [{ symbol: 'NVDA', stopPrice: 99, currentPrice: 100, distance: 0.01, passed: false, extended: false, quantity: 100 }],
+      }));
+      const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      expect(result.queue).toEqual([{
+        kind: 'NEAR_STOP',
+        symbol: 'NVDA',
+        title: 'NVDA is within 1 ATR of its stop',
+        detail: 'Stop $99.00, last $100.00: 0.5 ATR (1.0%) away.',
+      }]);
+    });
+
+    it('passes invalid stop plans from the portfolio into the queue', async () => {
+      const service = new DailyBriefService(...deps({
+        positions: [position('NVDA')],
+        atRisk: {
+          positionsWithoutStop: { count: 0, symbols: [] },
+          stopPlanNeedsUpdate: { count: 1, positions: [{ symbol: 'NVDA', issue: 'DIRECTION_MISMATCH', recordedQuantity: 1, heldQuantity: 1 }] },
+        },
+      }));
+      const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      expect(result.queue).toEqual([expect.objectContaining({ kind: 'NO_STOP', symbol: 'NVDA', title: "NVDA's stop does not fit this position" })]);
+    });
+
+    it('dates a thesis by the market day of entry, not the UTC day', async () => {
+      // 2026-06-01 23:00 ET is 2026-06-02T03:00Z: the market date is still 06-01.
+      const bars = Array.from({ length: 21 }, (_, i) => {
+        const date = new Date(Date.UTC(2026, 4, 12) + i * 86_400_000).toISOString().slice(0, 10); // 05-12 .. 06-01
+        const close = i === 20 ? 90 : 100;
+        return { instrumentId: 'i-nvda', date, close, adjClose: close, open: close, high: close + 1, low: close - 1, volume: 1_000_000 };
+      });
+      expect(bars.at(-1)!.date).toBe('2026-06-01');
+      const service = new DailyBriefService(
+        ...deps({ positions: [position('NVDA', { price: 90 })], instruments: [{ id: 'i-nvda', symbol: 'NVDA' }], bars }),
+        undefined, undefined, undefined,
+        tradesStub([{ symbol: 'NVDA', direction: 'LONG', enteredAt: new Date('2026-06-02T03:00:00Z'), reasons: ['ENTRY_BREAKOUT'] }]),
+      );
+      const result = await service.get({ now: new Date('2026-06-01T23:30:00Z') });
+      // Entered on 06-01 and the 06-01 bar is the last completed one: it is judged, with 20 bars before it.
+      expect(result.queue).toEqual([expect.objectContaining({ kind: 'THESIS_BROKEN', symbol: 'NVDA' })]);
+    });
+
     it('lists a held position with no stop', async () => {
       const service = new DailyBriefService(...deps({
         positions: [position('PLTR')],
