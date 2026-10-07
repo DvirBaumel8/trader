@@ -13,6 +13,7 @@ function input(over: Partial<QueueInput> = {}): QueueInput {
     stopTiers: [],
     stopPlanIssues: [],
     symbolsWithoutStop: [],
+    partialStops: [],
     atrBySymbol: new Map(),
     earningsDateBySymbol: new Map(),
     theses: [],
@@ -447,5 +448,92 @@ describe('buildQueue — thesis', () => {
       theses: [thesis({ reasons: ['ENTRY_SMA_150', 'ENTRY_BREAKOUT'], entryDate: '2026-09-20', bars })],
     }));
     expect(items.filter((i) => i.kind === 'THESIS_BROKEN')).toHaveLength(1);
+  });
+});
+
+describe('buildQueue — partial stops', () => {
+  const held = [{ symbol: 'NVDA', marketValue: 10_000, stale: false }];
+  const partial = (covered: number, heldQuantity: number) => [{ symbol: 'NVDA', coveredQuantity: covered, heldQuantity }];
+
+  it('flags a stop that covers only some of the shares', () => {
+    expect(buildQueue(input({ positions: held, partialStops: partial(50, 200) }))).toEqual([{
+      kind: 'PARTIAL_STOP',
+      symbol: 'NVDA',
+      title: "NVDA's stop covers 50 of 200 shares",
+      detail: '150 shares have nothing limiting the loss.',
+    }]);
+  });
+
+  it('formats quantities as plain numbers without trailing zeros', () => {
+    const [item] = buildQueue(input({ positions: held, partialStops: partial(12.5, 20.1) }));
+    expect(item.title).toBe("NVDA's stop covers 12.5 of 20.1 shares");
+    expect(item.detail).toBe('7.6 shares have nothing limiting the loss.');
+    const [whole] = buildQueue(input({ positions: held, partialStops: partial(50.0, 200) }));
+    expect(whole.title).toBe("NVDA's stop covers 50 of 200 shares");
+  });
+
+  it('gives both items for a partial stop that is also near its stop, most urgent first', () => {
+    const queue = buildQueue(input({
+      positions: held,
+      partialStops: partial(50, 200),
+      stopTiers: [tier({ stopPrice: 99, currentPrice: 100, distance: 0.01 })],
+      atrBySymbol: new Map([['NVDA', 2]]),
+    }));
+    expect(queue.map((i) => i.kind)).toEqual(['NEAR_STOP', 'PARTIAL_STOP']);
+  });
+
+  it('gives both items for a partial stop that is crossed', () => {
+    const queue = buildQueue(input({
+      positions: held,
+      partialStops: partial(50, 200),
+      stopTiers: [tier({ stopPrice: 95, currentPrice: 93, distance: -0.0215, passed: true })],
+    }));
+    expect(queue.map((i) => i.kind)).toEqual(['STOP_CROSSED', 'PARTIAL_STOP']);
+  });
+
+  it('makes no item for a symbol that is not held', () => {
+    expect(buildQueue(input({ positions: [], partialStops: partial(50, 200) }))).toEqual([]);
+  });
+
+  it('makes no PARTIAL_STOP for a symbol that also has a NO_STOP item', () => {
+    const queue = buildQueue(input({ positions: held, partialStops: partial(50, 200), symbolsWithoutStop: ['NVDA'] }));
+    expect(queue.map((i) => i.kind)).toEqual(['NO_STOP']);
+  });
+
+  it('adds the covered shares to the earnings stop status', () => {
+    const tiers = [tier({ distance: 0.082 })];
+    const earn = (over: Partial<QueueInput>) => buildQueue(input({
+      positions: held,
+      partialStops: partial(50, 200),
+      earningsDateBySymbol: new Map([['NVDA', '2026-10-07']]),
+      ...over,
+    })).find((i) => i.kind === 'EARNINGS');
+    expect(earn({ stopTiers: tiers })?.detail).toBe('Nearest stop 8.2% away. Covers 50 of 200 shares.');
+    expect(earn({ stopTiers: [tier({ distance: -0.02, passed: true })] })?.detail).toBe(
+      'Stop already crossed. Covers 50 of 200 shares.',
+    );
+    expect(earn({ stopTiers: [] })?.detail).toBe('Stop distance unknown.');
+  });
+
+  it('orders PARTIAL_STOP after NO_STOP and before EARNINGS', () => {
+    const queue = buildQueue(input({
+      positions: [
+        { symbol: 'AAA', marketValue: 1, stale: false },
+        { symbol: 'BBB', marketValue: 2, stale: false },
+        { symbol: 'CCC', marketValue: 3, stale: false },
+      ],
+      symbolsWithoutStop: ['AAA'],
+      partialStops: [{ symbol: 'BBB', coveredQuantity: 1, heldQuantity: 2 }],
+      earningsDateBySymbol: new Map([['CCC', '2026-10-07']]),
+    }));
+    expect(queue.map((i) => i.kind)).toEqual(['NO_STOP', 'PARTIAL_STOP', 'EARNINGS']);
+  });
+
+  it('marks a partial-stop item stale with the stale quote', () => {
+    const [item] = buildQueue(input({
+      positions: [{ symbol: 'NVDA', marketValue: 10_000, stale: true }],
+      partialStops: partial(50, 200),
+    }));
+    expect(item.detail).toBe('150 shares have nothing limiting the loss. Quote is stale.');
   });
 });

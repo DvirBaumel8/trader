@@ -12,7 +12,7 @@ import { sma } from './daily-brief.js';
  * guessed one.
  */
 
-export type QueueKind = 'STOP_CROSSED' | 'NEAR_STOP' | 'NO_STOP' | 'EARNINGS' | 'THESIS_BROKEN';
+export type QueueKind = 'STOP_CROSSED' | 'NEAR_STOP' | 'NO_STOP' | 'PARTIAL_STOP' | 'EARNINGS' | 'THESIS_BROKEN';
 
 export interface QueueItem {
   kind: QueueKind;
@@ -57,6 +57,8 @@ export interface QueueInput {
   /** Stop-plan problems from the portfolio's at-risk summary (`stopPlanNeedsUpdate.positions`). */
   stopPlanIssues: ReadonlyArray<{ symbol: string; issue: string }>;
   symbolsWithoutStop: readonly string[];
+  /** Positions whose stop covers only some of the shares (`positionsWithPartialStop.positions`). */
+  partialStops: ReadonlyArray<{ symbol: string; coveredQuantity: number; heldQuantity: number }>;
   atrBySymbol: ReadonlyMap<string, number>;
   earningsDateBySymbol: ReadonlyMap<string, string>;
   theses: QueueThesis[];
@@ -66,8 +68,9 @@ const PRIORITY: Record<QueueKind, number> = {
   STOP_CROSSED: 0,
   NEAR_STOP: 1,
   NO_STOP: 2,
-  EARNINGS: 3,
-  THESIS_BROKEN: 4,
+  PARTIAL_STOP: 3,
+  EARNINGS: 4,
+  THESIS_BROKEN: 5,
 };
 
 function money(value: number): string {
@@ -159,6 +162,26 @@ function noStopItems(input: QueueInput, held: ReadonlyMap<string, QueuePosition>
   return [...items.values()];
 }
 
+function quantity(q: number): string {
+  return String(Number(q.toFixed(4)));
+}
+
+function partialStopItems(input: QueueInput, held: ReadonlyMap<string, QueuePosition>): QueueItem[] {
+  const items: QueueItem[] = [];
+  const seen = new Set<string>();
+  for (const p of input.partialStops) {
+    if (!held.has(p.symbol) || seen.has(p.symbol) || input.symbolsWithoutStop.includes(p.symbol)) continue;
+    seen.add(p.symbol);
+    items.push({
+      kind: 'PARTIAL_STOP',
+      symbol: p.symbol,
+      title: `${p.symbol}'s stop covers ${quantity(p.coveredQuantity)} of ${quantity(p.heldQuantity)} shares`,
+      detail: `${quantity(p.heldQuantity - p.coveredQuantity)} shares have nothing limiting the loss.`,
+    });
+  }
+  return items;
+}
+
 function addDays(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
@@ -185,13 +208,21 @@ function whenLabel(date: string, today: string): string {
   return WEEKDAYS[new Date(`${date}T00:00:00Z`).getUTCDay()];
 }
 
-function stopStatus(tiers: QueueStopTier[], noStop: boolean, planInvalid: boolean): string {
+function stopStatus(
+  tiers: QueueStopTier[],
+  noStop: boolean,
+  planInvalid: boolean,
+  partial?: { coveredQuantity: number; heldQuantity: number },
+): string {
+  const covers = partial
+    ? ` Covers ${quantity(partial.coveredQuantity)} of ${quantity(partial.heldQuantity)} shares.`
+    : '';
   if (noStop) return 'No stop.';
   if (planInvalid) return 'Stop plan needs updating.';
   if (tiers.length === 0) return 'Stop distance unknown.';
-  if (tiers.some((t) => t.passed)) return 'Stop already crossed.';
+  if (tiers.some((t) => t.passed)) return `Stop already crossed.${covers}`;
   const nearest = tiers.reduce((a, b) => (b.distance < a.distance ? b : a));
-  return `Nearest stop ${percent(nearest.distance)} away.`;
+  return `Nearest stop ${percent(nearest.distance)} away.${covers}`;
 }
 
 function earningsItems(input: QueueInput, held: ReadonlyMap<string, QueuePosition>, today: string): QueueItem[] {
@@ -210,6 +241,7 @@ function earningsItems(input: QueueInput, held: ReadonlyMap<string, QueuePositio
         input.stopPlanIssues.some(
           (i) => i.symbol === symbol && (i.issue === 'DIRECTION_MISMATCH' || i.issue === 'UNRESOLVED_TRAILING'),
         ),
+        input.partialStops.find((p) => p.symbol === symbol),
       ),
     });
   }
@@ -282,6 +314,7 @@ export function buildQueue(input: QueueInput): QueueItem[] {
   const items = [
     ...stopItems(input, held),
     ...noStopItems(input, held),
+    ...partialStopItems(input, held),
     ...earningsItems(input, held, today),
     ...input.theses
       .filter((t) => held.has(t.symbol))

@@ -210,6 +210,7 @@ export class DailyBriefService {
         (p: { symbol: string; issue: string }) => ({ symbol: p.symbol, issue: p.issue }),
       ),
       symbolsWithoutStop: portfolio.atRisk?.positionsWithoutStop?.symbols ?? [],
+      partialStops: portfolio.atRisk?.positionsWithPartialStop?.positions ?? [],
       atrBySymbol: new Map(
         [...held].flatMap((symbol) => {
           const atr = priorAtr(barsFor(symbol));

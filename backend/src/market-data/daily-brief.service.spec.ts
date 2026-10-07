@@ -433,6 +433,23 @@ describe('DailyBriefService', () => {
       expect(result.queue).toEqual([expect.objectContaining({ kind: 'NO_STOP', symbol: 'PLTR' })]);
     });
 
+    it('passes partial stops from the portfolio into the queue', async () => {
+      const service = new DailyBriefService(...deps({
+        positions: [position('NVDA')],
+        atRisk: {
+          positionsWithoutStop: { count: 0, symbols: [] },
+          positionsWithPartialStop: { count: 1, positions: [{ symbol: 'NVDA', coveredQuantity: 40, heldQuantity: 100 }] },
+        },
+      }));
+      const result = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      expect(result.queue).toEqual([{
+        kind: 'PARTIAL_STOP',
+        symbol: 'NVDA',
+        title: "NVDA's stop covers 40 of 100 shares",
+        detail: '60 shares have nothing limiting the loss.',
+      }]);
+    });
+
     it('reads the earnings date from the instrument and moves earnings out of holding notes', async () => {
       const service = new DailyBriefService(...deps({
         positions: [position('NVDA', { daysUntilEarnings: 1 })],

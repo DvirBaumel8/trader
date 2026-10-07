@@ -78,8 +78,9 @@ Long and short positions are mirrored throughout.
 | 1 | `STOP_CROSSED` | Any current stop tier has `passed = true` (from `portfolio/stop-distance.ts`). Outside regular hours the copy says the stop has been gapped and will not fire until the open. |
 | 2 | `NEAR_STOP` | The nearest unpassed tier is within 1 ATR(14) of the current price, measured in dollars. Skipped when ATR cannot be computed. |
 | 3 | `NO_STOP` | An open position with no current stop levels, including a plan cleared through its tombstone revision. |
-| 4 | `EARNINGS` | Earnings fall on today or on the next trading day after the current session. The line carries the stop status, e.g. "reports before next open · stop 8.2% away" or "· no stop". |
-| 5 | `THESIS_BROKEN` | Rule-based, from the entry reasons of the position's opening fill (below). |
+| 4 | `PARTIAL_STOP` | The current stop covers fewer shares than are held (owner decision 2026-10-07: a partial stop is its own case, not no-stop and not covered). Skipped when the symbol is already `NO_STOP`; it coexists with `STOP_CROSSED` and `NEAR_STOP`. |
+| 5 | `EARNINGS` | Earnings fall on today or on the next trading day after the current session. The line carries the stop status, e.g. "reports before next open · stop 8.2% away" or "· no stop". |
+| 6 | `THESIS_BROKEN` | Rule-based, from the entry reasons of the position's opening fill (below). |
 
 **Thesis rules.** They use the entry reasons on the journal entry that opened
 the current position:
@@ -185,7 +186,7 @@ Same route, `GET /watchlist/daily-brief` (and `?refresh=1`). New response:
     laggard: { symbol: string; changePct: number } | null;
   };
   events: { title: string; detail: string; eventAt: string }[];
-  queue: { kind: 'STOP_CROSSED' | 'NEAR_STOP' | 'NO_STOP' | 'EARNINGS' | 'THESIS_BROKEN';
+  queue: { kind: 'STOP_CROSSED' | 'NEAR_STOP' | 'NO_STOP' | 'PARTIAL_STOP' | 'EARNINGS' | 'THESIS_BROKEN';
            symbol: string; title: string; detail: string }[];
   movers: { symbol: string; changePct: number; atrMultiple: number;
             dollarChange: number; extended: boolean; stale: boolean;
