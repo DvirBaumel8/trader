@@ -4,6 +4,9 @@ const FINNHUB_BASE = 'https://finnhub.io/api/v1';
 const BASE_URL = `${FINNHUB_BASE}/stock/metric`;
 const NEWS_URL = `${FINNHUB_BASE}/company-news`;
 
+/** A slow provider must not hold up the Brief. */
+const NEWS_TIMEOUT_MS = 4000;
+
 export interface RawNewsItem {
   headline: string;
   summary: string;
@@ -89,7 +92,7 @@ export class FinnhubClient {
     const day = (d: Date) => d.toISOString().slice(0, 10);
     const url = `${NEWS_URL}?symbol=${encodeURIComponent(symbol)}&from=${day(from)}&to=${day(to)}&token=${this.apiKey}`;
     try {
-      const res = await this.http(url);
+      const res = await this.http(url, { signal: AbortSignal.timeout(NEWS_TIMEOUT_MS) });
       if (!res.ok) {
         this.logger.warn(`companyNews(${symbol}) HTTP ${res.status}`);
         return [];

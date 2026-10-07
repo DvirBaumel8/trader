@@ -120,7 +120,8 @@ under the mood block.
   - symbol, % move, × ATR, and the dollar change in the position's value
     (signed by direction);
   - **headline:** the newest Finnhub `companyNews` item for the symbol from
-    the last 24 hours, with source and time, linking to the article.
+    24 hours before the most recent session's open (so a weekend Brief still
+    reaches Friday's and Thursday-evening news), with source and time, linking to the article.
     "No news found" when there is none or Finnhub is unconfigured;
   - **thesis:** entry reasons as chips (e.g. *Breakout · Volume*), and one AI
     line weighing the journal note against the move and the headline.

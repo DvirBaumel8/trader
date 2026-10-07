@@ -1,9 +1,9 @@
 import { Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { DailyBriefService } from './daily-brief.service.js';
+import { DailyBriefService, headlineWindowStart } from './daily-brief.service.js';
 import { EMPTY_MOOD } from './brief-mood.js';
 
-/** 21 flat bars then a close above the range on 3× volume: a confirmed breakout (and an ATR move). */
+/** 21 flat bars then a close above the range on 3× volume: a confirmed breakout. */
 function breakoutBars(instrumentId: string) {
   const flat = Array.from({ length: 21 }, (_, i) => ({
     instrumentId, date: `2026-08-${String(i + 1).padStart(2, '0')}`,
@@ -35,7 +35,7 @@ function quote(price: number, previousClose: number) {
   return { symbol: '', name: null, price, stale: false, session: 'REGULAR', extended: false, regularPrice: price, previousClose, peRatio: null };
 }
 
-/** 19 flat days, then a jump big enough to trip the ATR_MOVE rule. */
+/** 19 flat days, then a jump of a few ATRs. */
 function atrJumpBars() {
   return Array.from({ length: 20 }, (_, i) => ({
     instrumentId: 'nvda',
@@ -108,7 +108,7 @@ describe('DailyBriefService', () => {
     await expect(service.get()).resolves.toMatchObject({ marketDataAvailable: false, events: [] });
   });
 
-  it('turns a watch row\'s breakout into a trigger, and drops its plain big move', async () => {
+  it('turns a watch row\'s breakout into a trigger', async () => {
     const service = new DailyBriefService(...deps({
       watched: [{ symbol: 'FSLR', price: 110, regularPrice: 110, stale: false, session: 'REGULAR', extended: false, daysUntilEarnings: null }],
       instruments: [{ id: 'i-fslr', symbol: 'FSLR' }],
@@ -118,7 +118,6 @@ describe('DailyBriefService', () => {
     const result = await service.get();
 
     expect(result.watchTriggers).toEqual([expect.objectContaining({ kind: 'BREAKOUT', symbol: 'FSLR' })]);
-    expect(result.watchTriggers.some((t) => (t.kind as string) === 'ATR_MOVE')).toBe(false);
   });
 
   it('never lists a held ticker as a watch trigger, even when it is also watched', async () => {
@@ -481,7 +480,7 @@ describe('DailyBriefService', () => {
         headline: { title: 'Deal', source: 'Reuters', url: 'https://x.test', at: '2026-10-07T13:00:00.000Z' },
         thesis: null,
       })]);
-      expect(news.latestHeadline).toHaveBeenCalledWith('NVDA', new Date('2026-10-06T15:00:00Z'));
+      expect(news.latestHeadline).toHaveBeenCalledWith('NVDA', new Date('2026-10-06T13:30:00Z'));
       expect(news.latestHeadline).toHaveBeenCalledTimes(1); // only movers ask for news
       expect(result).not.toHaveProperty('holdingNotes');
     });
@@ -516,5 +515,64 @@ describe('DailyBriefService', () => {
       await service.get({ now: new Date('2026-10-07T15:05:00Z') });
       expect(complete).toHaveBeenCalledTimes(2);
     });
+
+    it('keeps the narrative cached when two movers merely swap rank', async () => {
+      const complete = vi.fn().mockResolvedValue('Two movers.');
+      const llm = { isConfigured: () => true, complete } as any;
+      const headline = (s: string) => ({ title: s, source: 'Reuters', url: `https://x.test/${s}`, at: '2026-10-07T13:00:00.000Z' });
+      const news = { latestHeadline: vi.fn(async (symbol: string) => headline(symbol)) };
+      const portfolio = { getPortfolio: vi.fn() };
+      portfolio.getPortfolio.mockResolvedValueOnce({ positions: [position('NVDA', 5), position('AMD', 3)], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } }, stopTiers: [] });
+      portfolio.getPortfolio.mockResolvedValueOnce({ positions: [position('NVDA', 3), position('AMD', 5)], atRisk: { positionsWithoutStop: { count: 0, symbols: [] } }, stopTiers: [] });
+      const [, ...rest] = deps({ instruments: [{ id: 'i-n', symbol: 'NVDA' }, { id: 'i-a', symbol: 'AMD' }], bars: [...flat('i-n'), ...flat('i-a')] });
+      const service = new DailyBriefService(portfolio as any, ...rest, llm, undefined, undefined, undefined, news as any);
+
+      const first = await service.get({ now: new Date('2026-10-07T15:00:00Z') });
+      const second = await service.get({ now: new Date('2026-10-07T15:05:00Z') });
+      expect(first.movers.map((m) => m.symbol)).toEqual(['NVDA', 'AMD']);
+      expect(second.movers.map((m) => m.symbol)).toEqual(['AMD', 'NVDA']);
+      expect(complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives up on a headline that never arrives, without holding up the brief', async () => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      try {
+        const news = { latestHeadline: vi.fn(() => new Promise(() => {})) };
+        const service = new DailyBriefService(
+          ...deps({ positions: [position('NVDA', 5)], instruments: [{ id: 'i-n', symbol: 'NVDA' }], bars: flat('i-n') }),
+          undefined, undefined, undefined, undefined, news as any,
+        );
+        const pending = service.get({ now: new Date('2026-10-07T15:00:00Z') });
+        await vi.advanceTimersByTimeAsync(4001);
+        const result = await pending;
+        expect(result.movers).toEqual([expect.objectContaining({ symbol: 'NVDA', headline: null })]);
+        expect(warn).toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+  });
+});
+
+describe('headlineWindowStart', () => {
+  const at = (iso: string) => headlineWindowStart(new Date(iso)).toISOString();
+  it('on a weekend reaches back to 24h before Friday\'s open', () => {
+    expect(at('2026-10-10T16:00:00Z')).toBe('2026-10-08T13:30:00.000Z');
+  });
+  it('during a session reaches back to 24h before that day\'s open', () => {
+    expect(at('2026-10-06T15:00:00Z')).toBe('2026-10-05T13:30:00.000Z');
+  });
+  // Pre-market the coming session's open is still ahead, so the plain last 24h reaches further back.
+  it('pre-market is the plain last 24 hours', () => {
+    expect(at('2026-10-06T09:00:00Z')).toBe('2026-10-05T09:00:00.000Z');
+  });
+  it('follows the winter offset', () => {
+    expect(at('2026-12-08T15:00:00Z')).toBe('2026-12-07T14:30:00.000Z');
+  });
+  it('after the close still reaches back to 24h before that day\'s open', () => {
+    expect(at('2026-10-07T23:00:00Z')).toBe('2026-10-06T13:30:00.000Z');
   });
 });

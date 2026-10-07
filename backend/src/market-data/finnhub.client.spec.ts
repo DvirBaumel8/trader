@@ -131,6 +131,19 @@ describe('companyNews', () => {
     expect(calls[0]).toContain('token=test-key');
   });
 
+  it('passes an abort signal so a slow provider cannot hang the request', async () => {
+    vi.stubEnv('FINNHUB_API_KEY', 'test-key');
+    const inits: (RequestInit | undefined)[] = [];
+    const http = (async (_url: string | URL, init?: RequestInit) => {
+      inits.push(init);
+      return { ok: true, status: 200, json: async () => [] } as Response;
+    }) as unknown as typeof fetch;
+
+    await new FinnhubClient(http).companyNews('AVGO', from, to);
+
+    expect(inits[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('returns an empty list without a key, and fetches nothing', async () => {
     vi.stubEnv('FINNHUB_API_KEY', '');
     const { http, calls } = httpReturning([]);
