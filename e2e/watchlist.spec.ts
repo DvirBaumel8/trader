@@ -34,7 +34,9 @@ test.describe('the watchlist', () => {
 
     await expect(page.getByTestId('watch-NVDA')).toBeVisible();
     // Optional target, as he asked — a ticker can be watched without one.
-    await expect(page.getByTestId('watch-NVDA')).toContainText('no target set');
+    // With no target anywhere, the table says so once, not on the row.
+    await expect(page.getByText('No targets set')).toBeVisible();
+    await expect(page.getByTestId('watch-NVDA')).not.toContainText('no target set');
 
     await page.getByRole('button', { name: 'Edit watchlist' }).click();
     await page.getByRole('button', { name: /^Delete$/ }).click();
@@ -84,7 +86,7 @@ test.describe('the watchlist', () => {
     await expect(row).toBeVisible();
     await expect(row).toContainText('NVDA');
     await expect(row).toContainText('$200.00');
-    await expect(row).toContainText('no target set');
+    await expect(page.getByText('No targets set')).toBeVisible();
     // One header for the table; no field labels inside the row.
     await expect(row).not.toContainText('Earnings');
     await expect(page.getByRole('button', { name: /^Target/ })).toHaveCount(1);
