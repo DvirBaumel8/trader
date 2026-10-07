@@ -36,6 +36,7 @@ describe('Health (e2e)', () => {
 
   it('serves /health/ping with no token, touching no database state', async () => {
     const res = await request(app.getHttpServer()).get('/health/ping').expect(200);
-    expect(res.body).toEqual({ status: 'ok' });
+    expect(res.body.status).toBe('ok');
+    expect(res.body).toHaveProperty('version');
   });
 });

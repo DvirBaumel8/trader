@@ -31,6 +31,9 @@ export class HealthController {
   @Public()
   @Get('ping')
   ping() {
-    return { status: 'ok' };
+    // Render sets RENDER_GIT_COMMIT to the deployed SHA, so the live backend
+    // version can be read off this endpoint. Null outside Render.
+    const commit = process.env.RENDER_GIT_COMMIT;
+    return { status: 'ok', version: commit ? commit.slice(0, 7) : null };
   }
 }
