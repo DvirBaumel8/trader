@@ -59,6 +59,7 @@ export function isBriefResponse(x: unknown): x is BriefResponse {
   const b = x as Record<string, unknown>;
   return (
     typeof b.generatedAt === 'string' &&
+    typeof b.marketDataAvailable === 'boolean' &&
     typeof b.mood === 'object' && b.mood !== null && !isArray(b.mood) &&
     isArray((b.mood as Record<string, unknown>).indices) &&
     isArray(b.queue) &&

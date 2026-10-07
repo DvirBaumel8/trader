@@ -8,7 +8,7 @@ import { formatMoney, formatPercent, formatTimestamp, signClass } from '../forma
  * figure, label and headline is the server's; this only lays them out.
  * Renders nothing when nothing moved enough.
  */
-export function MoverList({ movers }: { movers: BriefMover[] }) {
+export function MoverList({ movers, aiAsOf = null }: { movers: BriefMover[]; aiAsOf?: string | null }) {
   if (movers.length === 0) return null;
   return (
     <section aria-label="Movers" className="space-y-2">
@@ -41,7 +41,7 @@ export function MoverList({ movers }: { movers: BriefMover[] }) {
             <p className="text-xs text-muted">No news found</p>
           )}
           {mover.thesis && (
-            <p className="text-xs text-muted"><span className="font-medium text-accent">AI:</span> {mover.thesis}</p>
+            <p className="text-xs text-muted"><span className="font-medium text-accent">{aiAsOf ? `AI (as of ${formatTimestamp(aiAsOf)}):` : 'AI:'}</span> {mover.thesis}</p>
           )}
         </div>
       ))}

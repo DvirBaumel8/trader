@@ -64,6 +64,27 @@ describe('Brief', () => {
     expect(movers).toHaveTextContent('AI: The deal confirms your breakout thesis.');
   });
 
+  it('labels a cached thesis check with the time of the take', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief, summaryAt: '2026-09-17T07:40:00.000Z',
+      movers: [{ ...initialBrief.movers[0], thesis: 'Still holds.' }],
+    });
+    renderBrief();
+    const movers = await screen.findByRole('region', { name: 'Movers' });
+    expect(movers).toHaveTextContent(/AI \(as of .+\): Still holds\./);
+  });
+
+  it('labels a fresh thesis check plainly', async () => {
+    (api as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...initialBrief, summaryAt: initialBrief.generatedAt,
+      movers: [{ ...initialBrief.movers[0], thesis: 'Still holds.' }],
+    });
+    renderBrief();
+    const movers = await screen.findByRole('region', { name: 'Movers' });
+    expect(movers).toHaveTextContent('AI: Still holds.');
+    expect(movers).not.toHaveTextContent('as of');
+  });
+
   it('shows no AI line under a mover when there is no thesis', async () => {
     (api as ReturnType<typeof vi.fn>).mockResolvedValue(initialBrief);
     renderBrief();
@@ -409,6 +430,27 @@ describe('Brief', () => {
       renderBrief();
       expect(await screen.findByText(message)).toBeInTheDocument();
       expect(screen.queryByText('Fed rate decision')).not.toBeInTheDocument();
+    });
+
+    it('shows the message when marketDataAvailable is missing', async () => {
+      const { marketDataAvailable: _m, ...without } = initialBrief;
+      (api as ReturnType<typeof vi.fn>).mockResolvedValue(without);
+      renderBrief();
+      expect(await screen.findByText(message)).toBeInTheDocument();
+    });
+
+    it('shows a fallback, keeping the header and refresh, when a mover is malformed below the top-level guard', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const { reasons: _r, ...badMover } = initialBrief.movers[0];
+        (api as ReturnType<typeof vi.fn>).mockResolvedValue({ ...initialBrief, movers: [badMover] });
+        renderBrief();
+        expect(await screen.findByText(/Part of the brief couldn.t be shown/)).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Daily brief' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Refresh brief/ })).toBeInTheDocument();
+      } finally {
+        spy.mockRestore();
+      }
     });
 
     it('does not show the message for a normal payload', async () => {

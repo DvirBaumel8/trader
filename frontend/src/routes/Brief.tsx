@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { SessionBadge } from '../components/SessionBadge';
 import { formatTimestamp } from '../components/format';
 import { RefreshButton } from '../components/RefreshButton';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { Markdown } from '../components/Markdown';
 import { MoodLine } from '../components/brief/MoodLine';
 import { MoverList } from '../components/brief/MoverList';
@@ -77,7 +78,7 @@ export function Brief() {
           The brief came back in a format this version of the app doesn't understand. The server may be mid-update — try again in a few minutes.
         </p>
       )}
-      {brief && <>
+      {brief && <ErrorBoundary key={brief.generatedAt} message="Part of the brief couldn't be shown. Try refreshing — if it persists, the server may be mid-update.">
         {!brief.marketDataAvailable && (
           <p role="alert" className="rounded-lg border border-border bg-surface-1 p-3 text-sm text-muted">
             Federal Reserve updates unavailable right now. Market events may be incomplete.
@@ -98,9 +99,9 @@ export function Brief() {
         )}
         <MoodLine mood={brief.mood} events={brief.events} />
         <BriefNoteList label="Needs attention" notes={brief.queue} destination={holdingDestination} empty="Nothing needs a decision today." />
-        <MoverList movers={brief.movers} />
+        <MoverList movers={brief.movers} aiAsOf={brief.summaryAt && brief.summaryAt !== brief.generatedAt ? brief.summaryAt : null} />
         <BriefNoteList label="Watch triggers" notes={brief.watchTriggers} destination={watchDestination} />
-      </>}
+      </ErrorBoundary>}
     </div>
   );
 }
