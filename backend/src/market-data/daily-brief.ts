@@ -50,7 +50,7 @@ function trueRange(bar: RawBar, previous: RawBar): number | null {
   );
 }
 
-function priorAtr(bars: RawBar[]): number | null {
+export function priorAtr(bars: RawBar[]): number | null {
   if (bars.length < ATR_PERIOD + 1) return null;
   const end = bars.length - 1;
   const ranges: number[] = [];
