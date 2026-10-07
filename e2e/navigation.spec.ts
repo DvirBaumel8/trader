@@ -56,6 +56,26 @@ test.describe('navigation', () => {
     expect(overflow).toBeLessThanOrEqual(0);
   });
 
+  test('Brief lists a new position with no stop under Needs attention', async ({ page }) => {
+    const status = await page.evaluate(async () => {
+      const token = localStorage.getItem('trader.authToken.v1');
+      return fetch('/api/journal', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          kind: 'TRADE', body: 'queue fixture', occurredAt: new Date().toISOString(),
+          trade: { symbol: 'NVDA', quantity: 1, price: 100, fee: 0 },
+        }),
+      }).then((r) => r.status);
+    });
+    expect(status).toBe(201);
+    await page.goto('/brief');
+    const section = page.getByRole('region', { name: 'Needs attention' });
+    await expect(section).toContainText('NVDA has no stop');
+    await section.getByRole('link', { name: /NVDA has no stop/ }).click();
+    await expect(page).toHaveURL(/\/\?symbol=NVDA$/);
+  });
+
   test('shows every holding fact without horizontal clipping on iPhone', async ({ page }) => {
     const response = await page.evaluate(async () => {
       const token = localStorage.getItem('trader.authToken.v1');
