@@ -10,8 +10,10 @@ export interface DailyBriefAnswer {
   thesis: Record<string, string>;
 }
 
-const SUMMARY = /^\s*\**\s*SUMMARY\s*:\s*\**\s*/i;
-const THESIS = /^\s*\**\s*THESIS\s+([A-Za-z0-9.^-]+)\s*:\s*\**\s*(.*)$/i;
+const SUMMARY = /^\s*(?:[-*•]\s+)?\**\s*SUMMARY\s*\**\s*:\s*\**\s*/i;
+const THESIS = /^\s*(?:[-*•]\s+)?\**\s*THESIS\s+\**([A-Za-z0-9.^-]+)\**\s*:\s*\**\s*(.*)$/i;
+const SHOUTED_THESIS = /^\s*(?:[-*•]\s+)?\**\s*THESIS\s+\**[A-Z0-9.^-]+\**\s*:/;
+const stripTrailingBold = (text: string) => text.replace(/\**\s*$/, '').trim();
 
 export function parseDailyBriefAnswer(text: string, moverSymbols: readonly string[]): DailyBriefAnswer {
   const bySymbol = new Map(moverSymbols.map((s) => [s.toUpperCase(), s]));
@@ -23,15 +25,15 @@ export function parseDailyBriefAnswer(text: string, moverSymbols: readonly strin
     if (match) {
       const symbol = bySymbol.get(match[1].toUpperCase());
       if (symbol) {
-        const body = match[2].trim();
+        const body = stripTrailingBold(match[2]);
         if (body && !(symbol in thesis)) thesis[symbol] = body;
         continue;
       }
       // A shouted "THESIS XYZ:" tag for a non-mover is an invented opinion:
       // drop it. Anything else ("Thesis check: ...") is ordinary prose.
-      if (/^\s*\**\s*THESIS\s+[A-Z0-9.^-]+\s*:/.test(line)) continue;
+      if (SHOUTED_THESIS.test(line)) continue;
     }
-    summaryLines.push(line.replace(SUMMARY, ''));
+    summaryLines.push(stripTrailingBold(line.replace(SUMMARY, '')));
   }
 
   const summary = summaryLines.join('\n').trim();

@@ -14,6 +14,13 @@ import type { NextFunction, Request, Response } from 'express';
  */
 const SLOW_MS = 1000;
 
+/**
+ * Render's health check and the keep-warm Worker hit this every few seconds;
+ * logged, it buried every real request. A slow or failing ping is still
+ * logged — that is the one that says something is wrong.
+ */
+const QUIET_PATHS = new Set(['/health/ping', '/api/health/ping']);
+
 @Injectable()
 export class RequestLoggingMiddleware implements NestMiddleware {
   private readonly log = new Logger('Request');
@@ -28,8 +35,10 @@ export class RequestLoggingMiddleware implements NestMiddleware {
       const ms = Date.now() - startedAt;
       // The path only — never the query string. Filters carry search text,
       // and a log is the wrong place for what he was looking for.
-      const line = `${req.method} ${req.baseUrl || req.path} ${res.statusCode} ${ms}ms`;
+      const path = req.baseUrl || req.path;
+      const line = `${req.method} ${path} ${res.statusCode} ${ms}ms`;
       if (ms >= SLOW_MS) this.log.warn(`${line}  SLOW`);
+      else if (QUIET_PATHS.has(path) && res.statusCode < 400) return;
       else this.log.log(line);
     });
 

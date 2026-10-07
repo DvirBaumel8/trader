@@ -48,6 +48,11 @@ function money(value: number): string {
   return `${value >= 0 ? '+' : '-'}$${Math.abs(value).toFixed(2)}`;
 }
 
+/** Quoted text is data: collapse newlines so it cannot pose as an answer-format line. */
+function flatten(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 function moverLines(movers: ContextMover[]): string[] {
   if (movers.length === 0) return ['- No holding moved 1 ATR or more.'];
   return movers.flatMap((m) => {
@@ -56,9 +61,9 @@ function moverLines(movers: ContextMover[]): string[] {
     if (m.extended) line += ' (extended-hours print)';
     if (m.stale) line += ' (stale)';
     line += '. ';
-    line += m.headline ? `Headline: "${m.headline.title}" (${m.headline.source})` : 'No headline found.';
+    line += m.headline ? `Headline: "${flatten(m.headline.title)}" (${m.headline.source})` : 'No headline found.';
     const reasons = m.reasons.length > 0 ? m.reasons.join(', ') : 'none recorded';
-    const note = m.note.trim();
+    const note = flatten(m.note);
     const noteText =
       note === '' ? 'No entry note.' : `Entry note: "${note.length > 300 ? `${note.slice(0, 300)}…` : note}"`;
     return [line, `  Entry reasons: ${reasons}. ${noteText}`];

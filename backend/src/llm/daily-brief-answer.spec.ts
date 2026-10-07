@@ -72,4 +72,28 @@ describe('parseDailyBriefAnswer', () => {
     const lf = 'SUMMARY: a\nb\nTHESIS NVDA: holds.';
     expect(parseDailyBriefAnswer(lf.replace(/\n/g, '\r\n'), ['NVDA'])).toEqual(parseDailyBriefAnswer(lf, ['NVDA']));
   });
+
+  it('accepts bold markers before the colon', () => {
+    expect(parseDailyBriefAnswer('**SUMMARY**: s\n**THESIS NVDA**: holds.', ['NVDA'])).toEqual({
+      summary: 's', thesis: { NVDA: 'holds.' },
+    });
+  });
+
+  it('accepts a bulleted thesis line', () => {
+    expect(parseDailyBriefAnswer('SUMMARY: s\n- THESIS NVDA: holds.\n* THESIS AMD: ok.', ['NVDA', 'AMD']).thesis)
+      .toEqual({ NVDA: 'holds.', AMD: 'ok.' });
+  });
+
+  it('strips trailing bold markers from a thesis wrapped in bold', () => {
+    expect(parseDailyBriefAnswer('**THESIS NVDA: holds.**', ['NVDA']).thesis).toEqual({ NVDA: 'holds.' });
+  });
+
+  it('drops a bulleted or bold-colon tag for a non-mover', () => {
+    expect(parseDailyBriefAnswer('SUMMARY: s\n- THESIS AAPL: x.\n**THESIS MSFT**: y.', ['NVDA']))
+      .toEqual({ summary: 's', thesis: {} });
+  });
+
+  it('strips trailing bold markers from the summary', () => {
+    expect(parseDailyBriefAnswer('**SUMMARY: s**', []).summary).toBe('s');
+  });
 });
