@@ -78,7 +78,7 @@ stored.
 
 | `kind` | Fields | Meaning |
 |---|---|---|
-| `done` | `message` | Multi-line summary, one line per non-empty group: `Added (long): X, Y`, `Already held: ...`, `Sold and moved to watchlist: ...`, `Not held: ...`, `Watching: ...`, `Already watching: ...`, `Stopped watching: ...`, `Not watched: ...`, `Couldn't find: ...`. |
+| `done` | `message` | Multi-line summary, one line per non-empty group, `Label: X, Y`. Groups per action: **buy** `Added (long)`, `Already held`, `Couldn't find`; **sell** `Sold and moved to watchlist`, `Sold (watchlist full, not added)`, `Not held`, `Couldn't find`; **watch** `Watching`, `Already watching`, `Watchlist full, not added`, `Couldn't find`; **unwatch** `Stopped watching`, `Not on watchlist`, `Couldn't find`. `Couldn't find` lists unknown tickers and strings that are not ticker-shaped; on buy and watch it also covers tickers the market-data lookup rejects. |
 | `prompt` | `text`, `note?` | A ready-to-paste Gemini prompt. `note` is set when the router failed or is unconfigured. |
 | `error` | `message` | An unexpected failure partway through; check Holdings and Watchlist before resending. |
 

@@ -14,8 +14,9 @@ documents for decisions, implementation detail, and history.
 ## Current product
 
 Trader remembers what the owner holds (symbol + direction) and watches
-(symbol), never his numbers. The only in-product AI is a free Gemini model that routes chat messages. Three screens with a
-tab bar under the header, plus Login:
+(symbol), never his numbers. The only in-product AI is a free Gemini model
+that routes chat messages. Three screens with a tab bar under the header,
+plus Login:
 
 - **Chat** (`/`, home). One input box; the reply to the message just sent
   appears below it. Nothing is stored except the effect on holdings and
@@ -29,12 +30,12 @@ picks one of buy, sell, watch, unwatch or none; the backend validates and
 performs it. The model never writes, and a message containing `?` never
 performs an action. Several tickers can be pasted at once (up to 50). The
 reply is a short summary, for example `Added (long): NVDA` or `Sold and moved
-to watchlist: NVDA`. Anything else, any failure, or no `GEMINI_API_KEY` gives
-a Gemini prompt with a Copy button (with a note when the router failed). The
-moving-average check was removed from chat. Tickers are 1-5 letters (optional
-`.X` class); an unknown ticker is reported and nothing is saved. The prompt
-holds the message, today's date, holdings and watchlist symbols
-(`backend/src/assistant/prompt.ts`).
+to watchlist: NVDA`. Anything else gives a Gemini prompt with a Copy button;
+so does a failed model call or a missing `GEMINI_API_KEY`, with a note that
+it could not be read automatically. The moving-average check was removed from
+chat. Tickers are 1-5 letters (optional `.X` class); an unknown ticker is
+reported and nothing is saved. The prompt holds the message, today's date,
+holdings and watchlist symbols (`backend/src/assistant/prompt.ts`).
 
 The old journal, transaction, stop, ranking and brief tables and the unused
 watchlist columns stay in the database, unread.

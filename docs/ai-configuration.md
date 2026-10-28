@@ -22,9 +22,12 @@ in `backend/src/assistant/prompt.ts`.
 - **Symbols.** Uppercased, `$` and list numbering stripped, de-duplicated;
   valid shape `^[A-Z]{1,5}(\.[A-Z])?$`. Other strings are reported as
   "Couldn't find".
-- **Fallback.** Any failure (timeout, HTTP error, quota, bad JSON, invalid
-  shape) returns a prompt with the note "Couldn't read that automatically —
-  here's a prompt instead." and writes nothing.
+- **Fallback.** Only a failed or timed-out model call (timeout, HTTP error,
+  quota, empty or non-JSON output) or a missing key returns a prompt with the
+  note "Couldn't read that automatically — here's a prompt instead." Output
+  that parses but is invalid, a message containing `?`, or an action of
+  `none` returns a plain prompt with no note. Nothing is written in any of
+  these cases.
 - **What is sent.** Only the owner's message and the fixed action list, never
   holdings or watchlist.
 - **Tests.** Never call Gemini: `LlmClient` is overridden with a stub in the
