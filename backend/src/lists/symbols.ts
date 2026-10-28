@@ -1,15 +1,16 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { InstrumentsService } from '../instruments/instruments.service.js';
 
 const VALIDATE_CONCURRENCY = 5;
 
-/** Trim, upper-case, strip `$`, drop blanks, de-duplicate (first spelling wins). */
+/** Trim, upper-case, strip `$`, drop blanks, de-duplicate. 400 when nothing is left. */
 export function normalizeSymbols(raw: string[]): string[] {
   const seen = new Set<string>();
   for (const r of raw) {
     const s = r.trim().replace(/\$/g, '').toUpperCase();
     if (s) seen.add(s);
   }
+  if (seen.size === 0) throw new BadRequestException('No valid symbols');
   return [...seen];
 }
 

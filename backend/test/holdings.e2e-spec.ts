@@ -64,6 +64,8 @@ describe('Holdings (e2e)', () => {
     await http(app, token).post('/holdings').send({ symbols: [] }).expect(400);
     await http(app, token).post('/holdings').send({ symbols: Array.from({ length: 51 }, (_, i) => `T${i}`) }).expect(400);
     await http(app, token).post('/holdings').send({ symbol: 'LMND' }).expect(400);
+    const blank = await http(app, token).post('/holdings').send({ symbols: [' ', '$'] }).expect(400);
+    expect(blank.body.message).toContain('No valid symbols');
   });
 
   it('no longer takes a direction per symbol', async () => {

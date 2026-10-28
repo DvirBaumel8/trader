@@ -24,11 +24,11 @@ const renderIt = () =>
 const box = () => screen.getByPlaceholderText(/Talk to Trader/);
 
 it('sends on Enter, clears the box, and shows the reply', async () => {
-  vi.mocked(api).mockResolvedValue({ kind: 'done', message: 'Added LMND (long) to your holdings.' });
+  vi.mocked(api).mockResolvedValue({ kind: 'done', message: 'Added: LMND' });
   renderIt();
   await userEvent.type(box(), 'bought LMND{Enter}');
   expect(api).toHaveBeenCalledWith('/assistant', { method: 'POST', body: JSON.stringify({ text: 'bought LMND' }) });
-  expect(await screen.findByText('Added LMND (long) to your holdings.')).toBeInTheDocument();
+  expect(await screen.findByText('Added: LMND')).toBeInTheDocument();
   expect(box()).toHaveValue('');
 });
 
@@ -60,10 +60,10 @@ it('Shift+Enter adds a newline instead of sending', async () => {
 });
 
 it('renders a multi-line done reply line by line', async () => {
-  vi.mocked(api).mockResolvedValue({ kind: 'done', message: 'Added (long): LMND\nAlready held: NVDA' });
+  vi.mocked(api).mockResolvedValue({ kind: 'done', message: 'Added: LMND\nAlready held: NVDA' });
   renderIt();
   await userEvent.type(box(), 'bought LMND and NVDA{Enter}');
-  const el = await screen.findByText(/Added \(long\): LMND/);
+  const el = await screen.findByText(/Added: LMND/);
   expect(el).toHaveClass('whitespace-pre-line');
   expect(el).toHaveTextContent('Already held: NVDA');
 });
@@ -86,14 +86,14 @@ it('shows no note when the prompt has none', async () => {
 });
 
 it('clears the previous reply when a send fails', async () => {
-  vi.mocked(api).mockResolvedValueOnce({ kind: 'done', message: 'Added (long): LMND' });
+  vi.mocked(api).mockResolvedValueOnce({ kind: 'done', message: 'Added: LMND' });
   vi.mocked(api).mockRejectedValueOnce(new Error('network'));
   renderIt();
   await userEvent.type(box(), 'bought LMND{Enter}');
-  await screen.findByText('Added (long): LMND');
+  await screen.findByText('Added: LMND');
   await userEvent.type(box(), 'again{Enter}');
   expect(await screen.findByText(/Couldn’t reach Trader/)).toBeInTheDocument();
-  expect(screen.queryByText('Added (long): LMND')).toBeNull();
+  expect(screen.queryByText('Added: LMND')).toBeNull();
 });
 
 it('disables the box and Send while a send is pending', async () => {
@@ -145,15 +145,32 @@ it('Clear also works on a done reply', async () => {
   expect(box()).toHaveFocus();
 });
 
-it('Copy & open Gemini copies, then opens Gemini in a new tab', async () => {
+it('Copy & open Gemini is a real link that also copies the prompt', async () => {
   const writeText = vi.fn(async () => {});
   Object.assign(navigator, { clipboard: { writeText } });
   const open = vi.spyOn(window, 'open').mockImplementation(() => null);
   vi.mocked(api).mockResolvedValue({ kind: 'prompt', text: 'the prompt' });
   renderIt();
   await userEvent.type(box(), 'hello{Enter}');
-  await userEvent.click(await screen.findByRole('button', { name: 'Copy & open Gemini' }));
+  const link = await screen.findByRole('link', { name: 'Copy & open Gemini' });
+  expect(link).toHaveAttribute('href', 'https://gemini.google.com/app');
+  expect(link).toHaveAttribute('target', '_blank');
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  link.addEventListener('click', (e) => e.preventDefault()); // keep jsdom from navigating
+  await userEvent.click(link);
   expect(writeText).toHaveBeenCalledWith('the prompt');
-  await waitFor(() => expect(open).toHaveBeenCalledWith('https://gemini.google.com/app', '_blank', 'noopener'));
+  expect(open).not.toHaveBeenCalled();
   open.mockRestore();
+});
+
+it('Copy & open Gemini does not cancel the link navigation itself', async () => {
+  Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
+  vi.mocked(api).mockResolvedValue({ kind: 'prompt', text: 'p' });
+  renderIt();
+  await userEvent.type(box(), 'hello{Enter}');
+  const link = await screen.findByRole('link', { name: 'Copy & open Gemini' });
+  let prevented = true;
+  document.addEventListener('click', (e) => { prevented = e.defaultPrevented; }, { once: true });
+  await userEvent.click(link);
+  expect(prevented).toBe(false);
 });

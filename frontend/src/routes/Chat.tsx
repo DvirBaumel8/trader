@@ -56,16 +56,20 @@ export function Chat() {
     inputRef.current?.focus();
   };
 
-  const copyPrompt = async (value: string, thenOpenGemini = false) => {
+  const markCopied = () => {
+    setCopy('copied');
+    clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopy('idle'), 2000);
+  };
+
+  // Starts the copy synchronously (no await) so a link click that calls this
+  // stays inside the tap gesture and the browser may open the tab itself.
+  const copyPrompt = (value: string) => {
     try {
-      await navigator.clipboard.writeText(value);
-      setCopy('copied');
-      clearTimeout(copyTimer.current);
-      copyTimer.current = setTimeout(() => setCopy('idle'), 2000);
+      navigator.clipboard.writeText(value).then(markCopied, () => setCopy('failed'));
     } catch {
       setCopy('failed');
     }
-    if (thenOpenGemini) window.open(GEMINI_URL, '_blank', 'noopener');
   };
 
   const clearButton = (
@@ -123,17 +127,20 @@ export function Chat() {
                   <Button
                     variant="accent"
                     className="shrink-0 whitespace-nowrap"
-                    onClick={() => void copyPrompt(reply.text)}
+                    onClick={() => copyPrompt(reply.text)}
                   >
                     {copy === 'copied' ? 'Copied' : 'Copy'}
                   </Button>
-                  <Button
-                    variant="secondary"
-                    className="shrink-0 whitespace-nowrap"
-                    onClick={() => void copyPrompt(reply.text, true)}
+                  {/* A real link: the browser opens the tab inside the tap; the copy runs alongside. */}
+                  <a
+                    href={GEMINI_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 whitespace-nowrap rounded-lg border border-border px-3 py-2 text-sm text-muted"
+                    onClick={() => copyPrompt(reply.text)}
                   >
                     Copy &amp; open Gemini
-                  </Button>
+                  </a>
                   {clearButton}
                 </div>
               </div>

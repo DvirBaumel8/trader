@@ -69,6 +69,7 @@ describe('Watchlist (e2e)', () => {
   });
 
   it('rejects an empty or oversized list', async () => {
+    await http(app, token).post('/watchlist').send({ symbols: ['', ' '] }).expect(400);
     await http(app, token).post('/watchlist').send({ symbols: [] }).expect(400);
     await http(app, token).post('/watchlist').send({ symbols: Array.from({ length: 51 }, (_, i) => `T${i}`) }).expect(400);
   });

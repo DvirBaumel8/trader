@@ -97,3 +97,11 @@ it('leaving edit mode resets a pending remove confirmation', async () => {
   expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Confirm remove' })).toBeNull();
 });
+
+it('keeps Add disabled and calls nothing for input with no tickers', async () => {
+  vi.mocked(api).mockResolvedValue([]);
+  renderIt();
+  await userEvent.type(await screen.findByPlaceholderText('Tickers — e.g. GSIT, LMND NVDA'), ' , ; 1.');
+  expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
+  expect(api).not.toHaveBeenCalledWith('/holdings', expect.anything());
+});
