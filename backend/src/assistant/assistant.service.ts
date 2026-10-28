@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { etDate } from '../earnings/week.js';
 import { buildPrompt } from './prompt.js';
 import { ROUTER_SCHEMA, ROUTER_SYSTEM, toIntent, type RouterIntent } from './router.js';
 import { LlmClient, LlmRateLimitError } from '../llm/llm.client.js';
@@ -126,8 +127,8 @@ export class AssistantService {
   private async prompt(message: string, now: Date, note?: string): Promise<AssistantReply> {
     const text = buildPrompt({
       message,
-      date: now.toISOString().slice(0, 10),
-      holdings: (await this.holdings.list()).map((h) => ({ symbol: h.symbol, direction: h.direction })),
+      date: etDate(now),
+      holdings: (await this.holdings.list()).map((h) => h.symbol),
       watchlist: (await this.watchlist.list()).map((w) => w.symbol),
     });
     return note ? { kind: 'prompt', text, note } : { kind: 'prompt', text };

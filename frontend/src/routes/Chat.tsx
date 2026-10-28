@@ -5,12 +5,15 @@ import { inputClasses } from '../components/ui/inputClasses';
 import { sendMessage, type AssistantReply } from '../api/assistant';
 import { HOLDINGS_KEY, WATCHLIST_KEY } from '../api/lists';
 
+const GEMINI_URL = 'https://gemini.google.com/app';
+
 export function Chat() {
   const queryClient = useQueryClient();
   const [text, setText] = useState('');
   const [reply, setReply] = useState<AssistantReply | null>(null);
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
 
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(copyTimer.current), []);
 
@@ -46,7 +49,14 @@ export function Chat() {
     }
   };
 
-  const copyPrompt = async (value: string) => {
+  const clearReply = () => {
+    clearTimeout(copyTimer.current);
+    setCopy('idle');
+    setReply(null);
+    inputRef.current?.focus();
+  };
+
+  const copyPrompt = async (value: string, thenOpenGemini = false) => {
     try {
       await navigator.clipboard.writeText(value);
       setCopy('copied');
@@ -55,15 +65,23 @@ export function Chat() {
     } catch {
       setCopy('failed');
     }
+    if (thenOpenGemini) window.open(GEMINI_URL, '_blank', 'noopener');
   };
+
+  const clearButton = (
+    <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={clearReply}>
+      Clear
+    </Button>
+  );
 
   return (
     <section className="space-y-4">
       <div className="flex items-end gap-2">
         <textarea
+          ref={inputRef}
           rows={2}
           className={inputClasses('md', 'resize-none')}
-          placeholder="Talk to Trader — “bought LMND”, “is GOOGL above 150 SMA?”"
+          placeholder="Talk to Trader — “bought LMND”, “sold TSLA”, “watch NVDA”, or ask anything"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
@@ -84,20 +102,40 @@ export function Chat() {
 
       {reply && (
         <div className="rounded-lg border border-border bg-surface-1 p-3 text-sm">
-          {reply.kind === 'done' && <p className="whitespace-pre-line">{reply.message}</p>}
-          {reply.kind === 'error' && <p className="text-down">{reply.message}</p>}
+          {reply.kind === 'done' && (
+            <div className="flex items-start justify-between gap-2">
+              <p className="whitespace-pre-line">{reply.message}</p>
+              {clearButton}
+            </div>
+          )}
+          {reply.kind === 'error' && (
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-down">{reply.message}</p>
+              {clearButton}
+            </div>
+          )}
           {reply.kind === 'prompt' && (
             <div className="space-y-2">
               {reply.note && <p className="text-muted">{reply.note}</p>}
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-medium">Prompt for Gemini</h2>
-                <Button
-                  variant="accent"
-                  className="shrink-0 whitespace-nowrap"
-                  onClick={() => void copyPrompt(reply.text)}
-                >
-                  {copy === 'copied' ? 'Copied' : 'Copy'}
-                </Button>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="accent"
+                    className="shrink-0 whitespace-nowrap"
+                    onClick={() => void copyPrompt(reply.text)}
+                  >
+                    {copy === 'copied' ? 'Copied' : 'Copy'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="shrink-0 whitespace-nowrap"
+                    onClick={() => void copyPrompt(reply.text, true)}
+                  >
+                    Copy &amp; open Gemini
+                  </Button>
+                  {clearButton}
+                </div>
               </div>
               <pre className="whitespace-pre-wrap break-words font-sans text-muted">{reply.text}</pre>
               {copy === 'failed' && (

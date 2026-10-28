@@ -115,3 +115,45 @@ it('shows a manual-copy message when the clipboard rejects', async () => {
   await userEvent.click(await screen.findByRole('button', { name: 'Copy' }));
   expect(await screen.findByText('Copy failed — select the text and copy it manually.')).toBeInTheDocument();
 });
+
+it('uses the accurate placeholder', () => {
+  renderIt();
+  expect(
+    screen.getByPlaceholderText('Talk to Trader — “bought LMND”, “sold TSLA”, “watch NVDA”, or ask anything'),
+  ).toBeInTheDocument();
+});
+
+it('Clear removes the reply, resets copy state and focuses the box', async () => {
+  Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
+  vi.mocked(api).mockResolvedValue({ kind: 'prompt', text: 'q' });
+  renderIt();
+  await userEvent.type(box(), 'hello{Enter}');
+  await userEvent.click(await screen.findByRole('button', { name: 'Copy' }));
+  await screen.findByRole('button', { name: 'Copied' });
+  await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
+  expect(screen.queryByText('Prompt for Gemini')).toBeNull();
+  expect(box()).toHaveFocus();
+});
+
+it('Clear also works on a done reply', async () => {
+  vi.mocked(api).mockResolvedValue({ kind: 'done', message: 'Watching: AAPL' });
+  renderIt();
+  await userEvent.type(box(), 'watch AAPL{Enter}');
+  await screen.findByText('Watching: AAPL');
+  await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
+  expect(screen.queryByText('Watching: AAPL')).toBeNull();
+  expect(box()).toHaveFocus();
+});
+
+it('Copy & open Gemini copies, then opens Gemini in a new tab', async () => {
+  const writeText = vi.fn(async () => {});
+  Object.assign(navigator, { clipboard: { writeText } });
+  const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+  vi.mocked(api).mockResolvedValue({ kind: 'prompt', text: 'the prompt' });
+  renderIt();
+  await userEvent.type(box(), 'hello{Enter}');
+  await userEvent.click(await screen.findByRole('button', { name: 'Copy & open Gemini' }));
+  expect(writeText).toHaveBeenCalledWith('the prompt');
+  await waitFor(() => expect(open).toHaveBeenCalledWith('https://gemini.google.com/app', '_blank', 'noopener'));
+  open.mockRestore();
+});

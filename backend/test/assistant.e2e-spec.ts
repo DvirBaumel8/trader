@@ -102,10 +102,10 @@ describe('Assistant (e2e)', () => {
     const res = await say('what do you think about my portfolio?');
     expect(res.body.kind).toBe('prompt');
     expect(res.body).not.toHaveProperty('note');
-    expect(res.body.text).toContain('My holdings: LMND (long), NVDA (long)');
+    expect(res.body.text).toContain('My holdings: LMND, NVDA');
     expect(res.body.text).toContain('My watchlist: AMD');
     expect(res.body.text).toContain('My question:\nwhat do you think about my portfolio?');
-    expect(res.body.text).toMatch(/^Date: \d{4}-\d{2}-\d{2}/);
+    expect(res.body.text).toMatch(/^Date: [A-Z][a-z]{2} \d{1,2}, \d{4} \(New York time\)/);
   });
 
   it('rejects an empty or oversized message', async () => {

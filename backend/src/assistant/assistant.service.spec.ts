@@ -85,6 +85,18 @@ describe('AssistantService', () => {
     expect(reply).not.toHaveProperty('note');
   });
 
+  it('prompt: New York date and symbol-only holdings', async () => {
+    const { service } = make(
+      { generateJson: async () => ({ action: 'none', symbols: [] }) },
+      { holdings: { list: vi.fn(async () => [{ symbol: 'AMZN', name: null }, { symbol: 'TSLA', name: null }]) } },
+    );
+    const reply = await service.handle('what about semis', new Date('2026-10-29T00:30:00Z'));
+    expect(reply).toMatchObject({ kind: 'prompt' });
+    const text = (reply as { text: string }).text;
+    expect(text).toContain('Date: Oct 28, 2026 (New York time)');
+    expect(text).toContain('My holdings: AMZN, TSLA');
+  });
+
   it('a question never acts even if the model says buy', async () => {
     const { service, holdings } = make({ generateJson: async () => ({ action: 'buy', symbols: ['NVDA'] }) });
     expect((await service.handle('should I buy NVDA?')).kind).toBe('prompt');

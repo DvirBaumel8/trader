@@ -3,18 +3,25 @@
  * answer by itself. Minimal by design — prompt content is a later session
  * (docs/superpowers/specs/2026-10-28-trader-rebuild-design.md).
  */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** 2026-10-28 → Oct 28, 2026 */
+function formatDate(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return `${MONTHS[m - 1]} ${d}, ${y}`;
+}
+
 export function buildPrompt(input: {
   message: string;
+  /** New York calendar date, YYYY-MM-DD (see etDate). */
   date: string;
-  holdings: { symbol: string; direction: 'LONG' | 'SHORT' }[];
+  holdings: string[];
   watchlist: string[];
 }): string {
-  const holdings = input.holdings.length
-    ? input.holdings.map((h) => `${h.symbol} (${h.direction.toLowerCase()})`).join(', ')
-    : 'none';
+  const holdings = input.holdings.length ? input.holdings.join(', ') : 'none';
   const watchlist = input.watchlist.length ? input.watchlist.join(', ') : 'none';
   return [
-    `Date: ${input.date}`,
+    `Date: ${formatDate(input.date)} (New York time)`,
     '',
     `My holdings: ${holdings}`,
     `My watchlist: ${watchlist}`,

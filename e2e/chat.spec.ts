@@ -42,7 +42,15 @@ test.describe('the chat', () => {
     await expect(page.getByText('Prompt for Gemini')).toBeVisible();
     await expect(page.locator('pre')).toContainText('My watchlist:');
     await expect(page.locator('pre')).toContainText('AAPL');
-    await page.getByRole('button', { name: 'Copy' }).click();
+    await page.getByRole('button', { name: 'Copy', exact: true }).click();
     await expect(page.getByRole('button', { name: /Copied|Copy/ })).toBeVisible();
+  });
+
+  test('Clear removes the reply and focuses the box', async ({ page }) => {
+    await send(page, 'watch AAPL');
+    await expect(page.getByText('Watching: AAPL')).toBeVisible();
+    await page.getByRole('button', { name: 'Clear' }).click();
+    await expect(page.getByText('Watching: AAPL')).toHaveCount(0);
+    await expect(box(page)).toBeFocused();
   });
 });
