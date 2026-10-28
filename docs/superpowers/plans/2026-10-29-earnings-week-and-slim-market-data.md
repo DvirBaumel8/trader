@@ -180,7 +180,7 @@ UI (exact copy):
 
 ---
 
-### Task 5b: Chat polish (owner feedback 2026-10-29)
+### Task 5b: Chat polish and long-only holdings (owner feedback 2026-10-29)
 
 **Files:** Modify `backend/src/assistant/prompt.ts` (+ spec), `backend/src/assistant/assistant.service.ts` (+ spec) for the date, `frontend/src/routes/Chat.tsx` (+ spec), `e2e/chat.spec.ts` if it asserts the old prompt text.
 
@@ -188,8 +188,9 @@ UI (exact copy):
 
 - **Clear:** the reply card gets a `Clear` button (secondary, small, top-right next to Copy for prompts; top-right alone for other replies). Clearing removes the reply, resets copy state, and focuses the textarea.
 - **Placeholder:** `Talk to Trader — “bought LMND”, “sold TSLA”, “watch NVDA”, or ask anything`.
-- **Prompt holdings line:** list symbols only, marking shorts: `My holdings: AMZN, AVGO, TSLA (short)`; `none` when empty. Watchlist line unchanged.
+- **Prompt holdings line:** symbols only: `My holdings: AMZN, AVGO, TSLA`; `none` when empty. Watchlist line unchanged.
+- **Long-only holdings (owner: "I don't do shorts … assume always it's long"):** remove the direction concept from code. Backend: `HoldingsService.set(symbol, direction)` → `add(symbol): Promise<{ added: boolean; symbol: string }>` (validates via `findOrCreate`; `added: false` when already held); `find(symbol)` → `has(symbol): Promise<boolean>`; `list()` returns `{ symbol, name }[]`; the entity keeps mapping `direction` (column stays NOT NULL) but always writes `'LONG'` — no migration, nothing dropped. API: replace `PUT /holdings/:symbol {direction}` with `POST /holdings {symbol}` → `{ added, symbol }` (keep `GET /holdings`, `DELETE /holdings/:symbol`); remove `SetHoldingDto`, add `AddHoldingDto { symbol: string (1..12) }`. Assistant buy uses `has`/`add`; summary label `Added (long)` → `Added`. Earnings service consumes `list()` unchanged in shape except no `direction`. Frontend Holdings: one `Add` button (accent), no Long/Short text, no Flip; edit mode keeps Remove → confirm; `api/lists.ts` `setHolding` → `addHolding(symbol)` POSTing `{ symbol }`; `HoldingRow` without `direction`. Update every spec/e2e/browser test that referenced direction, Long/Short, Flip, `Add long`/`Add short` or `Added (long)` (holdings e2e, assistant e2e + unit, chat browser spec, navigation spec's add-buttons check → the single `Add` button, Holdings.spec). Docs (`docs/api.md`, `docs/current-state.md`, `AGENTS.md`): holdings are symbols only, always long.
 - **Prompt date:** New York date, formatted `Date: Oct 28, 2026 (New York time)` — `buildPrompt` takes the ET `YYYY-MM-DD` (from `etDate(now)`) and formats it; spec covers the UTC-midnight case (`2026-10-29T00:30:00Z` → `Oct 28, 2026`).
 - **Copy & open Gemini:** for prompt replies, a second button `Copy & open Gemini` that copies (same success/failure handling) and opens `https://gemini.google.com/app` in a new tab (`window.open(url, '_blank', 'noopener')`) — open after the copy promise settles, inside the same click handler.
-- Tests: prompt.spec for the holdings line (all long, one short, empty) and the date; Chat.spec for Clear (removes reply, focuses input), the new placeholder, and Copy & open (clipboard called, `window.open` called with the URL).
-- Commit: `feat(chat): clear button, accurate placeholder, cleaner prompt, copy & open Gemini`
+- Tests: prompt.spec for the holdings line (list, empty) and the date; Chat.spec for Clear (removes reply, focuses input), the new placeholder, and Copy & open (clipboard called, `window.open` called with the URL).
+- Commits: `feat(chat): clear button, accurate placeholder, cleaner prompt, copy & open Gemini` and `refactor: holdings are long-only symbols`
