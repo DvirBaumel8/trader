@@ -5,18 +5,10 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { RestoreLocation } from './components/RestoreLocation';
 import { RestoreScroll } from './components/RestoreScroll';
-import { Dashboard } from './routes/Dashboard';
-import { Brief } from './routes/Brief';
-import { Stops } from './routes/Stops';
-import { TickerProbe } from './routes/TickerProbe';
-import { Seed } from './routes/Seed';
-import { Journal } from './routes/Journal';
-import { Ideas } from './routes/Ideas';
+import { Chat } from './routes/Chat';
+import { Holdings } from './routes/Holdings';
 import { Watchlist } from './routes/Watchlist';
 import { Login } from './routes/Login';
-import { TradeDetail } from './routes/TradeDetail';
-import { Stocks } from './routes/Stocks';
-import { StockDetail } from './routes/StockDetail';
 import './index.css';
 
 const queryClient = new QueryClient();
@@ -30,18 +22,10 @@ createRoot(document.getElementById('root')!).render(
         <Routes>
           <Route path="login" element={<Login />} />
           <Route element={<AppShell />}>
-            <Route index element={<Dashboard />} />
-            <Route path="brief" element={<Brief />} />
-            <Route path="stops" element={<Stops />} />
-            <Route path="journal" element={<Journal />} />
-            <Route path="ideas" element={<Navigate to="/watchlist/ideas" state={{ fromLegacyIdeas: true }} replace />} />
+            <Route index element={<Chat />} />
+            <Route path="holdings" element={<Holdings />} />
             <Route path="watchlist" element={<Watchlist />} />
-            <Route path="watchlist/ideas" element={<Ideas />} />
-            <Route path="trades/:id" element={<TradeDetail />} />
-            <Route path="stocks" element={<Stocks />} />
-            <Route path="stocks/:symbol" element={<StockDetail />} />
-            <Route path="seed" element={<Seed />} />
-            <Route path="probe" element={<TickerProbe />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
       </BrowserRouter>

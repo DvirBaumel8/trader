@@ -1,8 +1,6 @@
-import { useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { NavLink, Outlet } from 'react-router-dom';
 import { api } from '../api/client';
-import { DAILY_BRIEF_QUERY_KEY, fetchDailyBrief } from '../api/dailyBrief';
 import { Logo } from './Logo';
 
 type Health = { status: string; database: string; userId: string | null };
@@ -38,21 +36,6 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
   }`;
 
 export function AppShell() {
-  const queryClient = useQueryClient();
-
-  // Fired once per app session, not on every route change or click — by the
-  // time the owner actually taps Brief, its slowest part (the AI summary
-  // call) has often already finished, not just started. Shares Brief's own
-  // staleTime so mounting the real query there does not immediately refetch
-  // what this already just fetched.
-  useEffect(() => {
-    queryClient.prefetchQuery({
-      queryKey: DAILY_BRIEF_QUERY_KEY,
-      queryFn: () => fetchDailyBrief(),
-      staleTime: 300_000,
-    });
-  }, [queryClient]);
-
   return (
     <div className="mx-auto flex min-h-full max-w-3xl flex-col">
       <header className="flex items-center gap-2.5 px-4 pt-4 pb-3">
@@ -62,26 +45,12 @@ export function AppShell() {
 
       <ConnectionBanner />
 
-      {/*
-        Only real destinations belong here. The dev-only ticker probe is
-        deliberately absent and reachable by typing /probe — scaffolding should
-        not take up space in the product's navigation.
-      */}
-      <nav className="flex justify-between border-b border-border px-2">
+      <nav className="flex justify-around border-b border-border px-2">
         <NavLink to="/" className={linkClass} end>
-          Portfolio
+          Chat
         </NavLink>
-        <NavLink to="/brief" className={linkClass}>
-          Brief
-        </NavLink>
-        <NavLink to="/journal" className={linkClass}>
-          Journal
-        </NavLink>
-        <NavLink to="/stops" className={linkClass}>
-          Stops
-        </NavLink>
-        <NavLink to="/stocks" className={linkClass}>
-          Trades
+        <NavLink to="/holdings" className={linkClass}>
+          Holdings
         </NavLink>
         <NavLink to="/watchlist" className={linkClass}>
           Watch
