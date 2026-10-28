@@ -36,6 +36,10 @@ export class Instrument {
   @Column({ type: 'timestamptz', nullable: true })
   nextEarningsAt?: Date | null;
 
+  /** The last report that has already happened, kept so this week's calendar still shows it. */
+  @Column({ type: 'timestamptz', nullable: true })
+  previousEarningsAt?: Date | null;
+
   @Column({ type: 'boolean', default: false })
   nextEarningsEstimated: boolean;
 

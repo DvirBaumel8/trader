@@ -62,9 +62,7 @@ export class EarningsService {
 
     const stale = instruments.filter(
       (i) =>
-        !i.earningsCheckedAt ||
-        etDate(i.earningsCheckedAt) !== week.today ||
-        (i.nextEarningsAt != null && i.nextEarningsAt.getTime() < now.getTime()),
+        !i.earningsCheckedAt || etDate(i.earningsCheckedAt) !== week.today,
     );
     const failures = await this.refresh(stale, now);
     if (stale.length > 0 && failures === stale.length && !instruments.some((i) => i.nextEarningsAt)) {
@@ -77,6 +75,8 @@ export class EarningsService {
       const source = sources.get(i.symbol)!;
       const at = i.nextEarningsAt ?? null;
       const date = at ? etDate(at) : null;
+      const prev = i.previousEarningsAt ?? null;
+      const prevDate = prev ? etDate(prev) : null;
       const day = date ? dayByDate.get(date) : undefined;
       day?.entries.push({
         symbol: i.symbol,
@@ -84,6 +84,9 @@ export class EarningsService {
         timing: timingOf(at),
         estimated: i.nextEarningsEstimated,
       });
+      // A report that already happened stays on this week's calendar.
+      const prevDay = prevDate && prevDate !== date ? dayByDate.get(prevDate) : undefined;
+      prevDay?.entries.push({ symbol: i.symbol, source, timing: timingOf(prev), estimated: false });
       const future = date !== null && date >= week.today;
       upcoming.push({
         symbol: i.symbol,
@@ -117,6 +120,13 @@ export class EarningsService {
         const i = list[next++];
         try {
           const found = await this.yahoo.nextEarnings(i.symbol);
+          if (
+            i.nextEarningsAt &&
+            i.nextEarningsAt.getTime() < now.getTime() &&
+            i.nextEarningsAt.getTime() !== found?.at.getTime()
+          ) {
+            i.previousEarningsAt = i.nextEarningsAt;
+          }
           i.nextEarningsAt = found?.at ?? null;
           i.nextEarningsEstimated = found?.estimated ?? false;
           i.nextEarningsDate = found ? etDate(found.at) : null;

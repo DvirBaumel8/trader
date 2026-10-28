@@ -123,13 +123,56 @@ describe('EarningsService.week', () => {
     expect(res.days[4].entries[0].estimated).toBe(true);
   });
 
-  it('refreshes when the cached date is in the past even if checked today', async () => {
+  it('does not refresh when checked today, even if the cached date has passed', async () => {
     const { service, yahoo } = setup({
       instruments: [inst('LMND', { earningsCheckedAt: CHECKED_TODAY, nextEarningsAt: new Date('2026-10-29T10:00:00Z') })],
       holdings: ['LMND'],
     });
+    const res = await service.week(NOW);
+    expect(yahoo.nextEarnings).not.toHaveBeenCalled();
+    expect(res.days[3].entries.map((e) => e.symbol)).toEqual(['LMND']);
+  });
+
+  it('keeps a reported ticker in the week via previousEarningsAt when Yahoo rolls to next quarter', async () => {
+    const { service, saved } = setup({
+      instruments: [inst('LMND', { earningsCheckedAt: CHECKED_YESTERDAY, nextEarningsAt: new Date('2026-10-27T12:30:00Z'), nextEarningsEstimated: true })],
+      holdings: ['LMND'],
+      earnings: { LMND: { at: '2027-02-10T12:30:00Z', estimated: true } },
+    });
+    const res = await service.week(NOW);
+    expect(saved[0].previousEarningsAt).toEqual(new Date('2026-10-27T12:30:00Z'));
+    expect(res.days[1].entries).toEqual([
+      { symbol: 'LMND', source: 'holding', timing: 'before_open', estimated: false },
+    ]);
+    expect(res.upcoming).toEqual([
+      { symbol: 'LMND', source: 'holding', date: '2027-02-10', daysUntil: 104, estimated: true },
+    ]);
+  });
+
+  it('a null result moves a past date into previousEarningsAt', async () => {
+    const { service, saved } = setup({
+      instruments: [inst('LMND', { earningsCheckedAt: CHECKED_YESTERDAY, nextEarningsAt: new Date('2026-10-27T12:30:00Z') })],
+      holdings: ['LMND'],
+      earnings: { LMND: null },
+    });
+    const res = await service.week(NOW);
+    expect(saved[0].nextEarningsAt).toBeNull();
+    expect(saved[0].previousEarningsAt).toEqual(new Date('2026-10-27T12:30:00Z'));
+    expect(res.days[1].entries).toHaveLength(1);
+  });
+
+  it('a second load the same day makes no Yahoo call and still shows the ticker', async () => {
+    const inst1 = inst('LMND', { earningsCheckedAt: CHECKED_YESTERDAY, nextEarningsAt: new Date('2026-10-27T12:30:00Z') });
+    const { service, yahoo } = setup({
+      instruments: [inst1],
+      holdings: ['LMND'],
+      earnings: { LMND: { at: '2027-02-10T12:30:00Z', estimated: false } },
+    });
     await service.week(NOW);
     expect(yahoo.nextEarnings).toHaveBeenCalledTimes(1);
+    const res = await service.week(NOW);
+    expect(yahoo.nextEarnings).toHaveBeenCalledTimes(1);
+    expect(res.days[1].entries).toHaveLength(1);
   });
 
   it('a throwing symbol keeps its old cache, is marked checked, and others still show', async () => {
