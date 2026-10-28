@@ -27,10 +27,14 @@ Trader is a chat, a holdings list and a watchlist. It grows one case at a time.
 - Trader knows what you hold (symbol + direction) and watch (symbol), never
   your numbers: no quantities, prices paid, cash, balances, P&L or
   performance. The broker owns those.
-- No in-product AI calls. Anything Trader can't answer itself becomes a prompt
-  for the owner's Gemini conversation (`backend/src/assistant/prompt.ts`).
-- The chat's parsing is deterministic (`backend/src/assistant/parse.ts`); a
-  miss becomes a prompt, never a guessed write.
+- `backend/src/llm/llm.client.ts` is the only AI SDK import boundary; the app
+  uses AI only to route chat messages (`assistant/router.ts`), never for
+  analysis. Anything Trader can't route becomes a prompt for the owner's
+  Gemini conversation (`backend/src/assistant/prompt.ts`).
+- The chat routes each message with a small Gemini model to one of buy, sell,
+  watch, unwatch or none. The model never writes: its output is validated, a
+  message containing `?` never performs an action, and a miss or failure
+  becomes a prompt, never a guessed write.
 - The frontend displays; the backend computes. Do not put business meaning or
   authoritative vocabulary in `frontend/`. The frontend may parse input, order
   display rows, and persist drafts.
@@ -122,7 +126,7 @@ cd frontend && npx tsc -b
 
 For a bug: fix it, add a behavior-focused regression test, identify why the
 old test coverage missed it, and sweep for the same shape elsewhere. Keep the
-pure logic (`assistant/parse.ts`, `market-data/moving-average.ts`) pure and
+pure logic (`assistant/router.ts`, `market-data/moving-average.ts`) pure and
 table-tested.
 
 Any UI change must be opened and inspected in a real browser before handoff.
@@ -142,7 +146,8 @@ Reuse the existing UI patterns before inventing another:
 
 ```text
 backend/src/
-  assistant/     chat: deterministic parse, intent execution, Gemini prompt
+  assistant/     chat: model routing (router.ts), intent execution, Gemini prompt
+  llm/           the only AI SDK client (Gemini), used for chat routing
   holdings/      symbol + direction per user
   watchlist/     symbols per user
   market-data/   Yahoo and Twelve Data clients, quotes, daily closes, moving averages
@@ -156,7 +161,7 @@ frontend/src/
   routes/        Chat, Holdings, Watchlist, Login
 ```
 
-`assistant/parse.ts` and `market-data/moving-average.ts` are pure and
+`assistant/router.ts` and `market-data/moving-average.ts` are pure and
 table-tested; keep them free of I/O.
 
 ## Find the right document
@@ -165,7 +170,7 @@ table-tested; keep them free of I/O.
 |---|---|
 | current shipped behavior, active work, or operating reality | `docs/current-state.md` |
 | starting, handing off, delegating, or selecting a development agent model | `docs/agent-guide.md` |
-| the Gemini prompt Trader builds (there is no in-product AI) | `docs/ai-configuration.md` |
+| the chat router (the only in-product AI) and the Gemini prompt Trader builds | `docs/ai-configuration.md` |
 | product intent | `docs/product-brief.md` |
 | deployment | `docs/DEPLOYMENT.md` |
 | schema changes or migrations | `docs/DEPLOYMENT.md` |

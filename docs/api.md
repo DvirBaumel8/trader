@@ -71,17 +71,16 @@ on the signed-in user.
 
 ### Assistant — `assistant/`
 
-`POST /assistant { text }` (1-2000 characters). Parses the message
-deterministically, runs the intent, and returns one `AssistantReply`
-(`assistant.service.ts`); the reply is not stored.
+`POST /assistant { text }` (1-2000 characters). A small Gemini model routes the
+message to buy, sell, watch, unwatch or none; the backend validates and runs
+it, and returns one `AssistantReply` (`assistant.service.ts`). The reply is not
+stored.
 
 | `kind` | Fields | Meaning |
 |---|---|---|
-| `done` | `message` | Holdings or watchlist changed, or it was already so. |
-| `confirm` | `message`, `action { symbol, direction, label }` | Direction conflict; the Flip button calls `PUT /holdings/:symbol` with `action`. |
-| `answer` | `message`, `facts { symbol, price, stale, session, average, period, value, percentFrom }` | Moving-average check. `session` is `pre-market`, `after-hours`, `overnight` or `null`; `percentFrom` is a fraction. |
-| `prompt` | `text` | A ready-to-paste Gemini prompt. |
-| `error` | `message` | Unknown ticker, not held or watched, too little history, no price. |
+| `done` | `message` | Multi-line summary, one line per non-empty group: `Added (long): X, Y`, `Already held: ...`, `Sold and moved to watchlist: ...`, `Not held: ...`, `Watching: ...`, `Already watching: ...`, `Stopped watching: ...`, `Not watched: ...`, `Couldn't find: ...`. |
+| `prompt` | `text`, `note?` | A ready-to-paste Gemini prompt. `note` is set when the router failed or is unconfigured. |
+| `error` | `message` | An unexpected failure partway through; check Holdings and Watchlist before resending. |
 
 ## Things that surprise callers
 
@@ -90,5 +89,5 @@ deterministically, runs the intent, and returns one `AssistantReply`
 - **Prices carry a session.** A quote is labelled `PRE`/`REGULAR`/`POST`/
   `OVERNIGHT`/`CLOSED` and flagged `stale` on provider failure. Never present a stale or
   extended-hours price as a regular close.
-- **Chat misses are prompts, not errors.** An unrecognised message returns
-  `kind: 'prompt'` with status 200.
+- **Chat misses are prompts, not errors.** An unrecognised message, a question
+  or a router failure returns `kind: 'prompt'` with status 200.

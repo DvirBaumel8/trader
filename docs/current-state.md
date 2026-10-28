@@ -2,7 +2,7 @@
 
 > Read this when you need to know what is true now before planning, resuming, deploying, or testing work.
 
-**Last verified:** 2026-10-28 against `backend/src/assistant/parse.ts`,
+**Last verified:** 2026-10-28 against `backend/src/assistant/router.ts`,
 `backend/src/assistant/assistant.service.ts`, `backend/src/holdings/`,
 `backend/src/watchlist/`, `backend/src/database/data-source.ts`,
 `frontend/src/routes/`, `.github/workflows/`, `package.json`,
@@ -14,7 +14,7 @@ documents for decisions, implementation detail, and history.
 ## Current product
 
 Trader remembers what the owner holds (symbol + direction) and watches
-(symbol), never his numbers, and makes no AI calls. Three screens with a
+(symbol), never his numbers. The only in-product AI is a free Gemini model that routes chat messages. Three screens with a
 tab bar under the header, plus Login:
 
 - **Chat** (`/`, home). One input box; the reply to the message just sent
@@ -24,21 +24,15 @@ tab bar under the header, plus Login:
   remove (removal uses edit mode plus a second tap).
 - **Watchlist** (`/watchlist`). Symbols only; add and remove (limit 50).
 
-Chat commands (case-insensitive, tickers only, English):
-
-| Message | Result |
-|---|---|
-| `bought X`, `buy X`, `long X` | Add X to holdings as long. |
-| `short X`, `shorted X` | Add X as short. |
-| `sold X`, `sell X`, `closed X`, `covered X` | Remove X from holdings. |
-| `watch X` / `unwatch X` | Add to / remove from the watchlist. |
-| `is X above\|over\|below\|under N [day] SMA\|EMA\|MA` | Verdict, price with session label, average, and percent distance. |
-| any message containing `?` (except the check above), or anything else | A Gemini prompt with a Copy button. |
-
-A direction conflict (buy X while held short, or the reverse) returns a
-confirm reply with a Flip button. An unknown ticker is reported and nothing is
-saved. Tickers are 1-5 letters (optional `.X` class, optional `$`); common
-words such as "it", "today" or "back" are never read as tickers. The prompt
+Chat routing: a free Gemini model (`gemini-3.6-flash`) reads each message and
+picks one of buy, sell, watch, unwatch or none; the backend validates and
+performs it. The model never writes, and a message containing `?` never
+performs an action. Several tickers can be pasted at once (up to 50). The
+reply is a short summary, for example `Added (long): NVDA` or `Sold and moved
+to watchlist: NVDA`. Anything else, any failure, or no `GEMINI_API_KEY` gives
+a Gemini prompt with a Copy button (with a note when the router failed). The
+moving-average check was removed from chat. Tickers are 1-5 letters (optional
+`.X` class); an unknown ticker is reported and nothing is saved. The prompt
 holds the message, today's date, holdings and watchlist symbols
 (`backend/src/assistant/prompt.ts`).
 

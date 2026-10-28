@@ -7,6 +7,7 @@ import express from 'express';
 import { AppModule } from './app.module.js';
 import { ensureDatabaseReady } from './database/startup.js';
 import { YahooClient } from './market-data/yahoo.client.js';
+import { LlmClient } from './llm/llm.client.js';
 import { yahooStub } from '../test/yahoo-stub.js';
 
 /**
@@ -38,6 +39,19 @@ async function bootstrap() {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(YahooClient)
     .useValue(yahooStub({ withBars: true }))
+    // No real model in browser tests: map the few messages the specs send to
+    // the router's JSON, and everything else to "none" (a prompt).
+    .overrideProvider(LlmClient)
+    .useValue({
+      isConfigured: () => true,
+      generateJson: async ({ user }: { user: string }) => {
+        if (user === 'bought NVDA') return { action: 'buy', symbols: ['NVDA'] };
+        if (user === 'sold NVDA') return { action: 'sell', symbols: ['NVDA'] };
+        if (user === 'watch AAPL') return { action: 'watch', symbols: ['AAPL'] };
+        if (user === 'Bought: 1. AMD 2. SMCI') return { action: 'buy', symbols: ['AMD', 'SMCI'] };
+        return { action: 'none', symbols: [] };
+      },
+    })
     .compile();
   const app = moduleRef.createNestApplication();
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
