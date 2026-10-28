@@ -32,6 +32,27 @@ const cases: [string, Intent][] = [
   ['   ', { kind: 'unknown' }],
   ['is GOOGL above 0 SMA', { kind: 'unknown' }],
   ['watch', { kind: 'unknown' }],
+  // Questions must not become writes.
+  ['buy NVDA?', { kind: 'unknown' }],
+  ['sell lmnd?', { kind: 'unknown' }],
+  ['watch NVDA?', { kind: 'unknown' }],
+  // Common English words are never tickers.
+  ['short term', { kind: 'unknown' }],
+  ['long term', { kind: 'unknown' }],
+  ['bought today', { kind: 'unknown' }],
+  ['sold it', { kind: 'unknown' }],
+  ['sell off', { kind: 'unknown' }],
+  ['watch out', { kind: 'unknown' }],
+  // ServiceNow is a real holding, so NOW is not in NOT_TICKERS.
+  ['bought NOW', { kind: 'add-holding', symbol: 'NOW', direction: 'LONG' }],
+  // Multi-punctuation: strip and parse normally.
+  ['bought lmnd.?', { kind: 'add-holding', symbol: 'LMND', direction: 'LONG' }],
+  ['bought lmnd!.', { kind: 'add-holding', symbol: 'LMND', direction: 'LONG' }],
+  // Whitespace handling.
+  ['\tbought\nLMND\t', { kind: 'add-holding', symbol: 'LMND', direction: 'LONG' }],
+  // Coverage: share classes and large periods.
+  ['is BRK.B above 200 SMA', { kind: 'ma-check', symbol: 'BRK.B', comparator: 'above', period: 200, average: 'SMA' }],
+  ['is GOOGL above 10000 SMA', { kind: 'unknown' }],
 ];
 
 describe('parseMessage', () => {

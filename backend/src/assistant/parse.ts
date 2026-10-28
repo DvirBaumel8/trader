@@ -29,6 +29,9 @@ const TICKER = /^\$?([a-z]{1,5}(?:\.[a-z])?)$/;
 
 const FILLER = new Set(['i', 'just', 'some', 'all', 'my', 'the', 'of', 'more', 'shares', 'a']);
 
+/** Common English words that are never tickers. */
+const NOT_TICKERS = new Set(['it', 'out', 'off', 'term', 'today', 'again', 'half', 'both', 'too', 'up', 'down', 'back', 'here', 'there']);
+
 const VERBS: Record<string, (symbol: string) => Intent> = {
   bought: (s) => ({ kind: 'add-holding', symbol: s, direction: 'LONG' }),
   buy: (s) => ({ kind: 'add-holding', symbol: s, direction: 'LONG' }),
@@ -47,11 +50,19 @@ const MA_CHECK =
   /^is \$?([a-z]{1,5}(?:\.[a-z])?) (above|over|below|under) (?:the |its )?(\d{1,4})(?:[ -]?day)? ?(sma|ema|ma)$/;
 
 export function parseMessage(text: string): Intent {
-  const normalized = text
-    .trim()
+  const trimmed = text.trim();
+
+  // Questions must not become writes (except ma-check).
+  // A question is one ending with "?" but not with multi-punctuation like ".?" or "!?".
+  const endsWithQuestion = trimmed.endsWith('?');
+  const endsWithPunctQuestion = /[.!,;:]\?$/.test(trimmed);
+  const isQuestion = endsWithQuestion && !endsWithPunctQuestion;
+
+  // Strip trailing sentence punctuation in one run before other normalisation.
+  let normalized = trimmed
+    .replace(/[?!.,;:]+$/, '')
     .toLowerCase()
-    .replace(/[?!,]+/g, ' ')
-    .replace(/\.+$/, '')
+    .replace(/[?!,;:]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (normalized === '') return UNKNOWN;
@@ -69,10 +80,17 @@ export function parseMessage(text: string): Intent {
     };
   }
 
+  // For non-ma-check intents, questions return unknown.
+  if (isQuestion) return UNKNOWN;
+
   const words = normalized.split(' ').filter((w) => !FILLER.has(w));
   if (words.length !== 2) return UNKNOWN;
   const verb = VERBS[words[0]];
   const ticker = TICKER.exec(words[1]);
   if (!verb || !ticker) return UNKNOWN;
+
+  // Common English words are never tickers.
+  if (NOT_TICKERS.has(words[1])) return UNKNOWN;
+
   return verb(ticker[1].toUpperCase());
 }
