@@ -4,7 +4,25 @@ import { DataSource } from 'typeorm';
 import { http, login } from './http.js';
 import { AppModule } from '../src/app.module.js';
 import { YahooClient } from '../src/market-data/yahoo.client.js';
+import { LlmClient } from '../src/llm/llm.client.js';
 import { yahooStub } from './yahoo-stub.js';
+
+const routes: Record<string, unknown> = {
+  'bought LMND and NVDA': { action: 'buy', symbols: ['LMND', 'NVDA'] },
+  'Bought: 1. TSLA 2. ZZZZ': { action: 'buy', symbols: ['TSLA', 'ZZZZ'] },
+  'sold LMND': { action: 'sell', symbols: ['LMND'] },
+  'sold AAPL': { action: 'sell', symbols: ['AAPL'] },
+  'watch AMD': { action: 'watch', symbols: ['AMD'] },
+  'unwatch AMD': { action: 'unwatch', symbols: ['AMD'] },
+  'should I buy NVDA?': { action: 'buy', symbols: ['NVDA'] },
+};
+const llmStub = {
+  isConfigured: () => true,
+  generateJson: async ({ user }: { user: string }) => {
+    if (user === 'model is down') throw new Error('503');
+    return routes[user] ?? { action: 'none', symbols: [] };
+  },
+};
 
 describe('Assistant (e2e)', () => {
   let app: INestApplication;
@@ -16,6 +34,8 @@ describe('Assistant (e2e)', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(YahooClient)
       .useValue(stub)
+      .overrideProvider(LlmClient)
+      .useValue(llmStub)
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
@@ -33,111 +53,57 @@ describe('Assistant (e2e)', () => {
   });
 
   const say = (text: string) => http(app, token).post('/assistant').send({ text }).expect(201);
+  const heldSymbols = async () => (await http(app, token).get('/holdings')).body.map((h: { symbol: string }) => h.symbol);
+  const watchedSymbols = async () => (await http(app, token).get('/watchlist')).body.map((w: { symbol: string }) => w.symbol);
 
-  /** `count` daily closes for `symbol`, each at `close`, ending yesterday. */
-  async function seedCloses(symbol: string, count: number, close: number) {
-    await http(app, token).post('/watchlist').send({ symbol }).expect(201);
-    const [{ id }] = await dataSource.query('SELECT id FROM instruments WHERE symbol = $1', [symbol]);
-    for (let i = 0; i < count; i++) {
-      const date = new Date(Date.now() - (count - i) * 86_400_000).toISOString().slice(0, 10);
-      await dataSource.query(
-        `INSERT INTO daily_closes ("instrumentId", date, close, "adjClose") VALUES ($1, $2, $3, $3)
-         ON CONFLICT ("instrumentId", date) DO NOTHING`,
-        [id, date, close],
-      );
-    }
-  }
-
-  it('adds, confirms a flip, and removes holdings', async () => {
-    expect((await say('bought LMND')).body).toEqual({ kind: 'done', message: 'Added LMND (long) to your holdings.' });
-    expect((await say('bought lmnd')).body).toEqual({ kind: 'done', message: 'You already hold LMND long.' });
-    expect((await say('short LMND')).body).toEqual({
-      kind: 'confirm',
-      message: 'You hold LMND long. Flip it to short?',
-      action: { symbol: 'LMND', direction: 'SHORT', label: 'Flip to short' },
-    });
-    // The confirm did not change anything by itself.
-    expect((await http(app, token).get('/holdings')).body[0].direction).toBe('LONG');
-    expect((await say('sold LMND')).body).toEqual({ kind: 'done', message: 'Removed LMND from your holdings.' });
-    expect((await say('sold LMND')).body).toEqual({ kind: 'error', message: "You don't hold LMND." });
+  it('buys several tickers, then reports them as already held', async () => {
+    expect((await say('bought LMND and NVDA')).body).toEqual({ kind: 'done', message: 'Added (long): LMND, NVDA' });
+    expect((await say('bought LMND and NVDA')).body).toEqual({ kind: 'done', message: 'Already held: LMND, NVDA' });
   });
 
-  it('refuses an unknown ticker without saving it', async () => {
-    expect((await say('bought ZZZZ')).body).toEqual({ kind: 'error', message: "I couldn't find the ticker ZZZZ. Check the spelling, or try again in a minute." });
-    expect((await http(app, token).get('/holdings')).body).toEqual([]);
+  it('buys from a numbered list and skips the unknown ticker', async () => {
+    expect((await say('Bought: 1. TSLA 2. ZZZZ')).body).toEqual({ kind: 'done', message: "Added (long): TSLA\nCouldn't find: ZZZZ" });
+    expect(await heldSymbols()).toEqual(['TSLA']);
+  });
+
+  it('sell removes the holding and moves it to the watchlist', async () => {
+    await say('bought LMND and NVDA');
+    expect((await say('sold LMND')).body).toEqual({ kind: 'done', message: 'Sold and moved to watchlist: LMND' });
+    expect(await heldSymbols()).not.toContain('LMND');
+    expect(await watchedSymbols()).toContain('LMND');
+  });
+
+  it('selling something not held reports it and does not watch it', async () => {
+    expect((await say('sold AAPL')).body).toEqual({ kind: 'done', message: 'Not held: AAPL' });
+    expect(await watchedSymbols()).not.toContain('AAPL');
   });
 
   it('watches and unwatches', async () => {
-    expect((await say('watch NVDA')).body).toEqual({ kind: 'done', message: 'Watching NVDA.' });
-    expect((await say('watch nvda')).body).toEqual({ kind: 'done', message: 'NVDA is already on your watchlist.' });
-    expect((await say('unwatch NVDA')).body).toEqual({ kind: 'done', message: 'Stopped watching NVDA.' });
-    expect((await say('unwatch NVDA')).body).toEqual({ kind: 'error', message: "NVDA isn't on your watchlist." });
+    expect((await say('watch AMD')).body).toEqual({ kind: 'done', message: 'Watching: AMD' });
+    expect((await say('watch AMD')).body).toEqual({ kind: 'done', message: 'Already watching: AMD' });
+    expect((await say('unwatch AMD')).body).toEqual({ kind: 'done', message: 'Stopped watching: AMD' });
+    expect((await say('unwatch AMD')).body).toEqual({ kind: 'done', message: 'Not on watchlist: AMD' });
   });
 
-  it('answers an SMA check from stored closes', async () => {
-    // GOOGL quotes at 180 in the stub; 150 closes at 160 → 12.50% above.
-    await seedCloses('GOOGL', 150, 160);
-    const res = await say('is GOOGL above 150 SMA?');
-    expect(res.body.kind).toBe('answer');
-    expect(res.body.message).toBe('Yes. GOOGL ($180.00) is 12.50% above its 150-day SMA ($160.00).');
-    expect(res.body.facts).toMatchObject({ symbol: 'GOOGL', price: 180, average: 'SMA', period: 150, value: 160, stale: false, session: null });
-    expect(res.body.facts.percentFrom).toBeCloseTo(0.125);
-    expect((await say('is googl below 150 sma')).body.message).toBe(
-      'No. GOOGL ($180.00) is 12.50% above its 150-day SMA ($160.00).',
-    );
+  it('a question never acts', async () => {
+    expect((await say('should I buy NVDA?')).body.kind).toBe('prompt');
+    expect(await heldSymbols()).toEqual([]);
   });
 
-  it('says when there is not enough history', async () => {
-    await seedCloses('GOOGL', 40, 160);
-    expect((await say('is GOOGL above 300 SMA')).body).toEqual({
-      kind: 'error',
-      message: 'Not enough history for a 300-day SMA on GOOGL.',
-    });
-  });
-
-  it('deepens short stored history from the provider before answering', async () => {
-    // 43 stored closes (as in production) against a 50-day SMA; the provider has 60 bars.
-    await seedCloses('MSFT', 43, 100);
-    const original = stub.dailyBars;
-    stub.dailyBars = async () =>
-      Array.from({ length: 60 }, (_, i) => {
-        const date = new Date(Date.now() - (60 - i) * 86_400_000 - 100 * 86_400_000).toISOString().slice(0, 10);
-        return { date, close: 100, adjClose: 100, open: null, high: null, low: null, volume: null };
-      });
-    try {
-      const res = await say('is MSFT above 50 SMA?');
-      expect(res.body.kind).toBe('answer');
-      expect(res.body.facts).toMatchObject({ symbol: 'MSFT', period: 50, average: 'SMA' });
-    } finally {
-      stub.dailyBars = original;
-    }
-  });
-
-  it('answers with a stale price when the provider fails after a recent quote', async () => {
-    await seedCloses('GOOGL', 150, 160);
-    await say('is GOOGL above 150 SMA'); // primes the quote cache
-    const original = stub.quote;
-    stub.quote = async () => {
-      throw new Error('provider down');
-    };
-    try {
-      const res = await say('is GOOGL above 150 SMA');
-      expect(res.body.kind).toBe('answer');
-      expect(res.body.message).toMatch(/ The price is stale\.$/);
-      expect(res.body.facts.stale).toBe(true);
-    } finally {
-      stub.quote = original;
-    }
+  it('falls back to a prompt with a note when the model is down', async () => {
+    const res = await say('model is down');
+    expect(res.body.kind).toBe('prompt');
+    expect(res.body.note).toBe("Couldn't read that automatically — here's a prompt instead.");
   });
 
   it('turns anything else into a prompt with holdings and watchlist', async () => {
-    await say('bought LMND');
-    await say('short TSLA');
-    await say('watch NVDA');
+    await say('bought LMND and NVDA');
+    await say('watch AMD');
     const res = await say('what do you think about my portfolio?');
     expect(res.body.kind).toBe('prompt');
-    expect(res.body.text).toContain('My holdings: LMND (long), TSLA (short)');
-    expect(res.body.text).toContain('My watchlist: NVDA');
+    expect(res.body).not.toHaveProperty('note');
+    expect(res.body.text).toContain('My holdings: LMND (long), NVDA (long)');
+    expect(res.body.text).toContain('My watchlist: AMD');
     expect(res.body.text).toContain('My question:\nwhat do you think about my portfolio?');
     expect(res.body.text).toMatch(/^Date: \d{4}-\d{2}-\d{2}/);
   });

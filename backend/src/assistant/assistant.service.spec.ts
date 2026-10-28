@@ -1,53 +1,102 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { AssistantService } from './assistant.service.js';
+import { AssistantService, FALLBACK_NOTE } from './assistant.service.js';
 
-describe('AssistantService.maCheck', () => {
-  it("says it couldn't get a price when the provider has none", async () => {
-    const service = new AssistantService(
-      {} as never,
-      {} as never,
-      { findOrCreate: vi.fn(async () => ({ id: 'i1', symbol: 'GOOGL' })) } as never,
-      { getQuote: vi.fn(async () => null) } as never,
-      { ensureDepth: vi.fn(async () => 'ok'), ensureFresh: vi.fn() } as never,
-      { find: vi.fn() } as never,
+function make(llm: { isConfigured?: () => boolean; generateJson: (...a: unknown[]) => Promise<unknown> }, over: Record<string, unknown> = {}) {
+  const holdings = { find: vi.fn(async () => null), set: vi.fn(async (s: string) => ({ symbol: s, direction: 'LONG', previous: null })), remove: vi.fn(async () => true), list: vi.fn(async () => []) , ...(over.holdings as object) };
+  const watchlist = { add: vi.fn(async (s: string) => ({ added: true, symbol: s })), remove: vi.fn(async () => true), list: vi.fn(async () => []), ...(over.watchlist as object) };
+  const instruments = { findOrCreate: vi.fn(async (s: string) => { if (s.startsWith('ZZZZ')) throw new NotFoundException(); return { id: s, symbol: s }; }) };
+  const service = new AssistantService(holdings as never, watchlist as never, instruments as never, { isConfigured: () => true, ...llm } as never);
+  return { service, holdings, watchlist };
+}
+
+describe('AssistantService', () => {
+  it('buy: adds new, reports already held and unknown', async () => {
+    const { service, holdings } = make(
+      { generateJson: async () => ({ action: 'buy', symbols: ['LMND', 'NVDA', 'ZZZZ', 'Lemonade'] }) },
+      { holdings: { find: vi.fn(async (s: string) => (s === 'NVDA' ? 'LONG' : null)) } },
     );
-    expect(await service.handle('is GOOGL above 150 SMA')).toEqual({
-      kind: 'error',
-      message: "Couldn't get GOOGL's price right now.",
+    expect(await service.handle('Bought: LMND NVDA ZZZZ Lemonade')).toEqual({
+      kind: 'done',
+      message: 'Added (long): LMND\nAlready held: NVDA\nCouldn\'t find: ZZZZ, LEMONADE',
+    });
+    expect(holdings.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('sell: removes and watches; not held is reported and not watched', async () => {
+    const { service, watchlist } = make(
+      { generateJson: async () => ({ action: 'sell', symbols: ['LMND', 'TSLA'] }) },
+      { holdings: { remove: vi.fn(async (s: string) => s === 'LMND') } },
+    );
+    expect(await service.handle('sold LMND and TSLA')).toEqual({
+      kind: 'done',
+      message: 'Sold and moved to watchlist: LMND\nNot held: TSLA',
+    });
+    expect(watchlist.add).toHaveBeenCalledWith('LMND');
+    expect(watchlist.add).not.toHaveBeenCalledWith('TSLA');
+  });
+
+  it('sell with a full watchlist still sells and says so', async () => {
+    const { service } = make(
+      { generateJson: async () => ({ action: 'sell', symbols: ['LMND'] }) },
+      { watchlist: { add: vi.fn(async () => { throw new BadRequestException('full'); }) } },
+    );
+    expect(await service.handle('sold LMND')).toEqual({ kind: 'done', message: 'Sold (watchlist full, not added): LMND' });
+  });
+
+  it('watch: added, already, full and unknown in one batch', async () => {
+    const add = vi.fn(async (s: string) => {
+      if (s === 'AMD') return { added: false, symbol: s };
+      if (s === 'SMCI') throw new BadRequestException('full');
+      if (s === 'ZZZZ') throw new NotFoundException();
+      return { added: true, symbol: s };
+    });
+    const { service } = make({ generateJson: async () => ({ action: 'watch', symbols: ['NVDA', 'AMD', 'SMCI', 'ZZZZ'] }) }, { watchlist: { add } });
+    expect(await service.handle('watch NVDA AMD SMCI ZZZZ')).toEqual({
+      kind: 'done',
+      message: "Watching: NVDA\nAlready watching: AMD\nWatchlist full, not added: SMCI\nCouldn't find: ZZZZ",
     });
   });
 
-  it("says history couldn't be fetched when the top-up failed and the stored history is short", async () => {
-    const service = new AssistantService(
-      {} as never,
-      {} as never,
-      { findOrCreate: vi.fn(async () => ({ id: 'i1', symbol: 'AAPL' })) } as never,
-      { getQuote: vi.fn(async () => ({ price: 200, stale: false, session: 'REGULAR' })) } as never,
-      { ensureDepth: vi.fn(async () => 'failed'), ensureFresh: vi.fn() } as never,
-      { find: vi.fn(async () => [{ close: 1 }, { close: 2 }]) } as never,
+  it('unwatch: stopped and not on watchlist', async () => {
+    const { service } = make(
+      { generateJson: async () => ({ action: 'unwatch', symbols: ['NVDA', 'AMD'] }) },
+      { watchlist: { remove: vi.fn(async (s: string) => s === 'NVDA') } },
     );
-    expect(await service.handle('is AAPL above 50 SMA')).toEqual({
-      kind: 'error',
-      message: "Couldn't get AAPL's price history right now.",
-    });
+    expect(await service.handle('unwatch NVDA, AMD')).toEqual({ kind: 'done', message: 'Stopped watching: NVDA\nNot on watchlist: AMD' });
   });
 
-  it('turns a full watchlist into a chat error and lets other errors propagate', async () => {
-    const msg = 'The watchlist holds 50 tickers at most. Remove one before adding another.';
-    const make = (err: Error) =>
-      new AssistantService(
-        {} as never,
-        { add: vi.fn(async () => { throw err; }) } as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
-      );
-    expect(await make(new BadRequestException(msg)).handle('watch NVDA')).toEqual({
-      kind: 'error',
-      message: msg,
-    });
-    await expect(make(new Error('boom')).handle('watch NVDA')).rejects.toThrow('boom');
+  it('none → prompt without a note', async () => {
+    const { service } = make({ generateJson: async () => ({ action: 'none', symbols: [] }) });
+    const reply = await service.handle('what about semis', new Date('2026-10-28T12:00:00Z'));
+    expect(reply).toMatchObject({ kind: 'prompt' });
+    expect(reply).not.toHaveProperty('note');
+  });
+
+  it('a question never acts even if the model says buy', async () => {
+    const { service, holdings } = make({ generateJson: async () => ({ action: 'buy', symbols: ['NVDA'] }) });
+    expect((await service.handle('should I buy NVDA?')).kind).toBe('prompt');
+    expect(holdings.set).not.toHaveBeenCalled();
+  });
+
+  it('model failure → prompt with the fallback note, no writes', async () => {
+    const { service, holdings } = make({ generateJson: async () => { throw new Error('429'); } });
+    const reply = await service.handle('bought LMND');
+    expect(reply).toMatchObject({ kind: 'prompt', note: FALLBACK_NOTE });
+    expect(holdings.set).not.toHaveBeenCalled();
+  });
+
+  it('no API key → prompt with the fallback note, model not called', async () => {
+    const generateJson = vi.fn();
+    const { service } = make({ isConfigured: () => false, generateJson });
+    expect(await service.handle('bought LMND')).toMatchObject({ kind: 'prompt', note: FALLBACK_NOTE });
+    expect(generateJson).not.toHaveBeenCalled();
+  });
+
+  it('sends only the message and the router instruction to the model', async () => {
+    const generateJson = vi.fn(async () => ({ action: 'none', symbols: [] }));
+    const { service } = make({ generateJson });
+    await service.handle('hello there');
+    expect(generateJson).toHaveBeenCalledWith(expect.objectContaining({ user: 'hello there', timeoutMs: 5000 }));
   });
 });
