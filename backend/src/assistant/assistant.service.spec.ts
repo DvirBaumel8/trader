@@ -23,6 +23,17 @@ describe('AssistantService', () => {
     expect(holdings.set).toHaveBeenCalledTimes(1);
   });
 
+  it('an unexpected error mid-batch becomes an error reply, not a 500', async () => {
+    const { service } = make(
+      { generateJson: async () => ({ action: 'buy', symbols: ['NVDA'] }) },
+      { holdings: { set: vi.fn(async () => { throw new Error('db down'); }) } },
+    );
+    expect(await service.handle('bought NVDA')).toEqual({
+      kind: 'error',
+      message: 'Something went wrong partway through — check Holdings and Watchlist before resending.',
+    });
+  });
+
   it('sell: removes and watches; not held is reported and not watched', async () => {
     const { service, watchlist } = make(
       { generateJson: async () => ({ action: 'sell', symbols: ['LMND', 'TSLA'] }) },

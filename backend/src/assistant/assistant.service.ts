@@ -43,7 +43,14 @@ export class AssistantService {
     }
     const intent = toIntent(raw, message);
     if (intent.kind === 'none') return this.prompt(message, now);
-    return { kind: 'done', message: await this.execute(intent) };
+    try {
+      return { kind: 'done', message: await this.execute(intent) };
+    } catch (err) {
+      // Anything unexpected (e.g. a DB error) may have struck after part of
+      // the batch was written; say so instead of a bare 500.
+      this.logger.error(`assistant execute failed: ${(err as Error).message}`, (err as Error).stack);
+      return { kind: 'error', message: 'Something went wrong partway through — check Holdings and Watchlist before resending.' };
+    }
   }
 
   private async execute(intent: Exclude<RouterIntent, { kind: 'none' }>): Promise<string> {
