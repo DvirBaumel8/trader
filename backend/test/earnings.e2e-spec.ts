@@ -45,9 +45,9 @@ describe('Earnings week (e2e)', () => {
   });
 
   const hold = (t: string, s: string) =>
-    http(app, t).put(`/holdings/${s}`).send({ direction: 'LONG' }).expect(200);
+    http(app, t).post('/holdings').send({ symbols: [s] }).expect(201);
   const watch = (t: string, s: string) =>
-    http(app, t).post('/watchlist').send({ symbol: s }).expect(201);
+    http(app, t).post('/watchlist').send({ symbols: [s] }).expect(201);
 
   it('empty lists give five empty days and no upcoming rows', async () => {
     const res = await http(app, token).get('/earnings/week').expect(200);

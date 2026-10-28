@@ -3,7 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/Button';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
 import { inputClasses } from '../components/ui/inputClasses';
-import { WATCHLIST_KEY, addWatch, removeWatch, useWatchlist } from '../api/lists';
+import { WATCHLIST_KEY, addWatches, removeWatch, useWatchlist } from '../api/lists';
+import { parseTickers, summarize } from '../lib/tickers';
 
 export function Watchlist() {
   const queryClient = useQueryClient();
@@ -13,10 +14,20 @@ export function Watchlist() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
 
+  const [result, setResult] = useState('');
   const add = useMutation({
-    mutationFn: () => addWatch(symbol),
-    onSuccess: () => {
+    mutationFn: (symbols: string[]) => addWatches(symbols),
+    onMutate: () => setResult(''),
+    onSuccess: (r) => {
       setSymbol('');
+      setResult(
+        summarize([
+          ['Added', r.added],
+          ['Already watching', r.already],
+          ['Watchlist full', r.full],
+          ["Couldn't find", r.notFound],
+        ]),
+      );
       void refresh();
     },
   });
@@ -29,7 +40,8 @@ export function Watchlist() {
     onError: () => setConfirming(null),
   });
 
-  const canAdd = symbol.trim() !== '' && !add.isPending;
+  const tickers = parseTickers(symbol);
+  const canAdd = tickers.length > 0 && !add.isPending;
 
   return (
     <section className="space-y-4">
@@ -44,16 +56,17 @@ export function Watchlist() {
       <div className="flex gap-2">
         <input
           className={inputClasses('md', 'uppercase')}
-          placeholder="Ticker"
+          placeholder="Tickers — e.g. GSIT, LMND NVDA"
           value={symbol}
           autoCapitalize="characters"
           autoCorrect="off"
           onChange={(e) => setSymbol(e.target.value)}
         />
-        <Button variant="accent" className="shrink-0 whitespace-nowrap" disabled={!canAdd} onClick={() => add.mutate()}>
-          Watch
+        <Button variant="accent" className="shrink-0 whitespace-nowrap" disabled={!canAdd} onClick={() => add.mutate(tickers)}>
+          Add
         </Button>
       </div>
+      {result && <p className="text-sm text-muted">{result}</p>}
       {add.isError && <p className="text-sm text-down">{(add.error as Error).message}</p>}
 
       {isLoading && <p className="text-sm text-muted">Loading…</p>}

@@ -11,8 +11,8 @@ test.describe('the earnings tab', () => {
       const ok = (r: Response) => {
         if (!r.ok) throw new Error(`seed failed: ${r.status}`);
       };
-      ok(await fetch('/api/holdings/AMD', { method: 'PUT', headers, body: JSON.stringify({ direction: 'LONG' }) }));
-      ok(await fetch('/api/watchlist', { method: 'POST', headers, body: JSON.stringify({ symbol: 'SMCI' }) }));
+      ok(await fetch('/api/holdings', { method: 'POST', headers, body: JSON.stringify({ symbols: ['AMD'] }) }));
+      ok(await fetch('/api/watchlist', { method: 'POST', headers, body: JSON.stringify({ symbols: ['SMCI'] }) }));
     });
     await page.goto('/earnings');
   });

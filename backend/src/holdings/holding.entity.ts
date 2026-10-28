@@ -2,7 +2,11 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Unique
 
 export type Direction = 'LONG' | 'SHORT';
 
-/** A symbol the owner holds and which way. Deliberately no quantity or price. */
+/**
+ * A symbol the owner holds. Deliberately no quantity or price. The owner only
+ * goes long, so `direction` is always written as 'LONG'; the column stays
+ * (NOT NULL, CHECK) so no migration is needed.
+ */
 @Entity('holdings')
 @Unique(['userId', 'instrumentId'])
 export class Holding {

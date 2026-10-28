@@ -16,9 +16,9 @@ test.describe('the chat', () => {
 
   test('a buy shows up in Holdings, and a sale moves it to the watchlist', async ({ page }) => {
     await send(page, 'bought NVDA');
-    await expect(page.getByText('Added (long): NVDA')).toBeVisible();
+    await expect(page.getByText('Added: NVDA')).toBeVisible();
     await page.getByRole('link', { name: 'Holdings' }).click();
-    await expect(page.getByTestId('holding-NVDA')).toContainText('Long');
+    await expect(page.getByTestId('holding-NVDA')).toBeVisible();
     await page.getByRole('link', { name: 'Chat' }).click();
     await send(page, 'sold NVDA');
     await expect(page.getByText('Sold and moved to watchlist: NVDA')).toBeVisible();
@@ -28,7 +28,7 @@ test.describe('the chat', () => {
 
   test('a pasted list adds every ticker to Holdings', async ({ page }) => {
     await send(page, 'Bought: 1. AMD 2. SMCI');
-    await expect(page.getByText('Added (long): AMD, SMCI')).toBeVisible();
+    await expect(page.getByText('Added: AMD, SMCI')).toBeVisible();
     await page.getByRole('link', { name: 'Holdings' }).click();
     await expect(page.getByTestId('holding-AMD')).toBeVisible();
     await expect(page.getByTestId('holding-SMCI')).toBeVisible();
@@ -43,7 +43,7 @@ test.describe('the chat', () => {
     await expect(page.locator('pre')).toContainText('My watchlist:');
     await expect(page.locator('pre')).toContainText('AAPL');
     await page.getByRole('button', { name: 'Copy', exact: true }).click();
-    await expect(page.getByRole('button', { name: /Copied|Copy/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^(Copied|Copy)$/ })).toBeVisible();
   });
 
   test('Clear removes the reply and focuses the box', async ({ page }) => {

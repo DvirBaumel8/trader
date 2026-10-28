@@ -3,7 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/Button';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
 import { inputClasses } from '../components/ui/inputClasses';
-import { HOLDINGS_KEY, removeHolding, setHolding, useHoldings, type Direction } from '../api/lists';
+import { HOLDINGS_KEY, addHoldings, removeHolding, useHoldings } from '../api/lists';
+import { parseTickers, summarize } from '../lib/tickers';
 
 export function Holdings() {
   const queryClient = useQueryClient();
@@ -13,16 +14,17 @@ export function Holdings() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: HOLDINGS_KEY });
 
+  const [result, setResult] = useState('');
   const add = useMutation({
-    mutationFn: (direction: Direction) => setHolding(symbol, direction),
-    onSuccess: () => {
+    mutationFn: (symbols: string[]) => addHoldings(symbols),
+    onMutate: () => setResult(''),
+    onSuccess: (r) => {
       setSymbol('');
+      setResult(
+        summarize([['Added', r.added], ['Already held', r.already], ["Couldn't find", r.notFound]]),
+      );
       void refresh();
     },
-  });
-  const flip = useMutation({
-    mutationFn: (v: { symbol: string; direction: Direction }) => setHolding(v.symbol, v.direction),
-    onSuccess: refresh,
   });
   const remove = useMutation({
     mutationFn: (s: string) => removeHolding(s),
@@ -33,7 +35,8 @@ export function Holdings() {
     onError: () => setConfirming(null),
   });
 
-  const canAdd = symbol.trim() !== '' && !add.isPending;
+  const tickers = parseTickers(symbol);
+  const canAdd = tickers.length > 0 && !add.isPending;
 
   return (
     <section className="space-y-4">
@@ -48,19 +51,17 @@ export function Holdings() {
       <div className="flex gap-2">
         <input
           className={inputClasses('md', 'uppercase')}
-          placeholder="Ticker"
+          placeholder="Tickers — e.g. GSIT, LMND NVDA"
           value={symbol}
           autoCapitalize="characters"
           autoCorrect="off"
           onChange={(e) => setSymbol(e.target.value)}
         />
-        <Button variant="accent" className="shrink-0 whitespace-nowrap" disabled={!canAdd} onClick={() => add.mutate('LONG')}>
-          Add long
-        </Button>
-        <Button variant="secondary" className="shrink-0 whitespace-nowrap" disabled={!canAdd} onClick={() => add.mutate('SHORT')}>
-          Add short
+        <Button variant="accent" className="shrink-0 whitespace-nowrap" disabled={!canAdd} onClick={() => add.mutate(tickers)}>
+          Add
         </Button>
       </div>
+      {result && <p className="text-sm text-muted">{result}</p>}
       {add.isError && <p className="text-sm text-down">{(add.error as Error).message}</p>}
 
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
@@ -70,33 +71,21 @@ export function Holdings() {
       )}
 
       <ul className="divide-y divide-border rounded-lg border border-border">
-        {data?.map((h) => {
-          const other: Direction = h.direction === 'LONG' ? 'SHORT' : 'LONG';
-          return (
-            <li key={h.symbol} data-testid={`holding-${h.symbol}`} className="flex items-center gap-3 px-3 py-2.5">
-              <span className="font-medium">{h.symbol}</span>
-              <span className="min-w-0 flex-1 truncate text-sm text-muted">{h.name}</span>
-              <span className={`text-sm ${h.direction === 'LONG' ? 'text-up' : 'text-down'}`}>
-                {h.direction === 'LONG' ? 'Long' : 'Short'}
-              </span>
-              {editing && confirming !== h.symbol && (
-                <>
-                  <Button className="shrink-0 whitespace-nowrap" onClick={() => flip.mutate({ symbol: h.symbol, direction: other })}>
-                    {other === 'LONG' ? 'Flip to long' : 'Flip to short'}
-                  </Button>
-                  <Button className="shrink-0 whitespace-nowrap" onClick={() => setConfirming(h.symbol)}>Remove</Button>
-                </>
-              )}
-              {editing && confirming === h.symbol && (
-                <Button variant="danger" className="shrink-0 whitespace-nowrap" aria-label="Confirm remove" onClick={() => remove.mutate(h.symbol)}>
-                  Remove {h.symbol}
-                </Button>
-              )}
-            </li>
-          );
-        })}
+        {data?.map((h) => (
+          <li key={h.symbol} data-testid={`holding-${h.symbol}`} className="flex items-center gap-3 px-3 py-2.5">
+            <span className="font-medium">{h.symbol}</span>
+            <span className="min-w-0 flex-1 truncate text-sm text-muted">{h.name}</span>
+            {editing && confirming !== h.symbol && (
+              <Button className="shrink-0 whitespace-nowrap" onClick={() => setConfirming(h.symbol)}>Remove</Button>
+            )}
+            {editing && confirming === h.symbol && (
+              <Button variant="danger" className="shrink-0 whitespace-nowrap" aria-label="Confirm remove" onClick={() => remove.mutate(h.symbol)}>
+                Remove {h.symbol}
+              </Button>
+            )}
+          </li>
+        ))}
       </ul>
-      {flip.isError && <p className="text-sm text-down">{(flip.error as Error).message}</p>}
       {remove.isError && <p className="text-sm text-down">{(remove.error as Error).message}</p>}
     </section>
   );

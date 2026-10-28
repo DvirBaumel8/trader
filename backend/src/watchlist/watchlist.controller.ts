@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, NotFoundException, Param, Post } from '@nestjs/common';
 import { WatchlistService } from './watchlist.service.js';
-import { AddWatchlistDto } from './watchlist.dto.js';
+import { AddSymbolsDto } from '../lists/add-symbols.dto.js';
 
 @Controller('watchlist')
 export class WatchlistController {
@@ -12,8 +12,8 @@ export class WatchlistController {
   }
 
   @Post()
-  add(@Body() body: AddWatchlistDto) {
-    return this.watchlist.add(body.symbol);
+  add(@Body() body: AddSymbolsDto) {
+    return this.watchlist.addMany(body.symbols);
   }
 
   @Delete(':symbol')

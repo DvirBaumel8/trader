@@ -37,9 +37,9 @@ describe('Watchlist (e2e)', () => {
     expect(res.body).toEqual([]);
   });
 
-  it('watches a ticker, listed by symbol with its name', async () => {
-    await http(app, token).post('/watchlist').send({ symbol: 'nvda' }).expect(201);
-    await http(app, token).post('/watchlist').send({ symbol: 'AAPL' }).expect(201);
+  it('watches tickers in bulk, listed by symbol with their names', async () => {
+    const add = await http(app, token).post('/watchlist').send({ symbols: ['nvda', 'AAPL'] }).expect(201);
+    expect(add.body).toEqual({ added: ['NVDA', 'AAPL'], already: [], notFound: [], full: [] });
     const res = await http(app, token).get('/watchlist').expect(200);
     expect(res.body).toEqual([
       { symbol: 'AAPL', name: 'AAPL Inc' },
@@ -48,19 +48,33 @@ describe('Watchlist (e2e)', () => {
   });
 
   it('does not duplicate a ticker watched twice', async () => {
-    await http(app, token).post('/watchlist').send({ symbol: 'NVDA' }).expect(201);
-    const again = await http(app, token).post('/watchlist').send({ symbol: 'NVDA' }).expect(201);
-    expect(again.body).toEqual({ added: false, symbol: 'NVDA' });
+    await http(app, token).post('/watchlist').send({ symbols: ['NVDA'] }).expect(201);
+    const again = await http(app, token).post('/watchlist').send({ symbols: ['NVDA', '$nvda'] }).expect(201);
+    expect(again.body).toEqual({ added: [], already: ['NVDA'], notFound: [], full: [] });
     const res = await http(app, token).get('/watchlist').expect(200);
     expect(res.body).toHaveLength(1);
   });
 
-  it('refuses a ticker the provider does not know', async () => {
-    await http(app, token).post('/watchlist').send({ symbol: 'ZZZZ' }).expect(404);
+  it('reports a ticker the provider does not know instead of failing the batch', async () => {
+    const res = await http(app, token).post('/watchlist').send({ symbols: ['ZZZZ', 'AMD'] }).expect(201);
+    expect(res.body).toEqual({ added: ['AMD'], already: [], notFound: ['ZZZZ'], full: [] });
+  });
+
+  it('stops at 50 and reports the rest as full', async () => {
+    const symbols = Array.from({ length: 50 }, (_, i) => `A${String(i).padStart(2, '0')}`);
+    const first = await http(app, token).post('/watchlist').send({ symbols }).expect(201);
+    expect(first.body.added).toHaveLength(50);
+    const res = await http(app, token).post('/watchlist').send({ symbols: ['A00', 'NVDA'] }).expect(201);
+    expect(res.body).toEqual({ added: [], already: ['A00'], notFound: [], full: ['NVDA'] });
+  });
+
+  it('rejects an empty or oversized list', async () => {
+    await http(app, token).post('/watchlist').send({ symbols: [] }).expect(400);
+    await http(app, token).post('/watchlist').send({ symbols: Array.from({ length: 51 }, (_, i) => `T${i}`) }).expect(400);
   });
 
   it('stops watching by symbol, and 404s for one not watched', async () => {
-    await http(app, token).post('/watchlist').send({ symbol: 'NVDA' }).expect(201);
+    await http(app, token).post('/watchlist').send({ symbols: ['NVDA'] }).expect(201);
     await http(app, token).delete('/watchlist/nvda').expect(200);
     await http(app, token).delete('/watchlist/NVDA').expect(404);
     const res = await http(app, token).get('/watchlist').expect(200);

@@ -24,13 +24,13 @@ test.describe('navigation', () => {
     await expect(page.getByPlaceholder(/Talk to Trader/)).toBeVisible();
   });
 
-  test('keeps the add buttons on one line without horizontal overflow', async ({ page }) => {
+  test('keeps the Add button on one line without horizontal overflow', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('link', { name: 'Holdings', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Holdings' })).toBeVisible();
+    for (const [link, heading] of [['Holdings', 'Holdings'], ['Watch', 'Watchlist']]) {
+      await page.getByRole('link', { name: link, exact: true }).click();
+      await expect(page.getByRole('heading', { name: heading })).toBeVisible();
 
-    for (const name of ['Add long', 'Add short']) {
-      const button = page.getByRole('button', { name, exact: true });
+      const button = page.getByRole('button', { name: 'Add', exact: true });
       await expect(button).toBeVisible();
       const { height, lineHeight, paddingY } = await button.evaluate((el) => {
         const cs = getComputedStyle(el);
@@ -42,9 +42,9 @@ test.describe('navigation', () => {
       });
       // One line of text plus padding/border: a wrapped label would add a whole extra line.
       expect(height - paddingY).toBeLessThan(lineHeight * 1.6);
-    }
 
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    expect(overflow).toBeLessThanOrEqual(0);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    }
   });
 });

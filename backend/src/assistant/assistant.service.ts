@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { partitionKnown } from '../lists/symbols.js';
 import { etDate } from '../earnings/week.js';
 import { buildPrompt } from './prompt.js';
 import { ROUTER_SCHEMA, ROUTER_SYSTEM, toIntent, type RouterIntent } from './router.js';
@@ -15,7 +16,6 @@ export type AssistantReply =
 export const ROUTER_TIMEOUT_MS = 5000;
 export const FALLBACK_NOTE = "Couldn't read that automatically — here's a prompt instead.";
 export const RATE_LIMIT_MESSAGE = "Gemini's free limit is reached — try again in a minute.";
-const VALIDATE_CONCURRENCY = 5;
 
 type Groups = [label: string, symbols: string[]][];
 
@@ -63,24 +63,14 @@ export class AssistantService {
     const { symbols, rejected } = intent;
     switch (intent.kind) {
       case 'buy': {
-        const known: string[] = [];
-        const unknown: string[] = [];
-        for (let i = 0; i < symbols.length; i += VALIDATE_CONCURRENCY) {
-          const batch = symbols.slice(i, i + VALIDATE_CONCURRENCY);
-          const results = await Promise.allSettled(batch.map((s) => this.instruments.findOrCreate(s)));
-          results.forEach((r, j) => {
-            if (r.status === 'fulfilled') known.push(r.value.symbol);
-            else if (r.reason instanceof NotFoundException) unknown.push(batch[j]);
-            else throw r.reason;
-          });
-        }
+        const { known, notFound: unknown } = await partitionKnown(this.instruments, symbols);
         const added: string[] = [];
         const already: string[] = [];
         for (const s of known) {
-          if ((await this.holdings.find(s)) !== null) already.push(s);
-          else added.push((await this.holdings.set(s, 'LONG')).symbol);
+          if (await this.holdings.has(s)) already.push(s);
+          else added.push((await this.holdings.add(s)).symbol);
         }
-        return summary([['Added (long)', added], ['Already held', already], ["Couldn't find", [...unknown, ...rejected]]]);
+        return summary([['Added', added], ['Already held', already], ["Couldn't find", [...unknown, ...rejected]]]);
       }
       case 'sell': {
         const moved: string[] = [];

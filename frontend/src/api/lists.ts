@@ -1,11 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from './client';
 
-export type Direction = 'LONG' | 'SHORT';
 export interface HoldingRow {
   symbol: string;
   name: string | null;
-  direction: Direction;
 }
 export interface WatchRow {
   symbol: string;
@@ -25,9 +23,18 @@ export function useWatchlist() {
 
 const enc = (s: string) => encodeURIComponent(s.trim().toUpperCase());
 
-export const setHolding = (symbol: string, direction: Direction) =>
-  api(`/holdings/${enc(symbol)}`, { method: 'PUT', body: JSON.stringify({ direction }) });
+export interface AddHoldingsResult {
+  added: string[];
+  already: string[];
+  notFound: string[];
+}
+export interface AddWatchesResult extends AddHoldingsResult {
+  full: string[];
+}
+
+export const addHoldings = (symbols: string[]) =>
+  api<AddHoldingsResult>('/holdings', { method: 'POST', body: JSON.stringify({ symbols }) });
 export const removeHolding = (symbol: string) => api(`/holdings/${enc(symbol)}`, { method: 'DELETE' });
-export const addWatch = (symbol: string) =>
-  api('/watchlist', { method: 'POST', body: JSON.stringify({ symbol: symbol.trim() }) });
+export const addWatches = (symbols: string[]) =>
+  api<AddWatchesResult>('/watchlist', { method: 'POST', body: JSON.stringify({ symbols }) });
 export const removeWatch = (symbol: string) => api(`/watchlist/${enc(symbol)}`, { method: 'DELETE' });

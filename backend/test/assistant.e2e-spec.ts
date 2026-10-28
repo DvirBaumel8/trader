@@ -57,12 +57,12 @@ describe('Assistant (e2e)', () => {
   const watchedSymbols = async () => (await http(app, token).get('/watchlist')).body.map((w: { symbol: string }) => w.symbol);
 
   it('buys several tickers, then reports them as already held', async () => {
-    expect((await say('bought LMND and NVDA')).body).toEqual({ kind: 'done', message: 'Added (long): LMND, NVDA' });
+    expect((await say('bought LMND and NVDA')).body).toEqual({ kind: 'done', message: 'Added: LMND, NVDA' });
     expect((await say('bought LMND and NVDA')).body).toEqual({ kind: 'done', message: 'Already held: LMND, NVDA' });
   });
 
   it('buys from a numbered list and skips the unknown ticker', async () => {
-    expect((await say('Bought: 1. TSLA 2. ZZZZ')).body).toEqual({ kind: 'done', message: "Added (long): TSLA\nCouldn't find: ZZZZ" });
+    expect((await say('Bought: 1. TSLA 2. ZZZZ')).body).toEqual({ kind: 'done', message: "Added: TSLA\nCouldn't find: ZZZZ" });
     expect(await heldSymbols()).toEqual(['TSLA']);
   });
 

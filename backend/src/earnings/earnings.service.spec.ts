@@ -34,7 +34,7 @@ function setup(opts: {
     }),
   };
   const holdings = {
-    list: async () => (opts.holdings ?? []).map((symbol) => ({ symbol, name: null, direction: 'LONG' })),
+    list: async () => (opts.holdings ?? []).map((symbol) => ({ symbol, name: null })),
   };
   const watchlist = {
     list: async () => (opts.watchlist ?? []).map((symbol) => ({ symbol, name: null })),

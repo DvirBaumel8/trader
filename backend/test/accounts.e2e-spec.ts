@@ -148,7 +148,7 @@ describe('Accounts (e2e)', () => {
 
       await http(app, one.body.accessToken)
         .post('/watchlist')
-        .send({ symbol: 'NVDA' })
+        .send({ symbols: ['NVDA'] })
         .expect(201);
 
       const mine = await http(app, one.body.accessToken)

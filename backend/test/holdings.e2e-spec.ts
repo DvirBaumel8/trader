@@ -36,37 +36,48 @@ describe('Holdings (e2e)', () => {
     expect((await http(app, token).get('/holdings').expect(200)).body).toEqual([]);
   });
 
-  it('adds holdings with a direction, sorted by symbol', async () => {
-    await http(app, token).put('/holdings/tsla').send({ direction: 'SHORT' }).expect(200);
-    const res = await http(app, token).put('/holdings/LMND').send({ direction: 'LONG' }).expect(200);
-    expect(res.body).toEqual({ symbol: 'LMND', direction: 'LONG', previous: null });
+  it('adds holdings in bulk, sorted by symbol, symbols and names only', async () => {
+    const res = await http(app, token).post('/holdings').send({ symbols: ['tsla', 'LMND'] }).expect(201);
+    expect(res.body).toEqual({ added: ['TSLA', 'LMND'], already: [], notFound: [] });
     expect((await http(app, token).get('/holdings').expect(200)).body).toEqual([
-      { symbol: 'LMND', name: 'LMND Inc', direction: 'LONG' },
-      { symbol: 'TSLA', name: 'TSLA Inc', direction: 'SHORT' },
+      { symbol: 'LMND', name: 'LMND Inc' },
+      { symbol: 'TSLA', name: 'TSLA Inc' },
     ]);
   });
 
-  it('flips a direction in place, never a second row', async () => {
-    await http(app, token).put('/holdings/LMND').send({ direction: 'LONG' }).expect(200);
-    const res = await http(app, token).put('/holdings/LMND').send({ direction: 'SHORT' }).expect(200);
-    expect(res.body).toEqual({ symbol: 'LMND', direction: 'SHORT', previous: 'LONG' });
-    await http(app, token).put('/holdings/LMND').send({ direction: 'SHORT' }).expect(200);
-    expect((await http(app, token).get('/holdings').expect(200)).body).toHaveLength(1);
+  it('stores every holding as LONG', async () => {
+    await http(app, token).post('/holdings').send({ symbols: ['LMND'] }).expect(201);
+    expect(await dataSource.query('SELECT DISTINCT direction FROM holdings')).toEqual([{ direction: 'LONG' }]);
   });
 
-  it('rejects an unknown ticker and a bad direction', async () => {
-    await http(app, token).put('/holdings/ZZZZ').send({ direction: 'LONG' }).expect(404);
-    await http(app, token).put('/holdings/LMND').send({ direction: 'UP' }).expect(400);
+  it('normalises, de-duplicates, and sorts each symbol into one group', async () => {
+    await http(app, token).post('/holdings').send({ symbols: ['LMND'] }).expect(201);
+    const res = await http(app, token)
+      .post('/holdings')
+      .send({ symbols: [' $nvda ', 'NVDA', 'lmnd', 'ZZZZ'] })
+      .expect(201);
+    expect(res.body).toEqual({ added: ['NVDA'], already: ['LMND'], notFound: ['ZZZZ'] });
+    expect((await http(app, token).get('/holdings').expect(200)).body).toHaveLength(2);
+  });
+
+  it('rejects an empty, oversized or malformed list', async () => {
+    await http(app, token).post('/holdings').send({ symbols: [] }).expect(400);
+    await http(app, token).post('/holdings').send({ symbols: Array.from({ length: 51 }, (_, i) => `T${i}`) }).expect(400);
+    await http(app, token).post('/holdings').send({ symbol: 'LMND' }).expect(400);
+  });
+
+  it('no longer takes a direction per symbol', async () => {
+    await http(app, token).put('/holdings/LMND').send({ direction: 'LONG' }).expect(404);
   });
 
   it('removes by symbol, and 404s for one not held', async () => {
-    await http(app, token).put('/holdings/LMND').send({ direction: 'LONG' }).expect(200);
+    await http(app, token).post('/holdings').send({ symbols: ['LMND'] }).expect(201);
     await http(app, token).delete('/holdings/lmnd').expect(200);
     await http(app, token).delete('/holdings/LMND').expect(404);
   });
 
   it("never shows or removes another user's holdings", async () => {
-    await http(app, token).put('/holdings/LMND').send({ direction: 'LONG' }).expect(200);
+    await http(app, token).post('/holdings').send({ symbols: ['LMND'] }).expect(201);
     const signup = await request(app.getHttpServer())
       .post('/auth/signup')
       .send({ email: `other-${Date.now()}@e2e.local`, password: 'other-password-1' })

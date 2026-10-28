@@ -38,14 +38,26 @@ it('explains an empty list', async () => {
   expect(await screen.findByText(/Nothing watched yet/)).toBeInTheDocument();
 });
 
-it('adds a symbol to the watchlist', async () => {
-  vi.mocked(api).mockResolvedValue([]);
-  renderIt();
-  await userEvent.type(await screen.findByPlaceholderText('Ticker'), 'nvda');
-  await userEvent.click(screen.getByRole('button', { name: 'Watch' }));
-  await waitFor(() =>
-    expect(api).toHaveBeenCalledWith('/watchlist', { method: 'POST', body: JSON.stringify({ symbol: 'nvda' }) }),
+it('adds several symbols and summarises the result', async () => {
+  vi.mocked(api).mockImplementation((_path: string, opts?: { method?: string }) =>
+    opts?.method === 'POST'
+      ? Promise.resolve({ added: ['NVDA'], already: ['AMD'], notFound: ['XYZ'], full: ['TSLA'] })
+      : Promise.resolve([]),
   );
+  renderIt();
+  const box = await screen.findByPlaceholderText('Tickers — e.g. GSIT, LMND NVDA');
+  await userEvent.type(box, 'nvda, amd xyz');
+  await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith('/watchlist', {
+      method: 'POST',
+      body: JSON.stringify({ symbols: ['nvda', 'amd', 'xyz'] }),
+    }),
+  );
+  expect(
+    await screen.findByText("Added: NVDA · Already watching: AMD · Watchlist full: TSLA · Couldn't find: XYZ"),
+  ).toBeInTheDocument();
+  expect(box).toHaveValue('');
 });
 
 it('removes only after edit mode and a second tap', async () => {

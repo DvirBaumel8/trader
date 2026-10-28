@@ -57,8 +57,8 @@ on the signed-in user.
 
 | Route | Notes |
 |---|---|
-| `GET /holdings` | `[{ symbol, name, direction }]`, sorted by symbol. `direction` is `LONG` or `SHORT`. |
-| `PUT /holdings/:symbol` | `{ direction }`. Adds or flips; returns `{ symbol, direction, previous }` (`previous` is `null` for a new holding). An unknown ticker is a 404. |
+| `GET /holdings` | `[{ symbol, name }]`, sorted by symbol. Holdings are always long; there is no direction. |
+| `POST /holdings` | Bulk add: `{ symbols: string[] }` (1 to 50) -> `{ added, already, notFound }` (arrays of symbols). Symbols are trimmed, upper-cased, `$` stripped and de-duplicated; each is validated against the market-data lookup. An unknown ticker lands in `notFound` rather than failing the batch. |
 | `DELETE /holdings/:symbol` | `{ ok: true }`; 404 when not held. |
 
 ### Watchlist — `watchlist/`
@@ -66,7 +66,7 @@ on the signed-in user.
 | Route | Notes |
 |---|---|
 | `GET /watchlist` | `[{ symbol, name }]`, sorted by symbol. |
-| `POST /watchlist` | `{ symbol }` -> `{ added, symbol }`; `added` is `false` when already watched. Unknown ticker is a 404; the 51st symbol is a 400. |
+| `POST /watchlist` | Bulk add: `{ symbols: string[] }` (1 to 50) -> `{ added, already, notFound, full }`. Same normalisation as holdings. `full` lists symbols that did not fit under the 50-ticker limit. |
 | `DELETE /watchlist/:symbol` | `{ ok: true }`; 404 when not watched. |
 
 ### Earnings — `earnings/`
@@ -84,14 +84,14 @@ stored.
 
 | `kind` | Fields | Meaning |
 |---|---|---|
-| `done` | `message` | Multi-line summary, one line per non-empty group, `Label: X, Y`. Groups per action: **buy** `Added (long)`, `Already held`, `Couldn't find`; **sell** `Sold and moved to watchlist`, `Sold (watchlist full, not added)`, `Not held`, `Couldn't find`; **watch** `Watching`, `Already watching`, `Watchlist full, not added`, `Couldn't find`; **unwatch** `Stopped watching`, `Not on watchlist`, `Couldn't find`. `Couldn't find` lists unknown tickers and strings that are not ticker-shaped; on buy and watch it also covers tickers the market-data lookup rejects. |
+| `done` | `message` | Multi-line summary, one line per non-empty group, `Label: X, Y`. Groups per action: **buy** `Added`, `Already held`, `Couldn't find`; **sell** `Sold and moved to watchlist`, `Sold (watchlist full, not added)`, `Not held`, `Couldn't find`; **watch** `Watching`, `Already watching`, `Watchlist full, not added`, `Couldn't find`; **unwatch** `Stopped watching`, `Not on watchlist`, `Couldn't find`. `Couldn't find` lists unknown tickers and strings that are not ticker-shaped; on buy and watch it also covers tickers the market-data lookup rejects. |
 | `prompt` | `text`, `note?` | A ready-to-paste Gemini prompt. `note` is set when the router failed or is unconfigured. |
 | `error` | `message` | An unexpected failure partway through; check Holdings and Watchlist before resending. |
 
 ## Things that surprise callers
 
 - **Trader stores no numbers.** No quantities, prices paid or cash; holdings
-  are symbol + direction only.
+  are symbols only, always long.
 - **No prices are served.** Quotes and price history are parked in
   `backend/lib/market-data`; the API only validates tickers against Yahoo.
 - **Chat misses are prompts, not errors.** An unrecognised message, a question

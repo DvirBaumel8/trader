@@ -22,14 +22,14 @@ const renderIt = () =>
     </QueryClientProvider>,
   );
 
-it('lists holdings with their direction', async () => {
+it('lists holdings by symbol and name, with no direction', async () => {
   vi.mocked(api).mockResolvedValue([
-    { symbol: 'LMND', name: 'Lemonade', direction: 'LONG' },
-    { symbol: 'TSLA', name: 'Tesla', direction: 'SHORT' },
+    { symbol: 'LMND', name: 'Lemonade' },
+    { symbol: 'TSLA', name: 'Tesla' },
   ]);
   renderIt();
-  expect(await screen.findByTestId('holding-LMND')).toHaveTextContent('Long');
-  expect(screen.getByTestId('holding-TSLA')).toHaveTextContent('Short');
+  expect(await screen.findByTestId('holding-LMND')).toHaveTextContent('LMNDLemonade');
+  expect(screen.queryByText(/Long|Short/)).toBeNull();
 });
 
 it('explains an empty list and points at the chat', async () => {
@@ -38,18 +38,28 @@ it('explains an empty list and points at the chat', async () => {
   expect(await screen.findByText(/No holdings yet/)).toBeInTheDocument();
 });
 
-it('adds a holding as long or short', async () => {
-  vi.mocked(api).mockResolvedValue([]);
-  renderIt();
-  await userEvent.type(await screen.findByPlaceholderText('Ticker'), 'lmnd');
-  await userEvent.click(screen.getByRole('button', { name: 'Add short' }));
-  await waitFor(() =>
-    expect(api).toHaveBeenCalledWith('/holdings/LMND', { method: 'PUT', body: JSON.stringify({ direction: 'SHORT' }) }),
+it('adds several tickers at once and summarises the result', async () => {
+  vi.mocked(api).mockImplementation((_path: string, opts?: { method?: string }) =>
+    opts?.method === 'POST'
+      ? Promise.resolve({ added: ['GSIT', 'USAR'], already: ['NVDA'], notFound: ['XYZ'] })
+      : Promise.resolve([]),
   );
+  renderIt();
+  const box = await screen.findByPlaceholderText('Tickers — e.g. GSIT, LMND NVDA');
+  await userEvent.type(box, '1. gsit, usar; NVDA 2) xyz');
+  await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith('/holdings', {
+      method: 'POST',
+      body: JSON.stringify({ symbols: ['gsit', 'usar', 'NVDA', 'xyz'] }),
+    }),
+  );
+  expect(await screen.findByText("Added: GSIT, USAR · Already held: NVDA · Couldn't find: XYZ")).toBeInTheDocument();
+  expect(box).toHaveValue('');
 });
 
 it('removes only after edit mode and a second tap', async () => {
-  vi.mocked(api).mockResolvedValue([{ symbol: 'LMND', name: null, direction: 'LONG' }]);
+  vi.mocked(api).mockResolvedValue([{ symbol: 'LMND', name: null }]);
   renderIt();
   await screen.findByTestId('holding-LMND');
   expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
@@ -60,22 +70,11 @@ it('removes only after edit mode and a second tap', async () => {
   await waitFor(() => expect(api).toHaveBeenCalledWith('/holdings/LMND', { method: 'DELETE' }));
 });
 
-it('flips direction in edit mode', async () => {
-  vi.mocked(api).mockResolvedValue([{ symbol: 'LMND', name: null, direction: 'LONG' }]);
-  renderIt();
-  await screen.findByTestId('holding-LMND');
-  await userEvent.click(screen.getByRole('button', { name: 'Edit holdings' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Flip to short' }));
-  await waitFor(() =>
-    expect(api).toHaveBeenCalledWith('/holdings/LMND', { method: 'PUT', body: JSON.stringify({ direction: 'SHORT' }) }),
-  );
-});
-
 it('shows why a remove failed and returns the row to normal', async () => {
   vi.mocked(api).mockImplementation((_path: string, opts?: { method?: string }) =>
     opts?.method === 'DELETE'
       ? Promise.reject(new Error("You don't hold LMND"))
-      : Promise.resolve([{ symbol: 'LMND', name: null, direction: 'LONG' }]),
+      : Promise.resolve([{ symbol: 'LMND', name: null }]),
   );
   renderIt();
   await screen.findByTestId('holding-LMND');
@@ -87,21 +86,8 @@ it('shows why a remove failed and returns the row to normal', async () => {
   expect(screen.queryByRole('button', { name: 'Confirm remove' })).toBeNull();
 });
 
-it('shows why a flip failed', async () => {
-  vi.mocked(api).mockImplementation((_path: string, opts?: { method?: string }) =>
-    opts?.method === 'PUT'
-      ? Promise.reject(new Error('Flip failed'))
-      : Promise.resolve([{ symbol: 'LMND', name: null, direction: 'LONG' }]),
-  );
-  renderIt();
-  await screen.findByTestId('holding-LMND');
-  await userEvent.click(screen.getByRole('button', { name: 'Edit holdings' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Flip to short' }));
-  expect(await screen.findByText('Flip failed')).toBeInTheDocument();
-});
-
 it('leaving edit mode resets a pending remove confirmation', async () => {
-  vi.mocked(api).mockResolvedValue([{ symbol: 'LMND', name: null, direction: 'LONG' }]);
+  vi.mocked(api).mockResolvedValue([{ symbol: 'LMND', name: null }]);
   renderIt();
   await screen.findByTestId('holding-LMND');
   await userEvent.click(screen.getByRole('button', { name: 'Edit holdings' }));

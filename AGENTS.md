@@ -24,7 +24,7 @@ unrelated work, and state the narrowest testable slice and acceptance criteria.
 
 Trader is a chat, a holdings list and a watchlist. It grows one case at a time.
 
-- Trader knows what you hold (symbol + direction) and watch (symbol), never
+- Trader knows what you hold (symbol, always long) and watch (symbol), never
   your numbers: no quantities, prices paid, cash, balances, P&L or
   performance. The broker owns those.
 - `backend/src/llm/llm.client.ts` is the only AI SDK import boundary; the app
@@ -148,7 +148,7 @@ Reuse the existing UI patterns before inventing another:
 backend/src/
   assistant/     chat: model routing (router.ts), intent execution, Gemini prompt
   llm/           the only AI SDK client (Gemini), used for chat routing
-  holdings/      symbol + direction per user
+  holdings/      symbols per user (always long)
   watchlist/     symbols per user
   market-data/   Yahoo client: ticker lookup and next earnings (rest parked in backend/lib/market-data)
   instruments/   ticker validation and persistence

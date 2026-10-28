@@ -13,7 +13,7 @@ documents for decisions, implementation detail, and history.
 
 ## Current product
 
-Trader remembers what the owner holds (symbol + direction) and watches
+Trader remembers what the owner holds (symbols only; always long) and watches
 (symbol), never his numbers. The only in-product AI is a free Gemini model
 that routes chat messages. Four screens with a tab bar under the header,
 plus Login:
@@ -21,9 +21,11 @@ plus Login:
 - **Chat** (`/`, home). One input box; the reply to the message just sent
   appears below it. Nothing is stored except the effect on holdings and
   watchlist.
-- **Holdings** (`/holdings`). Symbols with a Long/Short label; add, flip and
-  remove (removal uses edit mode plus a second tap).
-- **Watchlist** (`/watchlist`). Symbols only; add and remove (limit 50).
+- **Holdings** (`/holdings`). Symbols only, always long. The input takes several
+  tickers at once (spaces, commas or semicolons; list numbering is ignored) and
+  shows a one-line summary of what was added; remove uses edit mode plus a
+  second tap.
+- **Watchlist** (`/watchlist`). Symbols only; bulk add like Holdings, and remove (limit 50).
 - **Earnings** (`/earnings`). This week's (Mon-Fri) reports for holdings and
   watchlist as a five-column calendar: timing icon, holding/watchlist mark,
   `~` when the date is an estimate. A Both/Holdings/Watchlist filter, and a
@@ -34,8 +36,8 @@ Chat routing: a free Gemini model (`gemini-3.5-flash-lite`) reads each message a
 picks one of buy, sell, watch, unwatch or none; the backend validates and
 performs it. The model never writes, and a message containing `?` never
 performs an action. Several tickers can be pasted at once (up to 50). The
-reply is a short summary, for example `Added (long): NVDA` or `Sold and moved
-to watchlist: NVDA`. Anything else gives a Gemini prompt with a Copy button;
+reply is a short summary, for example `Added: NVDA` or `Sold and moved
+to watchlist: NVDA`. Anything else gives a Gemini prompt with Copy, Copy & open Gemini and Clear buttons;
 so does a failed model call or a missing `GEMINI_API_KEY`, with a note that
 it could not be read automatically. The moving-average check was removed from
 chat (its code, with quotes and price history, is parked in
