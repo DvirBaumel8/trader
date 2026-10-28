@@ -14,6 +14,22 @@ export interface JsonRequest {
   timeoutMs: number;
 }
 
+/** Gemini's free-tier quota is exhausted (HTTP 429 / RESOURCE_EXHAUSTED). */
+export class LlmRateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LlmRateLimitError';
+  }
+}
+
+/** Maps a provider rate-limit failure to LlmRateLimitError; anything else is returned unchanged. */
+export function toLlmError(err: unknown): unknown {
+  const status = (err as { status?: unknown } | null)?.status;
+  const message = err instanceof Error ? err.message : String(err);
+  if (status === 429 || /RESOURCE_EXHAUSTED/.test(message)) return new LlmRateLimitError(message);
+  return err;
+}
+
 export abstract class LlmClient {
   abstract isConfigured(): boolean;
   /** Parsed JSON from the model. Throws on timeout, provider error, empty or non-JSON output. */
@@ -24,8 +40,12 @@ export abstract class LlmClient {
 export class GeminiClient extends LlmClient {
   private readonly logger = new Logger(GeminiClient.name);
   private readonly apiKey = process.env.GEMINI_API_KEY ?? process.env.LLM_API_KEY ?? '';
-  private readonly model = process.env.LLM_MODEL ?? 'gemini-3.6-flash';
+  private readonly model = process.env.LLM_MODEL ?? 'gemini-3.5-flash-lite';
   private client: GoogleGenAI | null = null;
+
+  modelName(): string {
+    return this.model;
+  }
 
   isConfigured(): boolean {
     return this.apiKey !== '';
@@ -44,14 +64,19 @@ export class GeminiClient extends LlmClient {
           ...(thinking ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } } : {}),
         },
       });
-    const response = await withTimeout(
-      call(true).catch((err) => {
-        // Some models reject an explicit thinking level; retry once without.
-        if (err instanceof ApiError && err.status === 400 && /thinking/i.test(err.message)) return call(false);
-        throw err;
-      }),
-      timeoutMs,
-    );
+    let response;
+    try {
+      response = await withTimeout(
+        call(true).catch((err) => {
+          // Some models reject an explicit thinking level; retry once without.
+          if (err instanceof ApiError && err.status === 400 && /thinking/i.test(err.message)) return call(false);
+          throw err;
+        }),
+        timeoutMs,
+      );
+    } catch (err) {
+      throw toLlmError(err);
+    }
     const text = response.text;
     if (!text) throw new Error('Gemini returned an empty response');
     try {

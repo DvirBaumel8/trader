@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { buildPrompt } from './prompt.js';
 import { ROUTER_SCHEMA, ROUTER_SYSTEM, toIntent, type RouterIntent } from './router.js';
-import { LlmClient } from '../llm/llm.client.js';
+import { LlmClient, LlmRateLimitError } from '../llm/llm.client.js';
 import { HoldingsService } from '../holdings/holdings.service.js';
 import { WatchlistService } from '../watchlist/watchlist.service.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
@@ -13,6 +13,7 @@ export type AssistantReply =
 
 export const ROUTER_TIMEOUT_MS = 5000;
 export const FALLBACK_NOTE = "Couldn't read that automatically — here's a prompt instead.";
+export const RATE_LIMIT_MESSAGE = "Gemini's free limit is reached — try again in a minute.";
 const VALIDATE_CONCURRENCY = 5;
 
 type Groups = [label: string, symbols: string[]][];
@@ -38,6 +39,10 @@ export class AssistantService {
     try {
       raw = await this.llm.generateJson({ system: ROUTER_SYSTEM, user: message, schema: ROUTER_SCHEMA, timeoutMs: ROUTER_TIMEOUT_MS });
     } catch (err) {
+      if (err instanceof LlmRateLimitError) {
+        this.logger.warn(`router rate limited: ${err.message}`);
+        return { kind: 'error', message: RATE_LIMIT_MESSAGE };
+      }
       this.logger.warn(`router call failed: ${(err as Error).message}`);
       return this.prompt(message, now, FALLBACK_NOTE);
     }

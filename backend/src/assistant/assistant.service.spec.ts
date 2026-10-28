@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { AssistantService, FALLBACK_NOTE } from './assistant.service.js';
+import { AssistantService, FALLBACK_NOTE, RATE_LIMIT_MESSAGE } from './assistant.service.js';
+import { LlmRateLimitError } from '../llm/llm.client.js';
 
 function make(llm: { isConfigured?: () => boolean; generateJson: (...a: unknown[]) => Promise<unknown> }, over: Record<string, unknown> = {}) {
   const holdings = { find: vi.fn(async () => null), set: vi.fn(async (s: string) => ({ symbol: s, direction: 'LONG', previous: null })), remove: vi.fn(async () => true), list: vi.fn(async () => []) , ...(over.holdings as object) };
@@ -94,6 +95,12 @@ describe('AssistantService', () => {
     const { service, holdings } = make({ generateJson: async () => { throw new Error('429'); } });
     const reply = await service.handle('bought LMND');
     expect(reply).toMatchObject({ kind: 'prompt', note: FALLBACK_NOTE });
+    expect(holdings.set).not.toHaveBeenCalled();
+  });
+
+  it('rate limit → clear error reply, no prompt, no writes', async () => {
+    const { service, holdings } = make({ generateJson: async () => { throw new LlmRateLimitError('429'); } });
+    expect(await service.handle('bought LMND')).toEqual({ kind: 'error', message: RATE_LIMIT_MESSAGE });
     expect(holdings.set).not.toHaveBeenCalled();
   });
 

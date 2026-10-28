@@ -11,7 +11,11 @@ in `backend/src/assistant/prompt.ts`.
 
 - **Boundary.** `backend/src/llm/llm.client.ts` is the only file that imports
   an AI SDK (`@google/genai`). `router.ts` never does.
-- **Model.** `LLM_MODEL`, default `gemini-3.6-flash` (free tier).
+- **Model.** `LLM_MODEL`, default `gemini-3.5-flash-lite` (free tier; measured
+  12/12 correct, ~0.7 s, 15 requests per minute on 2026-10-29).
+- **Rate limit.** A Gemini 429 / `RESOURCE_EXHAUSTED` becomes `LlmRateLimitError`;
+  chat replies with an error ("Gemini's free limit is reached — try again in a
+  minute.") instead of a prompt. Other failures still fall back to a prompt.
 - **Key.** `GEMINI_API_KEY`, or `LLM_API_KEY` as a fallback. With no key every
   message becomes a prompt.
 - **Timeout.** 5 000 ms per call.

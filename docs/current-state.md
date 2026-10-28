@@ -25,7 +25,7 @@ plus Login:
   remove (removal uses edit mode plus a second tap).
 - **Watchlist** (`/watchlist`). Symbols only; add and remove (limit 50).
 
-Chat routing: a free Gemini model (`gemini-3.6-flash`) reads each message and
+Chat routing: a free Gemini model (`gemini-3.5-flash-lite`) reads each message and
 picks one of buy, sell, watch, unwatch or none; the backend validates and
 performs it. The model never writes, and a message containing `?` never
 performs an action. Several tickers can be pasted at once (up to 50). The
