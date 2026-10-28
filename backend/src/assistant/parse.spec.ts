@@ -45,8 +45,13 @@ const cases: [string, Intent][] = [
   ['watch out', { kind: 'unknown' }],
   // ServiceNow is a real holding, so NOW is not in NOT_TICKERS.
   ['bought NOW', { kind: 'add-holding', symbol: 'NOW', direction: 'LONG' }],
-  // Multi-punctuation: strip and parse normally.
-  ['bought lmnd.?', { kind: 'add-holding', symbol: 'LMND', direction: 'LONG' }],
+  // Any "?" makes it a question (except ma-check). Questions with other punctuation.
+  ['bought lmnd.?', { kind: 'unknown' }],
+  ['buy NVDA!?', { kind: 'unknown' }],
+  ['buy NVDA?!', { kind: 'unknown' }],
+  ['sell lmnd.?', { kind: 'unknown' }],
+  ['buy? NVDA', { kind: 'unknown' }],
+  // No "?" allows parsing despite other punctuation.
   ['bought lmnd!.', { kind: 'add-holding', symbol: 'LMND', direction: 'LONG' }],
   // Whitespace handling.
   ['\tbought\nLMND\t', { kind: 'add-holding', symbol: 'LMND', direction: 'LONG' }],

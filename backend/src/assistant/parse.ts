@@ -53,10 +53,8 @@ export function parseMessage(text: string): Intent {
   const trimmed = text.trim();
 
   // Questions must not become writes (except ma-check).
-  // A question is one ending with "?" but not with multi-punctuation like ".?" or "!?".
-  const endsWithQuestion = trimmed.endsWith('?');
-  const endsWithPunctQuestion = /[.!,;:]\?$/.test(trimmed);
-  const isQuestion = endsWithQuestion && !endsWithPunctQuestion;
+  // Any message containing "?" is a question.
+  const isQuestion = trimmed.includes('?');
 
   // Strip trailing sentence punctuation in one run before other normalisation.
   let normalized = trimmed
