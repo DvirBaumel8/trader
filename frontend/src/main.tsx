@@ -8,6 +8,7 @@ import { RestoreScroll } from './components/RestoreScroll';
 import { Chat } from './routes/Chat';
 import { Holdings } from './routes/Holdings';
 import { Watchlist } from './routes/Watchlist';
+import { Earnings } from './routes/Earnings';
 import { Login } from './routes/Login';
 import './index.css';
 
@@ -25,6 +26,7 @@ createRoot(document.getElementById('root')!).render(
             <Route index element={<Chat />} />
             <Route path="holdings" element={<Holdings />} />
             <Route path="watchlist" element={<Watchlist />} />
+            <Route path="earnings" element={<Earnings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

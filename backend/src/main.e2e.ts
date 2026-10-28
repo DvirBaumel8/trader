@@ -8,7 +8,8 @@ import { AppModule } from './app.module.js';
 import { ensureDatabaseReady } from './database/startup.js';
 import { YahooClient } from './market-data/yahoo.client.js';
 import { LlmClient } from './llm/llm.client.js';
-import { yahooStub } from '../test/yahoo-stub.js';
+import { yahooStub, STUB_EARNINGS } from '../test/yahoo-stub.js';
+import { etWeek } from './earnings/week.js';
 
 /**
  * The API, for browser tests only.
@@ -27,6 +28,14 @@ import { yahooStub } from '../test/yahoo-stub.js';
  */
 async function bootstrap() {
   await ensureDatabaseReady();
+
+  // Earnings for the Earnings-tab browser spec, relative to the current ET week
+  // so it never goes stale: AMD reports before the open on Tuesday, SMCI after
+  // the close on Thursday (estimated). 11:00Z and 21:00Z fall on the right side
+  // of 09:30/16:00 ET in both EST and EDT.
+  const { days } = etWeek(new Date());
+  STUB_EARNINGS.AMD = { at: `${days[1]}T11:00:00Z`, estimated: false };
+  STUB_EARNINGS.SMCI = { at: `${days[3]}T21:00:00Z`, estimated: true };
 
   /**
    * Built through the testing module, which is the ONLY way to substitute a

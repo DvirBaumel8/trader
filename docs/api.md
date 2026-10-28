@@ -69,6 +69,12 @@ on the signed-in user.
 | `POST /watchlist` | `{ symbol }` -> `{ added, symbol }`; `added` is `false` when already watched. Unknown ticker is a 404; the 51st symbol is a 400. |
 | `DELETE /watchlist/:symbol` | `{ ok: true }`; 404 when not watched. |
 
+### Earnings — `earnings/`
+
+| Route | Notes |
+|---|---|
+| `GET /earnings/week` | `{ weekStart, weekEnd, today, days, upcoming }`. `days` is always five entries (Mon-Fri, America/New_York; the coming week on Sat/Sun), each `{ date, entries: [{ symbol, source: 'holding'\|'watchlist', timing: 'before_open'\|'during'\|'after_close'\|'unknown', estimated }] }`. `upcoming` is `[{ symbol, source, date, daysUntil, estimated }]`, soonest first, undated last. A symbol can appear twice in one week (a past report and the next one). |
+
 ### Assistant — `assistant/`
 
 `POST /assistant { text }` (1-2000 characters). A small Gemini model routes the

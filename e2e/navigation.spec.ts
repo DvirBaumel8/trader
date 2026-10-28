@@ -17,6 +17,9 @@ test.describe('navigation', () => {
     await page.getByRole('link', { name: 'Watch', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Watchlist' })).toBeVisible();
 
+    await page.getByRole('link', { name: 'Earnings', exact: true }).click();
+    await expect(page.getByRole('heading', { name: /^Earnings · / })).toBeVisible();
+
     await page.getByRole('link', { name: 'Chat', exact: true }).click();
     await expect(page.getByPlaceholder(/Talk to Trader/)).toBeVisible();
   });

@@ -15,7 +15,7 @@ documents for decisions, implementation detail, and history.
 
 Trader remembers what the owner holds (symbol + direction) and watches
 (symbol), never his numbers. The only in-product AI is a free Gemini model
-that routes chat messages. Three screens with a tab bar under the header,
+that routes chat messages. Four screens with a tab bar under the header,
 plus Login:
 
 - **Chat** (`/`, home). One input box; the reply to the message just sent
@@ -24,6 +24,11 @@ plus Login:
 - **Holdings** (`/holdings`). Symbols with a Long/Short label; add, flip and
   remove (removal uses edit mode plus a second tap).
 - **Watchlist** (`/watchlist`). Symbols only; add and remove (limit 50).
+- **Earnings** (`/earnings`). This week's (Mon-Fri) reports for holdings and
+  watchlist as a five-column calendar: timing icon, holding/watchlist mark,
+  `~` when the date is an estimate. A Both/Holdings/Watchlist filter, and a
+  "Next earnings" list with days until each report (Soonest or A-Z). Filter
+  and sort are remembered on the device.
 
 Chat routing: a free Gemini model (`gemini-3.5-flash-lite`) reads each message and
 picks one of buy, sell, watch, unwatch or none; the backend validates and
