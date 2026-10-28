@@ -9,12 +9,27 @@ describe('AssistantService.maCheck', () => {
       {} as never,
       { findOrCreate: vi.fn(async () => ({ id: 'i1', symbol: 'GOOGL' })) } as never,
       { getQuote: vi.fn(async () => null) } as never,
-      { ensurePriced: vi.fn(), ensureFresh: vi.fn() } as never,
+      { ensureDepth: vi.fn(async () => 'ok'), ensureFresh: vi.fn() } as never,
       { find: vi.fn() } as never,
     );
     expect(await service.handle('is GOOGL above 150 SMA')).toEqual({
       kind: 'error',
       message: "Couldn't get GOOGL's price right now.",
+    });
+  });
+
+  it("says history couldn't be fetched when the top-up failed and the stored history is short", async () => {
+    const service = new AssistantService(
+      {} as never,
+      {} as never,
+      { findOrCreate: vi.fn(async () => ({ id: 'i1', symbol: 'AAPL' })) } as never,
+      { getQuote: vi.fn(async () => ({ price: 200, stale: false, session: 'REGULAR' })) } as never,
+      { ensureDepth: vi.fn(async () => 'failed'), ensureFresh: vi.fn() } as never,
+      { find: vi.fn(async () => [{ close: 1 }, { close: 2 }]) } as never,
+    );
+    expect(await service.handle('is AAPL above 50 SMA')).toEqual({
+      kind: 'error',
+      message: "Couldn't get AAPL's price history right now.",
     });
   });
 

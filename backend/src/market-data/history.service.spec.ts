@@ -285,3 +285,45 @@ describe('HistoryService.ensureFresh, per instrument', () => {
     expect(daysBack(current)).toBeLessThanOrEqual(9);
   });
 });
+
+describe('HistoryService.ensureDepth', () => {
+  const bar = (date: string) => ({ date, close: 1, adjClose: 1, open: null, high: null, low: null, volume: null });
+  const DAY = 86_400_000;
+
+  it('does not fetch when enough bars are stored', async () => {
+    const { service, yahoo } = makeService({ existingBarCount: 50 });
+    expect(await service.ensureDepth(CRWV, 50)).toBe('ok');
+    expect(yahoo.dailyBars).not.toHaveBeenCalled();
+  });
+
+  it('fetches from the right start when the stored history is shallow', async () => {
+    const { service, closes, yahoo } = makeService({ existingBarCount: 43, bars: [bar('2026-09-01')] });
+    const before = Date.now();
+    expect(await service.ensureDepth(CRWV, 50)).toBe('ok');
+    expect(yahoo.dailyBars).toHaveBeenCalledTimes(1);
+    const from = (yahoo.dailyBars as ReturnType<typeof vi.fn>).mock.calls[0][1] as Date;
+    // max(500, ceil(50 * 1.5) + 30 = 105) = 500 calendar days back
+    expect(Math.round((before - from.getTime()) / DAY)).toBe(500);
+    expect(closes.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('reaches further back for a very long period', async () => {
+    const { service, yahoo } = makeService({ existingBarCount: 10 });
+    const before = Date.now();
+    await service.ensureDepth(CRWV, 400);
+    const from = (yahoo.dailyBars as ReturnType<typeof vi.fn>).mock.calls[0][1] as Date;
+    expect(Math.round((before - from.getTime()) / DAY)).toBe(630);
+  });
+
+  it('does not refetch the same instrument within the debounce window', async () => {
+    const { service, yahoo } = makeService({ existingBarCount: 43 });
+    await service.ensureDepth(CRWV, 50);
+    expect(await service.ensureDepth(CRWV, 50)).toBe('ok');
+    expect(yahoo.dailyBars).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 'failed' when the provider throws", async () => {
+    const { service } = makeService({ existingBarCount: 43, yahooError: new Error('network down') });
+    expect(await service.ensureDepth(CRWV, 50)).toBe('failed');
+  });
+});

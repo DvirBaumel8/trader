@@ -8,11 +8,6 @@ import { InstrumentsService } from '../instruments/instruments.service.js';
 import { catchUpFrom, isHistoryBehind } from './trading-day.js';
 
 /**
- * How often a read may trigger a top-up. Short enough that a trailing stop
- * picks up a new intraday high while he is watching it; long enough that a
- * page polling every 60s does not hit Yahoo every time.
- */
-/**
  * Calendar days of history fetched before today, for a ticker priced on
  * first use or topped up.
  *
@@ -30,6 +25,11 @@ import { catchUpFrom, isHistoryBehind } from './trading-day.js';
  */
 const RUNWAY_DAYS = 500;
 
+/**
+ * How often a read may trigger a top-up (or a depth re-fetch for one
+ * instrument). Long enough that a page polling every 60s does not hit Yahoo
+ * every time.
+ */
 const FRESHEN_INTERVAL_MS = 10 * 60 * 1000;
 
 /** Days of overlap re-fetched, so a revised recent bar is corrected. */
@@ -46,6 +46,7 @@ const FRESHEN_BUDGET_MS = 1500;
 export class HistoryService {
   private readonly log = new Logger(HistoryService.name);
   private lastFreshenAt = 0;
+  private readonly lastDepthFetchAt = new Map<string, number>();
 
   constructor(
     @InjectRepository(DailyClose)
@@ -81,6 +82,38 @@ export class HistoryService {
       await this.fetchAndStore(instrument, symbol, from);
     } catch (err) {
       this.log.warn(`could not price ${symbol} on first use: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Makes sure at least `period` bars are stored for one instrument, fetching
+   * further back when the stored history is shallower than that (an instrument
+   * priced long ago with a short runway never deepens on its own).
+   *
+   * Returns 'failed' only when the provider fetch threw, so the caller can say
+   * "couldn't get history" instead of "not enough history". Debounced per
+   * instrument; a debounced call reports 'ok'. Never throws.
+   */
+  async ensureDepth(instrument: Instrument, period: number): Promise<'ok' | 'failed'> {
+    const stored = await this.closes.count({ where: { instrumentId: instrument.id } });
+    if (stored >= period) return 'ok';
+
+    const now = Date.now();
+    const last = this.lastDepthFetchAt.get(instrument.id);
+    if (last !== undefined && now - last < FRESHEN_INTERVAL_MS) return 'ok';
+
+    const days = Math.max(RUNWAY_DAYS, Math.ceil(period * 1.5) + 30);
+    const from = new Date(now);
+    from.setDate(from.getDate() - days);
+
+    try {
+      await this.storeBars(instrument, instrument.symbol, from);
+      // Only a successful fetch starts the debounce, so an outage is retried.
+      this.lastDepthFetchAt.set(instrument.id, now);
+      return 'ok';
+    } catch (err) {
+      this.log.warn(`could not deepen history for ${instrument.symbol}: ${String(err)}`);
+      return 'failed';
     }
   }
 
@@ -184,7 +217,7 @@ export class HistoryService {
    * every other method here exists to keep `daily_closes` current for a
    * symbol the owner holds or watches, and writing a row there for a
    * merely-researched ticker would quietly change what that table means
-   * (see `TickerFactsService`'s own doc comment for the same rule). A
+   * (the same rule the market-data service follows). A
    * caller that wants bars for a ticker that was only ever looked at —
    * a chat answer about any ticker — uses this instead.
    */
@@ -197,29 +230,38 @@ export class HistoryService {
     }
   }
 
-  /** Fetches and upserts one symbol's bars. Returns the count written. */
+  /** Fetches and upserts one symbol's bars. Throws on provider failure. */
+  private async storeBars(
+    instrument: Instrument,
+    symbol: string,
+    from: Date,
+  ): Promise<number> {
+    const bars = await this.yahoo.dailyBars(symbol, from);
+    if (bars.length === 0) return 0;
+    await this.closes.upsert(
+      bars.map((b) => ({
+        instrumentId: instrument.id,
+        date: b.date,
+        close: b.close,
+        adjClose: b.adjClose,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        volume: b.volume,
+      })),
+      ['instrumentId', 'date'],
+    );
+    return bars.length;
+  }
+
+  /** Like storeBars, but logs and returns 0 on failure. Returns the count written. */
   private async fetchAndStore(
     instrument: Instrument,
     symbol: string,
     from: Date,
   ): Promise<number> {
     try {
-      const bars = await this.yahoo.dailyBars(symbol, from);
-      if (bars.length === 0) return 0;
-      await this.closes.upsert(
-        bars.map((b) => ({
-          instrumentId: instrument.id,
-          date: b.date,
-          close: b.close,
-          adjClose: b.adjClose,
-          open: b.open,
-          high: b.high,
-          low: b.low,
-          volume: b.volume,
-        })),
-        ['instrumentId', 'date'],
-      );
-      return bars.length;
+      return await this.storeBars(instrument, symbol, from);
     } catch (err) {
       // One bad ticker must not abandon the whole top-up.
       this.log.warn(`daily bars failed for ${symbol}: ${String(err)}`);

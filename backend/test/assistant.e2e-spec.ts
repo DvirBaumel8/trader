@@ -95,6 +95,24 @@ describe('Assistant (e2e)', () => {
     });
   });
 
+  it('deepens short stored history from the provider before answering', async () => {
+    // 43 stored closes (as in production) against a 50-day SMA; the provider has 60 bars.
+    await seedCloses('MSFT', 43, 100);
+    const original = stub.dailyBars;
+    stub.dailyBars = async () =>
+      Array.from({ length: 60 }, (_, i) => {
+        const date = new Date(Date.now() - (60 - i) * 86_400_000 - 100 * 86_400_000).toISOString().slice(0, 10);
+        return { date, close: 100, adjClose: 100, open: null, high: null, low: null, volume: null };
+      });
+    try {
+      const res = await say('is MSFT above 50 SMA?');
+      expect(res.body.kind).toBe('answer');
+      expect(res.body.facts).toMatchObject({ symbol: 'MSFT', period: 50, average: 'SMA' });
+    } finally {
+      stub.dailyBars = original;
+    }
+  });
+
   it('answers with a stale price when the provider fails after a recent quote', async () => {
     await seedCloses('GOOGL', 150, 160);
     await say('is GOOGL above 150 SMA'); // primes the quote cache

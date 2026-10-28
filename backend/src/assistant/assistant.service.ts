@@ -118,7 +118,7 @@ export class AssistantService {
   private async maCheck(intent: Extract<Intent, { kind: 'ma-check' }>): Promise<AssistantReply> {
     const { symbol, period, average, comparator } = intent;
     const instrument = await this.instruments.findOrCreate(symbol); // unknown → NotFoundException
-    await this.history.ensurePriced(instrument, instrument.symbol);
+    const depth = await this.history.ensureDepth(instrument, period);
     await this.history.ensureFresh();
     // force: a cached price must never hide an outage; getQuote marks its fallback stale.
     const quote = await this.marketData.getQuote(instrument.symbol, true);
@@ -130,6 +130,9 @@ export class AssistantService {
     });
     const value = movingAverage(rows.map((r) => r.close), period, average);
     if (value === null) {
+      if (rows.length < period && depth === 'failed') {
+        return { kind: 'error', message: `Couldn't get ${instrument.symbol}'s price history right now.` };
+      }
       return { kind: 'error', message: `Not enough history for a ${period}-day ${average} on ${instrument.symbol}.` };
     }
 

@@ -109,11 +109,11 @@ export class MarketDataService {
    * blocked: Yahoo's chart fallback now supplies an extended print when it can, and
    * this is the backup for the symbols where it could not.
    *
-   * Public rather than private: `TickerFactsService` calls a raw Yahoo quote
-   * directly on its own fallback path (it needs the provider's own
+   * Public rather than private: callers that fetch a raw Yahoo quote
+   * directly on their own fallback path (it needs the provider's own
    * throw-on-failure behaviour, which `getQuote` deliberately swallows into
    * a stale/null return) and must apply this exact same augmentation to it —
-   * otherwise a trade idea on a symbol nothing else has warmed in the quote
+   * otherwise an answer about a symbol nothing else has warmed in the quote
    * cache silently reasons from a stale regular-session close during
    * pre/post-market, the bug found live on IONQ's after-hours news jump.
    */
