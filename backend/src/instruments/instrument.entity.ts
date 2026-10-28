@@ -33,6 +33,12 @@ export class Instrument {
   @Column({ type: 'timestamptz', nullable: true })
   earningsCheckedAt?: Date | null;
 
+  @Column({ type: 'timestamptz', nullable: true })
+  nextEarningsAt?: Date | null;
+
+  @Column({ type: 'boolean', default: false })
+  nextEarningsEstimated: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 }
