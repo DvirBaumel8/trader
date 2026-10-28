@@ -94,8 +94,8 @@ const EMPTY: Record<Filter, string> = {
 
 export function Earnings() {
   const { data, isLoading, isError } = useEarningsWeek();
-  const [filter, setFilter] = usePersistentState<Filter>('trader.earnings.filter.v1', 'both');
-  const [sort, setSort] = usePersistentState<Sort>('trader.earnings.sort.v1', 'soonest');
+  const [filter, setFilter] = usePersistentState<Filter>('trader.earnings.filter.v1', 'both', Infinity);
+  const [sort, setSort] = usePersistentState<Sort>('trader.earnings.sort.v1', 'soonest', Infinity);
 
   const title = data ? `Earnings · ${monthDay(data.weekStart)} – ${monthDay(data.weekEnd)}` : 'Earnings';
 

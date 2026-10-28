@@ -168,3 +168,15 @@ it('explains an empty Next earnings list', async () => {
   renderIt();
   expect(await screen.findByText('Nothing to show yet — add holdings or watch some tickers.')).toBeInTheDocument();
 });
+
+it('restores a filter and sort saved more than two hours ago', async () => {
+  const old = Date.now() - 3 * 60 * 60 * 1000;
+  window.localStorage.setItem('trader.earnings.filter.v1', JSON.stringify({ v: 'holdings', savedAt: old }));
+  window.localStorage.setItem('trader.earnings.sort.v1', JSON.stringify({ v: 'az', savedAt: old }));
+  vi.mocked(api).mockResolvedValue(week());
+  renderIt();
+  await screen.findByTestId('next-AMD');
+  expect(screen.getByRole('button', { name: 'Holdings' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'A–Z' })).toHaveAttribute('aria-pressed', 'true');
+  expect(order()).toEqual(['ABC', 'AMD', 'NODATE']);
+});
