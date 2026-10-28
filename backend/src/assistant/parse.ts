@@ -1,0 +1,78 @@
+/**
+ * Turns one chat message into what Trader should do with it.
+ *
+ * Deliberately not AI: a small set of plain patterns, each pinned by a test.
+ * Anything that does not match exactly is `unknown`, and the caller turns it
+ * into a Gemini prompt — so a miss costs the owner a copy-paste, never a
+ * wrong write to his holdings.
+ */
+export type Direction = 'LONG' | 'SHORT';
+
+export type Intent =
+  | { kind: 'add-holding'; symbol: string; direction: Direction }
+  | { kind: 'remove-holding'; symbol: string }
+  | { kind: 'watch'; symbol: string }
+  | { kind: 'unwatch'; symbol: string }
+  | {
+      kind: 'ma-check';
+      symbol: string;
+      comparator: 'above' | 'below';
+      period: number;
+      average: 'SMA' | 'EMA';
+    }
+  | { kind: 'unknown' };
+
+const UNKNOWN: Intent = { kind: 'unknown' };
+
+/** US tickers are at most five letters, plus an optional share-class suffix. */
+const TICKER = /^\$?([a-z]{1,5}(?:\.[a-z])?)$/;
+
+const FILLER = new Set(['i', 'just', 'some', 'all', 'my', 'the', 'of', 'more', 'shares', 'a']);
+
+const VERBS: Record<string, (symbol: string) => Intent> = {
+  bought: (s) => ({ kind: 'add-holding', symbol: s, direction: 'LONG' }),
+  buy: (s) => ({ kind: 'add-holding', symbol: s, direction: 'LONG' }),
+  long: (s) => ({ kind: 'add-holding', symbol: s, direction: 'LONG' }),
+  short: (s) => ({ kind: 'add-holding', symbol: s, direction: 'SHORT' }),
+  shorted: (s) => ({ kind: 'add-holding', symbol: s, direction: 'SHORT' }),
+  sold: (s) => ({ kind: 'remove-holding', symbol: s }),
+  sell: (s) => ({ kind: 'remove-holding', symbol: s }),
+  closed: (s) => ({ kind: 'remove-holding', symbol: s }),
+  covered: (s) => ({ kind: 'remove-holding', symbol: s }),
+  watch: (s) => ({ kind: 'watch', symbol: s }),
+  unwatch: (s) => ({ kind: 'unwatch', symbol: s }),
+};
+
+const MA_CHECK =
+  /^is \$?([a-z]{1,5}(?:\.[a-z])?) (above|over|below|under) (?:the |its )?(\d{1,4})(?:[ -]?day)? ?(sma|ema|ma)$/;
+
+export function parseMessage(text: string): Intent {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .replace(/[?!,]+/g, ' ')
+    .replace(/\.+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (normalized === '') return UNKNOWN;
+
+  const ma = MA_CHECK.exec(normalized);
+  if (ma) {
+    const period = Number(ma[3]);
+    if (!(period > 0)) return UNKNOWN;
+    return {
+      kind: 'ma-check',
+      symbol: ma[1].toUpperCase(),
+      comparator: ma[2] === 'above' || ma[2] === 'over' ? 'above' : 'below',
+      period,
+      average: ma[4] === 'ema' ? 'EMA' : 'SMA',
+    };
+  }
+
+  const words = normalized.split(' ').filter((w) => !FILLER.has(w));
+  if (words.length !== 2) return UNKNOWN;
+  const verb = VERBS[words[0]];
+  const ticker = TICKER.exec(words[1]);
+  if (!verb || !ticker) return UNKNOWN;
+  return verb(ticker[1].toUpperCase());
+}
