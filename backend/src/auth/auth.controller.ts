@@ -12,8 +12,7 @@ export class AuthController {
    * What sign-in methods this deployment actually has.
    *
    * Google needs GOOGLE_CLIENT_ID, which only the owner can create. Rather
-   * than showing a button that fails, the frontend asks first — the same
-   * shape the LLM's `configured` flag already uses.
+   * than showing a button that fails, the frontend asks first.
    */
   @Public()
   @Get('config')

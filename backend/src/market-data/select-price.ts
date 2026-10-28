@@ -43,8 +43,8 @@ export function selectPrice(q: PriceInputs, now: Date = new Date()): SelectedPri
    * With the market fully closed or in the overnight gap, the last trade is
    * the after-hours print, not the official close — and that is what
    * brokers display. Matching the broker matters more here than accounting
-   * purity: a portfolio that disagrees with the account it mirrors is a
-   * portfolio you stop trusting.
+   * purity: a price that disagrees with the broker's is one you stop
+   * trusting.
    */
   if (
     (session === 'CLOSED' || session === 'OVERNIGHT') &&

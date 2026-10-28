@@ -43,7 +43,7 @@ export class AuthService {
    * This is not legacy clutter to be tidied away later: it is the owner's way
    * in. His account has no email and no password of its own, and taking this
    * path out — or quietly changing what it returns — locks him out of his own
-   * portfolio. It resolves to the first user, which is his.
+   * holdings and watchlist. It resolves to the first user, which is his.
    */
   async loginWithAppPassword(password: string): Promise<Session> {
     const stored = process.env.APP_PASSWORD_HASH;

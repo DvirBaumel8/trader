@@ -1,7 +1,9 @@
 # Trader
 
-Trader is a mobile-first portfolio and trading diary for an active trader.
-It is designed for daily use: honest numbers, low entry friction, and a
+Trader is a mobile-first chat for an active trader. It remembers what he
+holds (long or short) and watches, answers a few market-data questions, and
+turns everything else into a prompt for his own Gemini conversation. It is
+designed for daily use: honest data, low entry friction, and a
 product-quality iPhone experience matter more than a long feature list.
 
 ## First read
@@ -20,40 +22,34 @@ unrelated work, and state the narrowest testable slice and acceptance criteria.
 
 ## Product and data invariants
 
-The core product decision is non-negotiable: seed the portfolio once, then the
-diary maintains it. There is no separate transaction-entry workflow.
+Trader is a chat, a holdings list and a watchlist. It grows one case at a time.
 
-- Positions are derived from the immutable transaction log; never store or
-  independently mutate them.
-- Journal entries are the only write path for transactions and cash flows,
-  including seeding. Correct a record by editing its journal entry.
-- Buys and sells are not cash flows. Only deposits and withdrawals are; a
-  deposit must never become performance. Negative cash is valid margin.
-- The frontend displays; the backend computes. Do not put business meaning,
-  money arithmetic, risk rules, or authoritative vocabulary in `frontend/`.
-  The frontend may parse input, order display rows, draw charts, and persist
-  drafts.
+- Trader knows what you hold (symbol + direction) and watch (symbol), never
+  your numbers: no quantities, prices paid, cash, balances, P&L or
+  performance. The broker owns those.
+- No in-product AI calls. Anything Trader can't answer itself becomes a prompt
+  for the owner's Gemini conversation (`backend/src/assistant/prompt.ts`).
+- The chat's parsing is deterministic (`backend/src/assistant/parse.ts`); a
+  miss becomes a prompt, never a guessed write.
+- The frontend displays; the backend computes. Do not put business meaning or
+  authoritative vocabulary in `frontend/`. The frontend may parse input, order
+  display rows, and persist drafts.
 - Every service resolves the request identity through
   `usersService.currentUser()`, not `ensureDefaultUser()`. The latter risks
   serving the owner's data to another user.
-- Instruments and market data are shared across users; transactions, stops
-  and journal rows are not. A query on a per-user table must filter by
-  `userId` even when it is keyed on an instrument, including inside
-  write-path validation. `docs/trader-profile.md` is the owner's alone.
+- Instruments and market data are shared across users; holdings and watchlist
+  rows are not. A query on a per-user table must filter by `userId` even when
+  it is keyed on an instrument, including inside write-path validation.
 - Price selection follows the market session. Surface `stale` quotes as stale,
   and label pre-market or after-hours prices rather than presenting them as a
   regular close.
-- Stop-level revisions are append-only. Clearing a stop plan writes the
-  revision tombstone through `transactions/stop-revisions.ts`; never represent
-  a cleared revision as zero rows.
 - `backend/src/market-data/yahoo.client.ts` is the only Yahoo Finance import
-  boundary, `backend/src/market-data/finnhub.client.ts` the only Finnhub one,
-  and `backend/src/market-data/twelvedata.client.ts` the only Twelve Data
-  one. `backend/src/llm/llm.client.ts` is the only in-product AI provider
-  SDK import boundary.
+  boundary and `backend/src/market-data/twelvedata.client.ts` the only Twelve
+  Data one.
 - Schema changes require a TypeORM migration registered in
   `backend/src/database/data-source.ts`. Do not rely on synchronizing a real
-  database schema.
+  database schema. The old journal, transaction and stop tables remain in the
+  database, unused.
 
 Prefer small vertical slices. Resist features that do not earn their complexity
 for the owner, and use no paid service while this remains a one-user product.
@@ -64,13 +60,13 @@ implementation with the verification rules below.
 
 ## Safe local workflow
 
-The local `trader` database contains real portfolio data. Never reset, seed,
+The local `trader` database contains real data. Never reset, seed,
 truncate, or run destructive verification against it. Use `trader_test` for
 backend tests and the disposable `trader_e2e` database for browser tests.
 Manual checks against real data are read-only unless the owner explicitly
 authorizes the exact write.
 
-Tests must not call Yahoo, an LLM, or another external service. Stub provider
+Tests must not call Yahoo or another external service. Stub provider
 clients; every e2e test that boots `AppModule` must override `YahooClient` with
 the shared test stub.
 
@@ -126,7 +122,8 @@ cd frontend && npx tsc -b
 
 For a bug: fix it, add a behavior-focused regression test, identify why the
 old test coverage missed it, and sweep for the same shape elsewhere. Keep the
-pure portfolio derivation logic pure and fixture-tested.
+pure logic (`assistant/parse.ts`, `market-data/moving-average.ts`) pure and
+table-tested.
 
 Any UI change must be opened and inspected in a real browser before handoff.
 Check the actual flow at iPhone 16 Pro width (402px, Playwright's
@@ -139,34 +136,28 @@ Reuse the existing UI patterns before inventing another:
 
 - `components/ui/EditModeToggle.tsx` for revealing destructive controls; every
   destructive action needs edit mode and a second confirmation tap.
-- `components/ui/CollapsibleCard.tsx` for long AI output; collapsed is one
-  header line, with all answer content in the collapsible body.
 - `components/ui/Button.tsx` and `components/ui/inputClasses.ts` for controls.
 
 ## Architecture map
 
 ```text
 backend/src/
-  journal/       only portfolio write path; entries, tags, stop levels
-  transactions/  immutable transactions, cash flows, stop revisions
-  portfolio/     derived positions, trades, risk, portfolio endpoints
-  performance/   time-weighted return and benchmark series
-  market-data/   Yahoo adapter, quotes, cached daily closes
+  assistant/     chat: deterministic parse, intent execution, Gemini prompt
+  holdings/      symbol + direction per user
+  watchlist/     symbols per user
+  market-data/   Yahoo and Twelve Data clients, quotes, daily closes, indicators
   instruments/   ticker validation and persistence
-  watchlist/     watchlist items, tags, cached ranking
-  llm/           provider-neutral AI client and feature services
   users/, auth/  request identity and authentication
   database/      TypeORM data source and hand-registered migrations
 frontend/src/
-  api/           API client and server-provided settings
+  api/           API client
   components/    shared display primitives and feature components
-  lib/           display-only pure helpers and draft persistence
-  routes/        screens and navigation
+  lib/           display-only pure helpers
+  routes/        Chat, Holdings, Watchlist, Login
 ```
 
-`portfolio/derive.ts`, `portfolio/derive-trades.ts`, `portfolio/risk.ts`, and
-`performance/series.ts` are high-risk pure business logic. Keep their
-calculation semantics on the backend and test them with fixtures.
+`assistant/parse.ts` and `market-data/moving-average.ts` are pure and
+table-tested; keep them free of I/O.
 
 ## Find the right document
 
@@ -174,14 +165,13 @@ calculation semantics on the backend and test them with fixtures.
 |---|---|
 | current shipped behavior, active work, or operating reality | `docs/current-state.md` |
 | starting, handing off, delegating, or selecting a development agent model | `docs/agent-guide.md` |
-| Trader's in-product AI model/provider/configuration | `docs/ai-configuration.md` |
+| the Gemini prompt Trader builds (there is no in-product AI) | `docs/ai-configuration.md` |
 | product intent | `docs/product-brief.md` |
 | deployment | `docs/DEPLOYMENT.md` |
 | schema changes or migrations | `docs/DEPLOYMENT.md` |
 | public API behavior | `docs/api.md` |
 | a past design decision or implementation | the matching file under `docs/superpowers/specs/` or `docs/superpowers/plans/` |
 
-Read `docs/trader-profile.md` when changing in-product AI judgment or prompts.
 Read `docs/working-agreement.md` when planning collaboration checkpoints.
 Read `docs/backlog.md` for open work, but do not treat it as a historical log.
 

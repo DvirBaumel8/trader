@@ -2,65 +2,48 @@
 
 > Read this when you need to know what is true now before planning, resuming, deploying, or testing work.
 
-**Last verified:** 2026-09-27 against `backend/src/users/users.service.ts`,
-`backend/src/llm/trader-profile.ts`, `.github/workflows/`, `package.json`, `backend/package.json`,
-`render.yaml`, `docs/DEPLOYMENT.md`, `docs/backlog.md`,
-`backend/src/auth/auth.module.ts`, `backend/src/main.ts`, and
-`backend/src/journal/journal.service.ts`.
+**Last verified:** 2026-10-28 against `backend/src/assistant/parse.ts`,
+`backend/src/assistant/assistant.service.ts`, `backend/src/holdings/`,
+`backend/src/watchlist/`, `backend/src/database/data-source.ts`,
+`frontend/src/routes/`, `.github/workflows/`, `package.json`,
+`backend/package.json`, `render.yaml`, and `docs/DEPLOYMENT.md`.
 
 This is a current-state reference, not a changelog. Follow the linked source
 documents for decisions, implementation detail, and history.
 
 ## Current product
 
-- The app is a mobile-first portfolio and trading diary: seed a portfolio once,
-  then journal trade, note, and cash entries to maintain it. Positions and
-  account figures are derived from that journal-backed transaction history.
-- Portfolio performance includes a time-weighted return chart against SPY and
-  QQQ, so deposits and withdrawals do not read as gains or losses.
-- Closed trades can be replayed on an annotated daily candle chart with fills,
-  stops, and planned targets. The Trades screen also offers period totals and
-  symbol search; Stocks summarizes symbols with at least one closed trade,
-  including fees and history.
-- AI features include streamed portfolio summaries, trade reviews, trade ideas,
-  and per-symbol pattern reads. They use app-computed facts; model prose is not
-  the source of portfolio numbers. `docs/trader-profile.md` goes, whole and
-  framed as dated background, into the owner's own AI requests only; other
-  accounts get the no-profile path.
-- The Stops page lists "Stop tiers" per symbol. A symbol with one tier is a
-  plain row linking to its trade. A symbol with two or more shows one
-  collapsed row ("N stops · covered shares · now price") with the summed dollars
-  at risk and a share-weighted distance, or PASSED when any tier has passed;
-  tapping it expands indented tier lines (each linking to the trade) and tapping
-  again collapses it. Expansion is not remembered. Sorting works on symbols:
-  largest risk by total dollars, nearest/furthest by the closest tier. Totals come
-  from `stopGroups` on `GET /portfolio`.
-- The Brief (`GET /watchlist/daily-brief`) opens with a Market line (index
-  trends, VIX, leading and lagging sectors, this week's events), then Needs
-  attention (stop crossed, near stop, no stop, partial stop, earnings, thesis
-  broken), then Movers: holdings that moved 1 ATR or more, each with its top
-  headline and the entry-reason chips from the entry that opened the position.
-  Watch triggers close it. One cached AI call supplies the summary and a
-  per-mover "AI:" thesis check against the owner's entry note; a reused take is
-  labelled with its own time, and an AI failure leaves the rest unchanged.
-- The watchlist supports targets and a cached AI ranking of the whole list.
-- A trade entry can carry the broker's own reported net cash and resulting
-  balance for that fill. The broker's net cash is quantity x price exactly
-  (the fee is charged to cash separately). When given, price is derived from it
-  (full precision, |net cash| / quantity) rather than trusting a typed guess, and a mismatch badge flags
-  remaining drift — a stopgap for reconciling against the broker, not a
-  permanent fixture. When the platform balance is lower than derived, the
-  backend exposes the gap as `reconciliation.interestToSettle` and the entry
-  card offers a two-tap "Add $X interest" that records it as an `INTEREST`
-  entry ordered just before the trade, clearing that and later balance checks.
-- A broker-charged cost outside any trade (margin interest, to start) can be
-  logged as its own `INTEREST` entry: it lowers cash the way a withdrawal
-  does but is excluded from contributed capital, the mirror image of how a
-  dividend is handled. Cash was aligned to the broker exactly as of
-  2026-09-19 with a one-time entry of this kind; going forward, drift is
-  meant to surface through these two mechanisms as it happens rather than
-  through another full manual reconciliation. See [the backlog](backlog.md)
-  for feature-level context and open work.
+Trader remembers what the owner holds (symbol + direction) and watches
+(symbol), never his numbers, and makes no AI calls. Three screens with a
+bottom navigation, plus Login:
+
+- **Chat** (`/`, home). One input box; the reply to the message just sent
+  appears below it. Nothing is stored except the effect on holdings and
+  watchlist.
+- **Holdings** (`/holdings`). Symbols with a Long/Short label; add, flip and
+  remove (removal uses edit mode plus a second tap).
+- **Watchlist** (`/watchlist`). Symbols only; add and remove (limit 50).
+
+Chat commands (case-insensitive, tickers only, English):
+
+| Message | Result |
+|---|---|
+| `bought X`, `buy X`, `long X` | Add X to holdings as long. |
+| `short X`, `shorted X` | Add X as short. |
+| `sold X`, `sell X`, `closed X`, `covered X` | Remove X from holdings. |
+| `watch X` / `unwatch X` | Add to / remove from the watchlist. |
+| `is X above\|over\|below\|under N [day] SMA\|EMA\|MA` | Verdict, price with session label, average, and percent distance. |
+| any message containing `?` (except the check above), or anything else | A Gemini prompt with a Copy button. |
+
+A direction conflict (buy X while held short, or the reverse) returns a
+confirm reply with a Flip button. An unknown ticker is reported and nothing is
+saved. Tickers are 1-5 letters (optional `.X` class, optional `$`); common
+words such as "it", "today" or "back" are never read as tickers. The prompt
+holds the message, today's date, holdings and watchlist symbols
+(`backend/src/assistant/prompt.ts`).
+
+The old journal, transaction, stop, ranking and brief tables and the unused
+watchlist columns stay in the database, unread.
 
 ## Operating facts
 
@@ -83,18 +66,17 @@ documents for decisions, implementation detail, and history.
   reset work against it. Use `trader_test` for backend verification and the
   disposable `trader_e2e` database for browser runs; production data is kept in
   Neon. See [deployment](DEPLOYMENT.md) for environment and migration detail.
+- Temporary: Render is suspended (account-level) until 1 November. Until then
+  the API runs on the owner's Mac mini behind a Cloudflare quick tunnel, and
+  the repository variable `VITE_API_BASE_URL` points at the tunnel. When
+  Render returns, deploy and verify it before pointing the frontend back.
 
 ## Active checkpoints
 
-- The owner needs to inspect the trade chart on a phone: confirm close axis
-  labels do not crowd and that per-fill marker placement reads well.
-- Review the UI as a whole and decide which remaining conventions or layout
-  changes are worth pursuing after comparison with established products.
-- Choose where a daily P&L calendar heatmap belongs: Portfolio or Trades.
-- Confirm that this Interactive Brokers account can enable Flex Web Service and
-  issue a token before planning the read-only reconciliation integration.
-- Hold the collaborative AI working session: improve the project instructions
-  and trader profile together, then inspect the assembled AI prompts together.
+- The owner tries the chat on his phone.
+- Hold the prompt-design session: decide what the Gemini prompt should carry.
+- Decide which question type to add next (price, earnings date, list scan).
+- Decide whether to drop the old tables.
 
 ## Update this document when
 

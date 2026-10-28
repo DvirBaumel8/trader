@@ -11,8 +11,8 @@ exists, what is public, what writes, and how to authenticate.
 
 ## Authentication
 
-Every route needs a bearer token except two: `POST /auth/login` and
-`GET /health/ping` (both marked `@Public()`).
+Every route needs a bearer token except those marked `@Public()`: the
+`/auth/*` routes below, `GET /health` and `GET /health/ping`.
 
 ```
 POST /auth/login  { "password": "..." }  ->  { "accessToken": "..." }
@@ -34,81 +34,61 @@ out of the environment to work around this. Two supported routes instead:
   the token ever passing through the agent.
 
 Unauthenticated calls return 401, which is easy to mistake for a broken
-route. `GET /health` requires a token; `GET /health/ping` does not.
+route.
 
 ## Routes
 
-Grouped by module. `:id` is a UUID except on trades, where it is a composite
-`SYMBOL:ISO_ENTERED_AT` (see `trade-window.ts`).
+Symbols are tickers, case-insensitive in paths and bodies. All data routes act
+on the signed-in user.
 
-### Portfolio — `portfolio/`
-
-| Route | Notes |
-|---|---|
-| `GET /portfolio` | Positions, cash, account value, at-risk, stop tiers (`stopTiers`, one row per tier) and `stopGroups` (the same tiers folded per symbol: `tierCount`, summed `quantity` and `amountAtRisk`, share-weighted `distance` = `amountAtRisk / (quantity x currentPrice)`, `nearestDistance` of the closest tier, `passed` when any tier has, and the `tiers` themselves). Each position carries `dayChange` / `dayChangePct` / `dayPnl` (selected price, extended hours included, vs the previous regular close — in pre-market that is the last regular close, since Yahoo's previous close still names the session before; `null` without one), and `totals` sums `marketValue`, `dayPnl`, `unrealizedPnl` (`null` when nothing is priced). Polled every 60s by the dashboard; also the seam that keeps `daily_closes` fresh. |
-| `GET /portfolio/stats` | Round-trip trades plus win rate / expectancy. Aggregates are over every trade, deliberately not the filtered subset. |
-| `GET /portfolio/trades/:id` | One trade with its fills, bars, stop levels, `currentPrice` and `highWaterPrice`. |
-| `GET /portfolio/fees` | Fees bucketed by `?period=DAY\|WEEK\|MONTH\|YEAR`. |
-| `GET /portfolio/status` | Whether the portfolio has been seeded. |
-| `POST /portfolio/stop-risk` | Prices a stop plan being typed. Stateless — writes nothing. Omit `currentPrice` for risk-at-entry, supply it for give-back-from-here. |
-| `PATCH /portfolio/trades/:id/stops` | Appends a stop revision. Never edits a revision in place. |
-| `POST /portfolio/seed` | One-time seed. Refuses a second run. |
-| `DELETE /portfolio/reset` | **Destructive.** Wipes the book. Never run this against the `trader` database — it destroyed the owner's real portfolio once. |
-
-### Journal — `journal/`
-
-The **only** write path into transactions and cash flows. A position moves
-because an entry was written, never through a "add transaction" endpoint.
+### Auth, health
 
 | Route | Notes |
 |---|---|
-| `GET /journal` | Filters: `symbol`, `kind`, `tagId`, `search`, `from`, `to`. Dates are inclusive `YYYY-MM-DD` and validated — a malformed one is a 400, not an empty list. |
-| `GET /journal/tags` | Declared before `:id` routes so "tags" is never read as an id. |
-| `POST /journal` | Creates an entry, and with it any transaction / cash flow / dividend / stop levels it implies. |
-| `PATCH /journal/:id` | Full replace. No optimistic locking — two concurrent edits both return 200 and the last commit wins (see `docs/backlog.md`). |
-| `POST /journal/:id/settle-balance` | For a reconciled trade whose reported balance is lower than derived: creates an `INTEREST` entry for `trade.reconciliation.interestToSettle`, dated the trade's day and ordered immediately before it (`createdAt` 1 ms earlier). Returns the new entry. 400 if the entry is not a reconciled trade or nothing is owed; 404 if not the caller's. |
-| `DELETE /journal/:id` | Removes the entry and everything it owned. |
+| `GET /auth/config` | `{ google }`: whether Google sign-in is configured. |
+| `POST /auth/login` | `{ password }` -> `{ accessToken, user }`. The owner's shared-password sign-in. |
+| `POST /auth/signup` | `{ email, password, displayName? }` -> session. |
+| `POST /auth/signin` | `{ email, password }` -> session. |
+| `POST /auth/google` | `{ idToken }` -> session. |
+| `GET /health` | `{ status, database, userId }`; checks the database. |
+| `GET /health/ping` | Public and deliberately DB-free — the keep-warm pinger hits it every 5 minutes. Returns `{ status, version }`, where `version` is the first 7 characters of the deployed commit (`RENDER_GIT_COMMIT`), or `null` locally. |
+
+### Holdings — `holdings/`
+
+| Route | Notes |
+|---|---|
+| `GET /holdings` | `[{ symbol, name, direction }]`, sorted by symbol. `direction` is `LONG` or `SHORT`. |
+| `PUT /holdings/:symbol` | `{ direction }`. Adds or flips; returns `{ symbol, direction, previous }` (`previous` is `null` for a new holding). An unknown ticker is a 404. |
+| `DELETE /holdings/:symbol` | `{ ok: true }`; 404 when not held. |
 
 ### Watchlist — `watchlist/`
 
 | Route | Notes |
 |---|---|
-| `GET /watchlist` | The list: priced, and flagged when a ticker has reached its target. |
-| `GET /watchlist/tags` | Declared before `:id` routes, for the same reason journal's is. |
-| `GET /watchlist/ranking` | The newest stored ranking. Read-only — never calls the model. |
-| `POST /watchlist/ranking/refresh` | **Writes.** The only route here that calls the model: one call for the whole list, ranking every ticker against the others. Stores the result and returns it. |
-| `POST /watchlist` | Upserts a ticker by symbol — target price, note, tags. |
-| `POST /watchlist/:id/acknowledge` | Dismisses a reached-target alert without forgetting it happened. |
-| `DELETE /watchlist/:id` | Stops watching a ticker. |
+| `GET /watchlist` | `[{ symbol, name }]`, sorted by symbol. |
+| `POST /watchlist` | `{ symbol }` -> `{ added, symbol }`; `added` is `false` when already watched. Unknown ticker is a 404; the 51st symbol is a 400. |
+| `DELETE /watchlist/:symbol` | `{ ok: true }`; 404 when not watched. |
 
-### Market data & history
+### Assistant — `assistant/`
 
-| Route | Notes |
-|---|---|
-| `GET /instruments/lookup?symbol=` | Validates a ticker against the provider and stores it. |
-| `GET /market-data/ticker-facts/:symbol` | Facts for the trade-idea prompt. |
-| `POST /history/backfill` | Manual `daily_closes` backfill for held instruments plus SPY/QQQ. Read paths top themselves up via `HistoryService.ensureFresh`; this is the full-runway version. |
+`POST /assistant { text }` (1-2000 characters). Parses the message
+deterministically, runs the intent, and returns one `AssistantReply`
+(`assistant.service.ts`); the reply is not stored.
 
-### Performance, AI, settings, health
-
-| Route | Notes |
-|---|---|
-| `GET /performance?range=1W\|1M\|6M\|YTD\|1Y\|ALL` | Time-weighted return vs SPY and QQQ. Deposits never register as gains. |
-| `POST /ai/trade-idea` | A pre-trade opinion. Persists the idea. |
-| `GET`/`DELETE /ai/trade-ideas`, `/ai/trade-ideas/:id` | History of those opinions. |
-| `POST /ai/portfolio-summary` | Returns `configured: false` and persists nothing when no provider key is set. |
-| `GET`/`DELETE /ai/summaries`, `/ai/summaries/:id` | History of those summaries. |
-| `GET`/`PATCH /settings` | `defaultFee`, plus a read-only `reasons` vocabulary (`opening`/`closing`) the composer renders its chips from. `PATCH` takes only `defaultFee`. |
-| `GET /health` | Status plus a database check. Needs a token. |
-| `GET /health/ping` | Public and deliberately DB-free — the keep-warm pinger hits it every 5 minutes. Returns `{ status, version }`, where `version` is the first 7 characters of the deployed commit (`RENDER_GIT_COMMIT`), or `null` locally. |
+| `kind` | Fields | Meaning |
+|---|---|---|
+| `done` | `message` | Holdings or watchlist changed, or it was already so. |
+| `confirm` | `message`, `action { symbol, direction, label }` | Direction conflict; the Flip button calls `PUT /holdings/:symbol` with `action`. |
+| `answer` | `message`, `facts { symbol, price, stale, session, average, period, value, percentFrom }` | Moving-average check. `session` is `pre-market`, `after-hours`, `overnight` or `null`; `percentFrom` is a fraction. |
+| `prompt` | `text` | A ready-to-paste Gemini prompt. |
+| `error` | `message` | Unknown ticker, not held or watched, too little history, no price. |
 
 ## Things that surprise callers
 
-- **Buys and sells are not cash flows.** Only deposits and withdrawals are.
-  A deposit must never read as a gain.
-- **Cash may be negative.** That is margin, not an error state.
+- **Trader stores no numbers.** No quantities, prices paid or cash; holdings
+  are symbol + direction only.
 - **Prices carry a session.** A quote is labelled `PRE`/`REGULAR`/`POST`/
   `CLOSED` and flagged `stale` on provider failure. Never present a stale or
   extended-hours price as a regular close.
-- **Positions are derived.** Nothing stores them; they are computed from the
-  transaction log on every read, so they cannot drift from the journal.
+- **Chat misses are prompts, not errors.** An unrecognised message returns
+  `kind: 'prompt'` with status 200.

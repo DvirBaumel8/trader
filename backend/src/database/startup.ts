@@ -22,7 +22,7 @@ export async function ensureDatabaseReady(): Promise<void> {
   if (chooseDatabaseMode(process.env) === 'unconfigured') {
     /**
      * Loud, and deliberately unhelpful about carrying on. Inventing an empty
-     * database is how a running app reports a zero portfolio as fact — worse
+     * database is how a running app reports empty holdings as fact — worse
      * than not booting, because everything looks fine and only the data looks
      * gone.
      */

@@ -37,6 +37,7 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   lastSeenAt: Date | null;
 
+  /** Unused since the rebuild (the default per-trade fee); the column stays for history. */
   @Column('numeric', {
     precision: 12,
     scale: 2,
@@ -46,10 +47,9 @@ export class User {
   defaultFee: number;
 
   /**
-   * A manually-entered snapshot of the broker's own "month-to-date interest"
-   * figure — not a journal entry, since the broker has not posted a dated
-   * transaction for it yet, only accrued it daily into the live cash it
-   * shows. Display-only: see PortfolioService.getFees.
+   * Unused since the rebuild (Trader no longer tracks fees or interest).
+   * The column stays in the database for history. It used to hold a
+   * manually-entered snapshot of the broker's month-to-date interest.
    */
   @Column('numeric', {
     precision: 12,
@@ -59,7 +59,7 @@ export class User {
   })
   interestAccrualAmount: number | null;
 
-  /** The date the snapshot above was taken, YYYY-MM-DD. */
+  /** Unused since the rebuild; the date the snapshot above was taken, YYYY-MM-DD. */
   @Column({ type: 'date', nullable: true })
   interestAccrualAsOf: string | null;
 

@@ -38,7 +38,7 @@ export class UsersService {
       const found = await this.users.findOne({ where: { id } });
       if (found) return found;
       // A signed token for a user who no longer exists. Falling back to the
-      // owner here would hand his portfolio to whoever holds that token.
+      // owner here would hand his holdings and watchlist to whoever holds that token.
       throw new UnauthorizedException('Account no longer exists');
     }
     /**

@@ -43,13 +43,11 @@ the thing that makes the app shareable and eventually chargeable.
 ## Principles
 
 **Start slow. Resist features.** In the owner's words, it is easy to add many
-features that add no value and make the product complex and hard to test. v1 does
-three things: portfolio, diary, benchmark comparison. Every proposed addition
-should be met with "does this earn its complexity?"
+features that add no value and make the product complex and hard to test.
+Every proposed addition should be met with "does this earn its complexity?"
 
 **Free for now.** No paid services while the product serves one user. Market data
-comes from Yahoo Finance (free, no API key), Postgres runs locally via Homebrew,
-there is no hosting bill and no LLM spend. Paid infrastructure is a decision for
+comes from Yahoo Finance (free, no API key), and the app makes no AI calls. Paid infrastructure is a decision for
 when there are paying subscribers — not before.
 
 **Build it step by step, and test each piece before moving on.** Explicitly
@@ -60,42 +58,33 @@ it becomes "a mess and hard to test". See `working-agreement.md`.
 **Mobile is the primary device.** Not a responsive afterthought — the owner uses
 this on an iPhone, and several bugs have existed *only* on the phone.
 
-**Honest numbers over pretty numbers.** Never show a stale price as if it were
-fresh. Never let a deposit look like a gain. If a figure cannot be computed
-correctly, show nothing rather than something plausible and wrong.
+**Honest data over pretty data.** Never show a stale price as if it were
+fresh. If a figure cannot be computed correctly, say so rather than show
+something plausible and wrong.
 
 ## The core product idea
 
-**Seed the portfolio once; from then on, the diary maintains it.**
+Trader was rebuilt after the owner built it and did not use it: most of what it
+computed already lives in his broker. It now keeps only what the broker cannot
+do for him, and grows one case at a time.
 
-There is no separate "log a transaction" chore. Journaling a trade *is* what moves
-the portfolio. This collapses two features into one and makes the journal
-self-sustaining — which is the reason most trading journals rot and this one
-might not.
+1. **Trader knows what you hold, never your numbers.** No quantities, prices
+   paid, cash, balances, P&L or performance. The broker owns those.
+2. **No AI calls inside the app.** When Trader cannot answer something itself,
+   it produces a ready-to-paste prompt for the owner's single Gemini Pro
+   conversation.
+3. **One place to talk to it.** A chat-style screen is home. Input is text;
+   voice is iPhone keyboard dictation, so the app only ever sees text.
+4. **Grow by case.** Start with a small set of commands and one market-data
+   answer; add each new kind of question as its own slice once the owner meets
+   it in real use.
 
-## Deliberately out of scope for v1
+## Deliberately out of scope
 
-Options, crypto, AI features, broker integration, tax reporting, watchlists, price
-alerts, screeners, multi-currency, dividend tracking, multi-user accounts.
+Conversation history, notes or memory; prompt design (a later session); other
+market-data questions (price, earnings, list scans) until the owner asks for
+them; voice beyond keyboard dictation; Hebrew; seeding from old data; dropping
+the old tables; target prices on the watchlist. Also still out: options,
+crypto, broker integration, tax reporting, price alerts, multi-currency.
 
-**On AI specifically:** the owner wants "more AI" and then chose *no AI in v1* —
-because a coach reading an empty journal has nothing useful to say. The schema is
-designed so AI is cheap to add once real history exists.
-
-**Since v1, the owner has deliberately brought in** AI features (grounded in
-app-computed facts, never model arithmetic), a watchlist, dividend and
-margin-interest entries, and hosting with accounts. The rest of the list is
-still out of scope. [Current state](current-state.md) is the source for what
-ships today.
-
-## Roadmap
-
-| Phase | What it delivers | Status |
-|---|---|---|
-| 1 | Portfolio, live — seed, positions, cash, live pricing | Complete |
-| 2 | The diary — trade entries, notes, cash entries, tags | Complete |
-| 3 | Vs the market — price history and the benchmark chart | Complete |
-| Since | AI reads, watchlist, hosting with accounts | Shipped |
-| Later | Broker import (read-only), options | Future |
-
-Full detail: `superpowers/specs/2026-08-28-trader-design.md`
+Design: `superpowers/specs/2026-10-28-trader-rebuild-design.md`

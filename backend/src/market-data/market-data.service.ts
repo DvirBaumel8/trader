@@ -50,7 +50,7 @@ const CONSENSUS_TTL_MS = 24 * 60 * 60 * 1000;
 const EXTREMES_TTL_MS = 5 * 60 * 1000;
 
 /**
- * How long the extended-hours extremes chart may take before the caller gives
+ * How long the extended-hours extremes lookup may take before the caller gives
  * up and takes the same path as a provider failure (daily bars alone). Quotes
  * are not bounded by this — see getQuotes for why. A slow
  * Yahoo/Twelve Data response was observed holding the trade detail page for
@@ -77,7 +77,7 @@ export class MarketDataService {
   // debugging session once prices went dark in production.
   private readonly logger = new Logger(MarketDataService.name);
   private readonly cache = new Map<string, CacheEntry>();
-  /** symbol -> extremes since a position's entry, with pre/post included. */
+  /** symbol:from-date -> extremes since that date, with pre/post included. */
   private readonly extremesCache = new Map<
     string,
     { fetchedAt: number; high: number | null; low: number | null }
@@ -132,15 +132,12 @@ export class MarketDataService {
    * The highest and lowest traded price since `from`, pre-market and
    * after-hours included.
    *
-   * A trailing stop ratchets from the most favourable price REACHED, and the
-   * owner's broker counts extended prints. Daily bars do not: BITX peaked
-   * near $19.58 outside regular hours while its daily high was $19.21, which
-   * put the app's trail at $17.33 against the broker's $17.63. A stop that
-   * disagrees with the broker is worse than no stop shown at all.
+   * Left over from the removed stop-tracking feature, which needed the most
+   * favourable price REACHED (the broker counts extended prints; daily bars do
+   * not). Nothing calls it now.
    *
-   * Cached like a quote, and for the same reason: this sits on the portfolio
-   * read path, which must not spend a network round trip per trailing
-   * position on every load.
+   * Cached like a quote, so a caller does not pay a network round trip per
+   * symbol on every load.
    */
   async getExtendedExtremes(
     symbol: string,
@@ -157,8 +154,8 @@ export class MarketDataService {
       // Expired, but we have something. Serve it and refresh behind: a
       // high-water mark only ratchets, so the worst a slightly old one can do
       // is show a trail marginally BELOW where it should be — never above,
-      // which is the direction that would matter. Blocking the portfolio on
-      // this instead was measured at over a second in real use.
+      // which is the direction that would matter. Blocking on a refresh
+      // instead was measured at over a second in real use.
       void this.refreshExtremes(symbol, from, key).catch(() => {});
       return { high: cached.high, low: cached.low };
     }
@@ -170,8 +167,8 @@ export class MarketDataService {
         `extremes(${symbol})`,
       );
     } catch {
-      // A failure here must never take down the portfolio: the caller falls
-      // back to daily bars, which is the behaviour that existed before this.
+      // A failure here must never take down the caller, which falls
+      // back to daily bars alone.
       return cached
         ? { high: cached.high, low: cached.low }
         : { high: null, low: null };
@@ -212,8 +209,7 @@ export class MarketDataService {
   /**
    * A cached quote, ONLY if it is still within TTL — never calls the
    * provider and never serves a stale fallback. For a caller that wants to
-   * skip a redundant round trip when a fresh quote already exists (say, from
-   * the portfolio poll), but must call the provider directly — and keep its
+   * skip a redundant round trip when a fresh quote already exists, but must call the provider directly — and keep its
    * own distinction between "the ticker is unknown" and "the provider is
    * down" — on a miss. `getQuote` conflates those two into a single `null`,
    * which is exactly the distinction such a caller cannot afford to lose.
@@ -227,15 +223,11 @@ export class MarketDataService {
   /**
    * `augment` gates the Twelve Data second opinion (see `augmentWithExtended`)
    * for this call's symbols. Twelve Data's free plan allows 8 requests a
-   * minute total, shared across every caller — found live, when the
-   * watchlist's ~20 symbols and the portfolio's held symbols all asked for
-   * an extended print on the same poll, every single request came back
-   * HTTP 429, and the held positions that drive account value and the Stops
-   * page lost that race as often as they won it. The watchlist's live
-   * extended price is a nicety; account value and stop distances are not —
-   * so callers pricing a decorative list (the watchlist, its ranking) pass
-   * `augment: false` and leave the whole budget to the ones that must be
-   * right.
+   * minute total, shared across every caller — found live, when a whole
+   * watchlist and the held symbols all asked for an extended print on the
+   * same poll, every single request came back HTTP 429. A caller pricing a
+   * decorative list passes `augment: false` and leaves the budget to the
+   * answers that must be right.
    */
   async getQuotes(
     symbols: string[],
@@ -260,8 +252,8 @@ export class MarketDataService {
       // Deliberately NOT bounded by PROVIDER_WAIT_MS. In production Yahoo's
       // batch quote endpoint is blocked and quoteMany falls back to one chart
       // call per symbol, which routinely takes longer than that for a whole
-      // portfolio — and on a cold cache a timeout here means NO prices at
-      // all. That shipped once and blanked every quote on the brief.
+      // list of symbols — and on a cold cache a timeout here means NO prices at
+      // all. That shipped once and blanked every quote on a screen.
       const fetched = await this.fetchAndStore(missing, augment);
       for (const [key, quote] of fetched) out.set(key, quote);
     } catch (err) {
@@ -284,8 +276,7 @@ export class MarketDataService {
     const rawQuotes = await this.yahoo.quoteMany(missing);
     // Twelve Data's budget is spent in array order (see
     // `TwelveDataClient.hasBudget`), so a caller's priority — `missing`'s
-    // own order, e.g. `PortfolioService` putting stopped symbols first —
-    // must survive here even though Yahoo's batch response is not
+    // own order — must survive here even though Yahoo's batch response is not
     // contracted to come back in request order.
     const priority = new Map(missing.map((symbol, index) => [symbol, index]));
     const ordered = augment

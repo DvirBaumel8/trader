@@ -87,20 +87,6 @@ Keep the printed hash for the next step.
    actually assigns — it is suffixed, e.g.
    `https://trader-backend-ufhg.onrender.com`.
 
-## 3a. Runtime AI configuration (optional)
-
-AI features remain unavailable until the API has a supported Gemini key. Read
-[AI Runtime Configuration](ai-configuration.md) before changing its provider,
-model, grounding, or thinking level.
-
-- `GEMINI_API_KEY` (preferred) and `LLM_API_KEY` (legacy fallback) are secrets:
-  set one in Render's **Environment** dashboard and never commit a real value
-  to Git, `.env.example`, or `render.yaml`.
-- `LLM_PROVIDER`, `LLM_MODEL`, and `LLM_THINKING_LEVEL` are plain runtime
-  settings, not secrets. The blueprint already deploys
-  `LLM_THINKING_LEVEL=MINIMAL`; changing it is optional and must follow the
-  model/provider verification in the linked reference.
-
 ## 4. Cloudflare Pages (frontend)
 
 1. In this GitHub repo's settings, add:
@@ -116,52 +102,20 @@ model, grounding, or thinking level.
    (`https://trader-app-55e.pages.dev`). Do not assume `<project>.pages.dev`:
    that name may belong to someone else entirely.
 
-## 4b. Finnhub, for the P/E and recent news (optional)
+## 4b. Twelve Data, for pre/post-market prices (optional)
 
-Yahoo's quote endpoint carries the trailing P/E, but it needs a crumb token
-and that request is refused with **429 from Render's IP** — a shared
-datacenter address with a shared reputation, nothing to do with our call
-rate. Yahoo's chart endpoint needs no crumb and works fine, which is what
-prices the portfolio in production, but it carries no fundamentals at all.
-So without this step the app is fully functional, the P/E reads `—`, and the
-trade-idea prompt's RECENT NEWS section reads "none found".
-
-1. Create a free account at finnhub.io and copy the API key.
-2. Render dashboard → the `trader-backend` service → **Environment** → add
-   `FINNHUB_API_KEY`. Set by hand rather than in `render.yaml`, so a blueprint
-   sync never prompts for a key that might not exist.
-
-Two independent uses, same key:
-
-- **Trailing EPS**, not the P/E — the app divides the live price by it:
-  earnings move quarterly while the price moves all day, so one fetch per
-  symbol per day yields a multiple that is correct intraday. Roughly 25
-  calls a day.
-- **Recent company-specific headlines**, fed into the trade-idea prompt (see
-  `docs/ai-configuration.md`) so a same-day announcement — a partnership, an
-  acquisition, an FDA decision — has a chance of reaching the model, which
-  otherwise sees only price and technicals. Cached ~45 minutes per symbol; a
-  repeat trade-idea click on the same ticker costs nothing extra.
-
-Both stay comfortably inside Finnhub's free 60-calls-a-minute limit. No key
-means `peRatio: null` and an empty news section, which every screen and both
-AI prompts already render honestly.
-
-## 4c. Twelve Data, for pre/post-market prices (optional)
-
-Same root cause as 4b: Yahoo's crumb-gated quote endpoint carries the real
+Yahoo's crumb-gated quote endpoint carries the real
 pre/post-market print, and it's the one blocked from Render's IP. The
 fallback chart endpoint has no extended print at all, so without this key
 production silently shows the regular-session close during pre-market and
 after-hours — quietly disagreeing with a broker showing the live extended
 price. Confirmed against a live account with `prepost=true` on `/quote`,
-not assumed from docs: the same-shaped promise from Finnhub's free tier
-turned out not to hold.
+not assumed from docs.
 
 1. Create a free account at twelvedata.com and copy the API key.
 2. Render dashboard → the `trader-backend` service → **Environment** → add
-   `TWELVEDATA_API_KEY`. Set by hand rather than in `render.yaml`, for the
-   same reason as `FINNHUB_API_KEY`.
+   `TWELVEDATA_API_KEY`. Set by hand rather than in `render.yaml`, so a
+   blueprint sync never prompts for a key that might not exist.
 
 Only ever asked as a second opinion — once per quote where Yahoo's own
 answer had no genuine extended print, never on a regular-session quote and
@@ -221,7 +175,11 @@ If an UptimeRobot monitor from an earlier setup is still pointed at this
 service, delete it once the Worker is deployed and confirmed — running both
 is harmless but redundant.
 
-## 6. Move the real portfolio data
+## 6. Move the real data
+
+Done once in September 2026, for the old portfolio and journal tables, which
+the rebuild leaves in the database unused. Kept as the procedure for moving a
+local database to Neon.
 
 Only after steps 1–5 are deployed and you've confirmed you can log into the
 **empty** production app from your phone (off Wi-Fi, to prove it's actually
@@ -332,5 +290,4 @@ npm run dev
 
 This builds the backend and serves the API plus `frontend/dist` on port 3000.
 Do not run it while the backend watcher is active, because the build replaces
-`backend/dist`. For runtime AI settings, see
-[AI Runtime Configuration](ai-configuration.md).
+`backend/dist`.
