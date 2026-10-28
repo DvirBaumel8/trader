@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { AssistantService } from './assistant.service.js';
 
@@ -15,5 +16,23 @@ describe('AssistantService.maCheck', () => {
       kind: 'error',
       message: "Couldn't get GOOGL's price right now.",
     });
+  });
+
+  it('turns a full watchlist into a chat error and lets other errors propagate', async () => {
+    const msg = 'The watchlist holds 50 tickers at most. Remove one before adding another.';
+    const make = (err: Error) =>
+      new AssistantService(
+        {} as never,
+        { add: vi.fn(async () => { throw err; }) } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+    expect(await make(new BadRequestException(msg)).handle('watch NVDA')).toEqual({
+      kind: 'error',
+      message: msg,
+    });
+    await expect(make(new Error('boom')).handle('watch NVDA')).rejects.toThrow('boom');
   });
 });

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { parseMessage, type Intent } from './parse.js';
@@ -56,7 +56,13 @@ export class AssistantService {
       return await this.execute(intent, text, now);
     } catch (err) {
       if (err instanceof NotFoundException && 'symbol' in intent) {
-        return { kind: 'error', message: `I don't know the ticker ${intent.symbol}.` };
+        return {
+          kind: 'error',
+          message: `I couldn't find the ticker ${intent.symbol}. Check the spelling, or try again in a minute.`,
+        };
+      }
+      if (err instanceof BadRequestException) {
+        return { kind: 'error', message: err.message };
       }
       throw err;
     }

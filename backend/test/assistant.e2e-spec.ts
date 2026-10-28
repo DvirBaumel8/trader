@@ -63,7 +63,7 @@ describe('Assistant (e2e)', () => {
   });
 
   it('refuses an unknown ticker without saving it', async () => {
-    expect((await say('bought ZZZZ')).body).toEqual({ kind: 'error', message: "I don't know the ticker ZZZZ." });
+    expect((await say('bought ZZZZ')).body).toEqual({ kind: 'error', message: "I couldn't find the ticker ZZZZ. Check the spelling, or try again in a minute." });
     expect((await http(app, token).get('/holdings')).body).toEqual([]);
   });
 
