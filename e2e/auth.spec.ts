@@ -19,7 +19,7 @@ test.describe('signing in', () => {
     await page.getByRole('button', { name: 'Log in' }).click();
 
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole('link', { name: 'Portfolio' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Chat', exact: true })).toBeVisible();
   });
 
   test('refuses the wrong app password, and says so', async ({ page }) => {

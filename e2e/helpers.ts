@@ -44,13 +44,13 @@ export async function signUpAndSignIn(page: Page, label: string): Promise<void> 
    * Ten seconds of confusion for something a status code says outright.
    */
   const status = await page.evaluate(async ([token]) => {
-    const res = await fetch('/api/settings', {
+    const res = await fetch('/api/holdings', {
       headers: { authorization: `Bearer ${token as string}` },
     });
     return res.status;
   }, [session.accessToken] as const);
 
   if (status !== 200) {
-    throw new Error(`signed-in token was rejected: /api/settings returned ${status}`);
+    throw new Error(`signed-in token was rejected: /api/holdings returned ${status}`);
   }
 }
