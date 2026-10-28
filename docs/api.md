@@ -15,7 +15,7 @@ Every route needs a bearer token except those marked `@Public()`: the
 `/auth/*` routes below, `GET /health` and `GET /health/ping`.
 
 ```
-POST /auth/login  { "password": "..." }  ->  { "accessToken": "..." }
+POST /auth/login  { "password": "..." }  ->  { "accessToken": "...", "user": { ... } }
 ```
 
 Then `Authorization: Bearer <token>` on everything else. The password is
@@ -88,7 +88,7 @@ deterministically, runs the intent, and returns one `AssistantReply`
 - **Trader stores no numbers.** No quantities, prices paid or cash; holdings
   are symbol + direction only.
 - **Prices carry a session.** A quote is labelled `PRE`/`REGULAR`/`POST`/
-  `CLOSED` and flagged `stale` on provider failure. Never present a stale or
+  `OVERNIGHT`/`CLOSED` and flagged `stale` on provider failure. Never present a stale or
   extended-hours price as a regular close.
 - **Chat misses are prompts, not errors.** An unrecognised message returns
   `kind: 'prompt'` with status 200.

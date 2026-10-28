@@ -25,9 +25,6 @@ const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '');
  * index.html instead of the backend — a permanent false "Can't reach the
  * server" banner in every local dev session, never seen in production
  * where frontend and backend already sit on different origins.
- *
- * Exported so `streamNdjson` builds the exact same URL for a streamed
- * response instead of growing its own copy of this prefix rule.
  */
 export function apiUrl(path: string): string {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;

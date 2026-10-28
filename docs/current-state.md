@@ -15,7 +15,7 @@ documents for decisions, implementation detail, and history.
 
 Trader remembers what the owner holds (symbol + direction) and watches
 (symbol), never his numbers, and makes no AI calls. Three screens with a
-bottom navigation, plus Login:
+tab bar under the header, plus Login:
 
 - **Chat** (`/`, home). One input box; the reply to the message just sent
   appears below it. Nothing is stored except the effect on holdings and

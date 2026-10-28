@@ -2,13 +2,12 @@
  * What an input looks like, in one place.
  *
  * Separate from `Input.tsx` so that file exports only its component — a
- * module that mixes the two breaks Fast Refresh, which is the same reason
- * `lib/benchmarkRange.ts` exists. Most call sites want the classes rather
+ * module that mixes the two breaks Fast Refresh. Most call sites want the classes rather
  * than the wrapper: they already spell out type, inputMode and handlers, and
  * a component would only forward them.
  *
- * On the sizes: `md` is `text-base` for the entry sheet and the seed form,
- * `sm` is `text-sm` for the denser stop and filter rows. Neither affects the
+ * On the sizes: `md` is `text-base` for primary inputs,
+ * `sm` is `text-sm` for denser rows. Neither affects the
  * iOS auto-zoom this app has already been bitten by — `index.css` forces
  * 16px under `(pointer: coarse)`, so `sm` only ever applies where there is
  * a mouse.

@@ -93,7 +93,7 @@ build, root `npm run dev`, or `nest build` while the backend watcher runs;
 those commands replace `backend/dist` underneath it.
 
 Backend routes use `/api`. When adding a new top-level controller path, update
-the legacy-path allowlist in `backend/src/main.ts`, or unprefixed requests can
+the legacy-path allowlist in `backend/src/legacy-api-prefix.ts`, or unprefixed requests can
 fall through to the SPA and look like JSON parsing failures.
 
 Do not expose the app, deploy, or send data to an external service without the
@@ -145,7 +145,7 @@ backend/src/
   assistant/     chat: deterministic parse, intent execution, Gemini prompt
   holdings/      symbol + direction per user
   watchlist/     symbols per user
-  market-data/   Yahoo and Twelve Data clients, quotes, daily closes, indicators
+  market-data/   Yahoo and Twelve Data clients, quotes, daily closes, moving averages
   instruments/   ticker validation and persistence
   users/, auth/  request identity and authentication
   database/      TypeORM data source and hand-registered migrations
