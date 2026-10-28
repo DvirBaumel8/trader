@@ -177,3 +177,19 @@ UI (exact copy):
 - [ ] Set `LLM_MODEL=gemini-3.5-flash-lite` in `~/.config/trader-host/prod.env`.
 - [ ] Push `main`; wait for `deploy-web`; rebuild Mac host at `origin/main`; confirm migration `AddNextEarnings1790121600000` applied on Neon.
 - [ ] Live check as the dedicated test user (`~/.config/trader-host/test-user.env`): paste a holdings list (timing < 5 s), `watch` a few symbols, open Earnings at iPhone width and screenshot; send 16 quick chat messages to confirm the rate-limit error text; leave a small portfolio on the test user for future tests.
+
+---
+
+### Task 5b: Chat polish (owner feedback 2026-10-29)
+
+**Files:** Modify `backend/src/assistant/prompt.ts` (+ spec), `backend/src/assistant/assistant.service.ts` (+ spec) for the date, `frontend/src/routes/Chat.tsx` (+ spec), `e2e/chat.spec.ts` if it asserts the old prompt text.
+
+**Interfaces — Consumes:** `etDate(at: Date): string` from `backend/src/earnings/week.ts` (Task 3).
+
+- **Clear:** the reply card gets a `Clear` button (secondary, small, top-right next to Copy for prompts; top-right alone for other replies). Clearing removes the reply, resets copy state, and focuses the textarea.
+- **Placeholder:** `Talk to Trader — “bought LMND”, “sold TSLA”, “watch NVDA”, or ask anything`.
+- **Prompt holdings line:** list symbols only, marking shorts: `My holdings: AMZN, AVGO, TSLA (short)`; `none` when empty. Watchlist line unchanged.
+- **Prompt date:** New York date, formatted `Date: Oct 28, 2026 (New York time)` — `buildPrompt` takes the ET `YYYY-MM-DD` (from `etDate(now)`) and formats it; spec covers the UTC-midnight case (`2026-10-29T00:30:00Z` → `Oct 28, 2026`).
+- **Copy & open Gemini:** for prompt replies, a second button `Copy & open Gemini` that copies (same success/failure handling) and opens `https://gemini.google.com/app` in a new tab (`window.open(url, '_blank', 'noopener')`) — open after the copy promise settles, inside the same click handler.
+- Tests: prompt.spec for the holdings line (all long, one short, empty) and the date; Chat.spec for Clear (removes reply, focuses input), the new placeholder, and Copy & open (clipboard called, `window.open` called with the URL).
+- Commit: `feat(chat): clear button, accurate placeholder, cleaner prompt, copy & open Gemini`
