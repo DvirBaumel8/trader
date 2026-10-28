@@ -12,7 +12,6 @@ const LEGACY_PREFIXES = [
   '/holdings',
   '/assistant',
   '/auth',
-  '/instruments',
 ];
 
 interface RewritableRequest {
