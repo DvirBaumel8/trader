@@ -25,3 +25,7 @@ coverage/
 test-results/
 playwright-report/
 backend/dist-e2e/
+
+# The workspace uses the root package-lock.json; per-package locks appear from local installs.
+backend/package-lock.json
+frontend/package-lock.json
