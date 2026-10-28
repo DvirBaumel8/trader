@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, NotFoundException, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Post, Put } from '@nestjs/common';
 import { WatchlistService } from './watchlist.service.js';
+import { OrderSymbolsDto } from '../lists/order.dto.js';
 import { AddSymbolsDto } from '../lists/add-symbols.dto.js';
 
 @Controller('watchlist')
@@ -14,6 +15,12 @@ export class WatchlistController {
   @Post()
   add(@Body() body: AddSymbolsDto) {
     return this.watchlist.addMany(body.symbols);
+  }
+
+  /** Declared before the ':symbol' routes. */
+  @Put('order')
+  reorder(@Body() body: OrderSymbolsDto) {
+    return this.watchlist.reorder(body.symbols);
   }
 
   @Delete(':symbol')

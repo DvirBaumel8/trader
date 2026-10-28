@@ -105,3 +105,62 @@ it('keeps Add disabled and calls nothing for input with no tickers', async () =>
   expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
   expect(api).not.toHaveBeenCalledWith('/holdings', expect.anything());
 });
+
+const reorderMock = (failWith?: string) =>
+  vi.mocked(api).mockImplementation((_path: string, opts?: { method?: string }) =>
+    opts?.method === 'PUT'
+      ? failWith
+        ? Promise.reject(new Error(failWith))
+        : Promise.resolve([])
+      : Promise.resolve([{ symbol: 'LMND', name: 'Lemonade' }, { symbol: 'TSLA', name: 'Tesla' }]),
+  );
+const symbols = () => screen.getAllByTestId(/^holding-/).map((el) => el.getAttribute('data-testid')!.slice(8));
+// jsdom has no layout; give each row a distinct box so dnd-kit can find its neighbour.
+const layoutRows = () => {
+  const rows = screen.getAllByTestId(/^(holding|watch)-/);
+  rows.forEach((el, i) => {
+    const rect = { x: 0, y: i * 50, top: i * 50, bottom: i * 50 + 50, left: 0, right: 300, width: 300, height: 50 };
+    el.getBoundingClientRect = () => ({ ...rect, toJSON: () => rect }) as DOMRect;
+  });
+};
+const moveDown = async (symbol: string) => {
+  layoutRows();
+  screen.getByRole('button', { name: `Reorder ${symbol}` }).focus();
+  await userEvent.keyboard(' ');
+  await userEvent.keyboard('{ArrowDown}');
+  await userEvent.keyboard(' ');
+};
+
+it('shows drag handles only in edit mode', async () => {
+  reorderMock();
+  renderIt();
+  await screen.findByTestId('holding-LMND');
+  expect(screen.queryByRole('button', { name: /^Reorder / })).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Edit holdings' }));
+  expect(screen.getByRole('button', { name: 'Reorder LMND' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Reorder TSLA' })).toBeInTheDocument();
+});
+
+it('saves a keyboard reorder as the full new sequence', async () => {
+  reorderMock();
+  renderIt();
+  await screen.findByTestId('holding-LMND');
+  await userEvent.click(screen.getByRole('button', { name: 'Edit holdings' }));
+  await moveDown('LMND');
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith('/holdings/order', {
+      method: 'PUT',
+      body: JSON.stringify({ symbols: ['TSLA', 'LMND'] }),
+    }),
+  );
+});
+
+it('puts the rows back and says why when saving the order fails', async () => {
+  reorderMock('Unknown symbol in order: LMND');
+  renderIt();
+  await screen.findByTestId('holding-LMND');
+  await userEvent.click(screen.getByRole('button', { name: 'Edit holdings' }));
+  await moveDown('LMND');
+  expect(await screen.findByText('Unknown symbol in order: LMND')).toBeInTheDocument();
+  await waitFor(() => expect(symbols()).toEqual(['LMND', 'TSLA']));
+});

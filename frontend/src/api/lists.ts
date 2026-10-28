@@ -38,3 +38,9 @@ export const removeHolding = (symbol: string) => api(`/holdings/${enc(symbol)}`,
 export const addWatches = (symbols: string[]) =>
   api<AddWatchesResult>('/watchlist', { method: 'POST', body: JSON.stringify({ symbols }) });
 export const removeWatch = (symbol: string) => api(`/watchlist/${enc(symbol)}`, { method: 'DELETE' });
+
+/** Saves the drag order. The server returns the list it now holds. */
+export const reorderHoldings = (symbols: string[]) =>
+  api<HoldingRow[]>('/holdings/order', { method: 'PUT', body: JSON.stringify({ symbols }) });
+export const reorderWatchlist = (symbols: string[]) =>
+  api<WatchRow[]>('/watchlist/order', { method: 'PUT', body: JSON.stringify({ symbols }) });

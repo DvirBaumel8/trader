@@ -36,12 +36,12 @@ describe('Holdings (e2e)', () => {
     expect((await http(app, token).get('/holdings').expect(200)).body).toEqual([]);
   });
 
-  it('adds holdings in bulk, sorted by symbol, symbols and names only', async () => {
+  it('adds holdings in bulk, in the order added, symbols and names only', async () => {
     const res = await http(app, token).post('/holdings').send({ symbols: ['tsla', 'LMND'] }).expect(201);
     expect(res.body).toEqual({ added: ['TSLA', 'LMND'], already: [], notFound: [] });
     expect((await http(app, token).get('/holdings').expect(200)).body).toEqual([
-      { symbol: 'LMND', name: 'LMND Inc' },
       { symbol: 'TSLA', name: 'TSLA Inc' },
+      { symbol: 'LMND', name: 'LMND Inc' },
     ]);
   });
 
@@ -88,5 +88,36 @@ describe('Holdings (e2e)', () => {
     expect((await http(app, other).get('/holdings').expect(200)).body).toEqual([]);
     await http(app, other).delete('/holdings/LMND').expect(404);
     expect((await http(app, token).get('/holdings').expect(200)).body).toHaveLength(1);
+  });
+
+  it('keeps the order set by PUT /holdings/order, and new items go last', async () => {
+    await http(app, token).post('/holdings').send({ symbols: ['LMND', 'NVDA', 'TSLA'] }).expect(201);
+    const res = await http(app, token).put('/holdings/order').send({ symbols: ['tsla', 'LMND', 'NVDA'] }).expect(200);
+    expect(res.body.map((r: { symbol: string }) => r.symbol)).toEqual(['TSLA', 'LMND', 'NVDA']);
+    await http(app, token).post('/holdings').send({ symbols: ['AAPL'] }).expect(201);
+    const list = await http(app, token).get('/holdings').expect(200);
+    expect(list.body.map((r: { symbol: string }) => r.symbol)).toEqual(['TSLA', 'LMND', 'NVDA', 'AAPL']);
+  });
+
+  it('rejects an unknown symbol in the order with 400, and a bad body', async () => {
+    await http(app, token).post('/holdings').send({ symbols: ['LMND'] }).expect(201);
+    const res = await http(app, token).put('/holdings/order').send({ symbols: ['LMND', 'NVDA'] }).expect(400);
+    expect(res.body.message).toBe('Unknown symbol in order: NVDA');
+    await http(app, token).put('/holdings/order').send({ symbols: [] }).expect(400);
+    await http(app, token).put('/holdings/order').send({ symbols: [1] }).expect(400);
+  });
+
+  it("reordering never touches another user's list", async () => {
+    await http(app, token).post('/holdings').send({ symbols: ['LMND', 'NVDA'] }).expect(201);
+    const signup = await request(app.getHttpServer())
+      .post('/auth/signup')
+      .send({ email: `order-${Date.now()}@e2e.local`, password: 'other-password-1' })
+      .expect(201);
+    const other = signup.body.accessToken as string;
+    await http(app, other).post('/holdings').send({ symbols: ['LMND', 'NVDA'] }).expect(201);
+    await http(app, other).put('/holdings/order').send({ symbols: ['NVDA', 'LMND'] }).expect(200);
+    const mine = await http(app, token).get('/holdings').expect(200);
+    expect(mine.body.map((r: { symbol: string }) => r.symbol)).toEqual(['LMND', 'NVDA']);
+    await http(app, other).put('/holdings/order').send({ symbols: ['TSLA'] }).expect(400);
   });
 });

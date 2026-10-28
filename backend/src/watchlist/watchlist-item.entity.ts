@@ -19,6 +19,10 @@ export class WatchlistItem {
   @Column('uuid')
   instrumentId: string;
 
+  /** User-chosen order, 0-based per user. */
+  @Column({ type: 'int', default: 0 })
+  position: number;
+
   @CreateDateColumn()
   createdAt: Date;
 }

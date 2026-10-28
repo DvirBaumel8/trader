@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, NotFoundException, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Post, Put } from '@nestjs/common';
 import { HoldingsService } from './holdings.service.js';
+import { OrderSymbolsDto } from '../lists/order.dto.js';
 import { AddSymbolsDto } from '../lists/add-symbols.dto.js';
 
 @Controller('holdings')
@@ -14,6 +15,12 @@ export class HoldingsController {
   @Post()
   add(@Body() body: AddSymbolsDto) {
     return this.holdings.addMany(body.symbols);
+  }
+
+  /** Declared before the ':symbol' routes. */
+  @Put('order')
+  reorder(@Body() body: OrderSymbolsDto) {
+    return this.holdings.reorder(body.symbols);
   }
 
   @Delete(':symbol')

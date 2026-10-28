@@ -57,16 +57,18 @@ on the signed-in user.
 
 | Route | Notes |
 |---|---|
-| `GET /holdings` | `[{ symbol, name }]`, sorted by symbol. Holdings are always long; there is no direction. |
+| `GET /holdings` | `[{ symbol, name }]` in the user's saved order (position, ties by symbol). Holdings are always long; there is no direction. |
 | `POST /holdings` | Bulk add: `{ symbols: string[] }` (1 to 50) -> `{ added, already, notFound }` (arrays of symbols). Symbols are trimmed, upper-cased, `$` stripped and de-duplicated; each is validated against the market-data lookup. An unknown ticker lands in `notFound` rather than failing the batch. |
+| `PUT /holdings/order` | `{ symbols: string[] }` (1 to 500) -> the new list. The listed symbols take the first positions in the order given; the user's other symbols follow in their old order. 400 `Unknown symbol in order: X` for a symbol not held. New holdings are appended last. |
 | `DELETE /holdings/:symbol` | `{ ok: true }`; 404 when not held. |
 
 ### Watchlist — `watchlist/`
 
 | Route | Notes |
 |---|---|
-| `GET /watchlist` | `[{ symbol, name }]`, sorted by symbol. |
+| `GET /watchlist` | `[{ symbol, name }]` in the user's saved order (position, ties by symbol). |
 | `POST /watchlist` | Bulk add: `{ symbols: string[] }` (1 to 50) -> `{ added, already, notFound, full }`. Same normalisation as holdings. `full` lists symbols that did not fit under the 50-ticker limit. |
+| `PUT /watchlist/order` | Same as `PUT /holdings/order`, for the watchlist. |
 | `DELETE /watchlist/:symbol` | `{ ok: true }`; 404 when not watched. |
 
 ### Earnings — `earnings/`

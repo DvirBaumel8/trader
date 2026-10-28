@@ -3,7 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/Button';
 import { EditModeToggle } from '../components/ui/EditModeToggle';
 import { inputClasses } from '../components/ui/inputClasses';
-import { HOLDINGS_KEY, addHoldings, removeHolding, useHoldings } from '../api/lists';
+import { type HoldingRow, HOLDINGS_KEY, reorderHoldings, addHoldings, removeHolding, useHoldings } from '../api/lists';
+import { ReorderableList } from '../components/ReorderableList';
+import { useListOrder } from '../lib/useListOrder';
 import { parseTickers, summarize } from '../lib/tickers';
 
 export function Holdings() {
@@ -12,6 +14,7 @@ export function Holdings() {
   const [symbol, setSymbol] = useState('');
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const order = useListOrder<HoldingRow>(HOLDINGS_KEY, reorderHoldings);
   const refresh = () => queryClient.invalidateQueries({ queryKey: HOLDINGS_KEY });
 
   const [result, setResult] = useState('');
@@ -70,9 +73,13 @@ export function Holdings() {
         <p className="text-sm text-muted">No holdings yet. Tell the chat “bought LMND”, or add one above.</p>
       )}
 
-      <ul className="divide-y divide-border rounded-lg border border-border">
-        {data?.map((h) => (
-          <li key={h.symbol} data-testid={`holding-${h.symbol}`} className="flex items-center gap-3 px-3 py-2.5">
+      <ReorderableList
+        rows={data ?? []}
+        editing={editing}
+        testIdPrefix="holding"
+        onReorder={order.reorder}
+        renderRow={(h) => (
+          <>
             <span className="font-medium">{h.symbol}</span>
             <span className="min-w-0 flex-1 truncate text-sm text-muted">{h.name}</span>
             {editing && confirming !== h.symbol && (
@@ -83,9 +90,10 @@ export function Holdings() {
                 Remove {h.symbol}
               </Button>
             )}
-          </li>
-        ))}
-      </ul>
+          </>
+        )}
+      />
+      {order.error && <p className="text-sm text-down">{order.error}</p>}
       {remove.isError && <p className="text-sm text-down">{(remove.error as Error).message}</p>}
     </section>
   );
