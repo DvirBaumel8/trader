@@ -5,6 +5,7 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    exclude: ['lib/**', 'node_modules/**', 'dist/**'],
     globalSetup: ['./test/global-setup.ts'],
     // Enforces "tests never touch the network". Must be setupFiles, not
     // globalSetup: globalSetup runs once in vitest's main process, while specs

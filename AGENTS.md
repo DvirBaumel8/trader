@@ -1,7 +1,7 @@
 # Trader
 
 Trader is a mobile-first chat for an active trader. It remembers what he
-holds (long or short) and watches, answers a few market-data questions, and
+holds (long or short) and watches, and
 turns everything else into a prompt for his own Gemini conversation. It is
 designed for daily use: honest data, low entry friction, and a
 product-quality iPhone experience matter more than a long feature list.
@@ -44,12 +44,12 @@ Trader is a chat, a holdings list and a watchlist. It grows one case at a time.
 - Instruments and market data are shared across users; holdings and watchlist
   rows are not. A query on a per-user table must filter by `userId` even when
   it is keyed on an instrument, including inside write-path validation.
-- Price selection follows the market session. Surface `stale` quotes as stale,
-  and label pre-market or after-hours prices rather than presenting them as a
-  regular close.
+- Quotes, price history, moving averages and the Twelve Data client are parked
+  in `backend/lib/market-data` (not built, not tested, not imported by `src/`).
+  If revived, price selection must follow the market session and label
+  pre-market or after-hours prices rather than presenting them as a close.
 - `backend/src/market-data/yahoo.client.ts` is the only Yahoo Finance import
-  boundary and `backend/src/market-data/twelvedata.client.ts` the only Twelve
-  Data one.
+  boundary; it offers ticker lookup and next earnings date only.
 - Schema changes require a TypeORM migration registered in
   `backend/src/database/data-source.ts`. Do not rely on synchronizing a real
   database schema. The old journal, transaction and stop tables remain in the
@@ -126,7 +126,7 @@ cd frontend && npx tsc -b
 
 For a bug: fix it, add a behavior-focused regression test, identify why the
 old test coverage missed it, and sweep for the same shape elsewhere. Keep the
-pure logic (`assistant/router.ts`, `market-data/moving-average.ts`) pure and
+pure logic (`assistant/router.ts`) pure and
 table-tested.
 
 Any UI change must be opened and inspected in a real browser before handoff.
@@ -150,7 +150,7 @@ backend/src/
   llm/           the only AI SDK client (Gemini), used for chat routing
   holdings/      symbol + direction per user
   watchlist/     symbols per user
-  market-data/   Yahoo and Twelve Data clients, quotes, daily closes, moving averages
+  market-data/   Yahoo client: ticker lookup and next earnings (rest parked in backend/lib/market-data)
   instruments/   ticker validation and persistence
   users/, auth/  request identity and authentication
   database/      TypeORM data source and hand-registered migrations
@@ -161,8 +161,7 @@ frontend/src/
   routes/        Chat, Holdings, Watchlist, Login
 ```
 
-`assistant/router.ts` and `market-data/moving-average.ts` are pure and
-table-tested; keep them free of I/O.
+`assistant/router.ts` is pure and table-tested; keep it free of I/O.
 
 ## Find the right document
 

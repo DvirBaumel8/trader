@@ -33,7 +33,8 @@ reply is a short summary, for example `Added (long): NVDA` or `Sold and moved
 to watchlist: NVDA`. Anything else gives a Gemini prompt with a Copy button;
 so does a failed model call or a missing `GEMINI_API_KEY`, with a note that
 it could not be read automatically. The moving-average check was removed from
-chat. Tickers are 1-5 letters (optional `.X` class); an unknown ticker is
+chat (its code, with quotes and price history, is parked in
+`backend/lib/market-data`). Tickers are 1-5 letters (optional `.X` class); an unknown ticker is
 reported and nothing is saved. The prompt holds the message, today's date,
 holdings and watchlist symbols (`backend/src/assistant/prompt.ts`).
 

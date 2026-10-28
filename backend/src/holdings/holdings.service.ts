@@ -4,7 +4,6 @@ import { In, Repository } from 'typeorm';
 import { Holding, type Direction } from './holding.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
-import { HistoryService } from '../market-data/history.service.js';
 import { UsersService } from '../users/users.service.js';
 
 export interface HoldingRow {
@@ -19,7 +18,6 @@ export class HoldingsService {
     @InjectRepository(Holding) private readonly holdings: Repository<Holding>,
     @InjectRepository(Instrument) private readonly instruments: Repository<Instrument>,
     private readonly instrumentsService: InstrumentsService,
-    private readonly history: HistoryService,
     private readonly users: UsersService,
   ) {}
 
@@ -63,8 +61,6 @@ export class HoldingsService {
       }
       return { symbol: instrument.symbol, direction, previous };
     }
-    // Daily history for later market-data answers. A no-op once priced; never throws.
-    await this.history.ensurePriced(instrument, instrument.symbol);
     await this.holdings.save(
       this.holdings.create({ userId: user.id, instrumentId: instrument.id, direction }),
     );

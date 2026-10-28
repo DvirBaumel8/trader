@@ -38,7 +38,7 @@ async function bootstrap() {
    */
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(YahooClient)
-    .useValue(yahooStub({ withBars: true }))
+    .useValue(yahooStub())
     // No real model in browser tests: map the few messages the specs send to
     // the router's JSON, and everything else to "none" (a prompt).
     .overrideProvider(LlmClient)

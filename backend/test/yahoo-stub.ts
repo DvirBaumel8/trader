@@ -1,167 +1,25 @@
-import type { ConsensusResult } from '../src/market-data/yahoo.client.js';
-
 /**
  * A deterministic stand-in for `YahooClient`, so no test reaches the network.
  *
- * A suite that calls the real API fails on a plane, fails in CI without
- * network, and — worse — asserts something subtly different every day as
- * prices move. It also made tests order-dependent: `instruments` is
- * deliberately not truncated between specs, so one spec validating NVDA
- * against the live API changed what a later spec observed.
+ * `lookup` resolves every symbol EXCEPT the repo's `ZZZZ...` unknown-ticker
+ * convention: enumerating every symbol the specs use would mean a new test
+ * that adds one fails with a confusing 404 instead of doing what it says.
  *
- * Prices here are fixed constants chosen to be obviously synthetic. Any symbol
- * not in the table returns null from `quote`, which is what makes
- * `ZZZZNOTREAL` still 404 — now for a deterministic reason rather than a
- * network one.
+ * `nextEarnings` is driven by the exported, mutable `STUB_EARNINGS`; a spec
+ * sets entries and resets them afterwards. Unlisted symbols have no date.
  */
-export const STUB_PRICES: Record<string, number> = {
-  NVDA: 200,
-  AAPL: 150,
-  SMCI: 40,
-  ONDS: 8,
-  MRNA: 150,
-  BITX: 20,
-  AVGO: 350,
-  PLTR: 170,
-  SPY: 500,
-  QQQ: 400,
-  TSLA: 300,
-  GOOGL: 180,
-  META: 600,
-  BE: 210,
-  BMNR: 25,
-  MSTR: 125,
-  NBIS: 200,
-  IREN: 40,
-  GEV: 900,
-  TFONLY: 110,
-};
+export const STUB_EARNINGS: Record<string, { at: string; estimated: boolean } | null> = {};
 
-export interface StubBar {
-  date: string;
-  close: number;
-  adjClose: number;
-  open: number | null;
-  high: number | null;
-  low: number | null;
-  volume: number | null;
-}
-
-/** A flat series with strictly increasing dates, long enough for every indicator. */
-export function stubBars(price: number, count = 260): StubBar[] {
-  return Array.from({ length: count }, (_, i) => {
-    const day = new Date(Date.UTC(2026, 0, 1) + i * 86_400_000);
-    return {
-      date: day.toISOString().slice(0, 10),
-      close: price,
-      adjClose: price,
-      open: price,
-      high: price * 1.01,
-      low: price * 0.99,
-      volume: 1_000_000,
-    };
-  });
-}
-
-/**
- * Any symbol resolves EXCEPT the repo's `ZZZZ...` unknown-ticker convention.
- * Enumerating every symbol the specs use would mean a new test that adds one
- * fails with a confusing 404 instead of doing what it says; the one behaviour
- * the specs genuinely depend on is that ZZZZNOTREAL is not a real ticker.
- * Symbols without a fixed price get DEFAULT_PRICE, which is fine because a
- * test that cares about the price names it in STUB_PRICES.
- */
-const DEFAULT_PRICE = 100;
-
-function quoteFor(symbol: string) {
-  const upper = symbol.toUpperCase();
-  if (upper.startsWith('ZZZZ')) return null;
-  const price = STUB_PRICES[upper] ?? DEFAULT_PRICE;
+export function yahooStub() {
   return {
-    symbol: symbol.toUpperCase(),
-    name: `${symbol.toUpperCase()} Inc`,
-    price,
-    currency: 'USD',
-    session: 'REGULAR' as const,
-    extended: false,
-    regularPrice: price,
-    // A uniform +2% since the previous close for every stubbed symbol, so a
-    // spec that cares about today's move can assert `toBeCloseTo(0.02)`
-    // without hand-rolling a one-off quote.
-    previousClose: price / 1.02,
-    peRatio: 25,
-  };
-}
-
-/**
- * Drop-in replacement for YahooClient in `overrideProvider`.
- *
- * `withBars` is opt-in because bars are the exception: only the backfill spec
- * exercises them through the provider. Everywhere else, specs that need
- * history insert precise `daily_closes` rows themselves, and a stub
- * volunteering bars would collide with those inserts.
- *
- * `extendedExtremes` defaults to `{ high: null, low: null }` for every
- * symbol — the same thing `MarketDataService.getExtendedExtremes` returns
- * today when the real client throws, which is what always happened here
- * before this existed (the stub had no such method at all). A spec that
- * needs a specific extended-hours print for a symbol passes it explicitly.
- */
-export function yahooStub(options: {
-  withBars?: boolean;
-  withConsensus?: boolean;
-  extendedExtremes?: Record<string, { high: number | null; low: number | null }>;
-} = {}) {
-  return {
-    quote: async (symbol: string) => quoteFor(symbol),
-    quoteMany: async (symbols: string[]) =>
-      symbols.map(quoteFor).filter((q): q is NonNullable<typeof q> => q !== null),
-    // Empty by DEFAULT, which is the important part. Several specs insert
-    // their own `daily_closes` rows by hand to set up a precise scenario - a
-    // high-water mark, or a trade with no history at all - and a stub that
-    // volunteered bars for every symbol would collide with those inserts and
-    // silently give "no bar history" a history. A spec that wants bars from
-    // the provider passes its own stub.
-    dailyBars: async (symbol: string) => {
-      if (!options.withBars) return [] as StubBar[];
+    lookup: async (symbol: string) => {
       const upper = symbol.toUpperCase();
-      if (upper.startsWith('ZZZZ')) return [] as StubBar[];
-      return stubBars(STUB_PRICES[upper] ?? DEFAULT_PRICE);
+      if (upper.startsWith('ZZZZ')) return null;
+      return { symbol: upper, name: `${upper} Inc` };
     },
-    extremesIncludingExtended: async (symbol: string) =>
-      options.extendedExtremes?.[symbol.toUpperCase()] ?? {
-        high: null,
-        low: null,
-      },
-    /**
-     * Fixed, obviously synthetic consensus. Opt-in like `withBars`, so specs
-     * that do not care are not handed data they then have to ignore. SPY
-     * resolves to `no-coverage` on purpose — it is the suite's "no analyst
-     * coverage" case, which the ranking must handle as neutral rather than
-     * as a penalty. Never `unavailable` here: that state means the provider
-     * call itself failed, which is a real client behaviour a spec can only
-     * exercise by overriding this stub, not something to fake by default.
-     */
-    consensus: async (symbol: string): Promise<ConsensusResult> =>
-      !options.withConsensus || symbol.toUpperCase() === 'SPY'
-        ? { status: 'no-coverage' }
-        : {
-            status: 'ok',
-            data: {
-              recommendationMean: 2,
-              recommendationKey: 'buy',
-              analystCount: 10,
-              targetMean: (STUB_PRICES[symbol.toUpperCase()] ?? 100) * 1.2,
-              targetHigh: (STUB_PRICES[symbol.toUpperCase()] ?? 100) * 1.5,
-              targetLow: (STUB_PRICES[symbol.toUpperCase()] ?? 100) * 0.9,
-              revenueGrowth: 0.2,
-              earningsGrowth: 0.3,
-              profitMargin: 0.25,
-              returnOnEquity: 0.4,
-              trend: [
-                { period: '0m', strongBuy: 2, buy: 6, hold: 2, sell: 0, strongSell: 0 },
-              ],
-            },
-          },
+    nextEarnings: async (symbol: string) => {
+      const e = STUB_EARNINGS[symbol.toUpperCase()];
+      return e ? { at: new Date(e.at), estimated: e.estimated } : null;
+    },
   };
 }

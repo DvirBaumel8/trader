@@ -5,6 +5,7 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.spec.ts'],
+    exclude: ['lib/**', 'node_modules/**', 'dist/**'],
     // Enforces "tests never touch the network". Must be setupFiles, not
     // globalSetup: specs run in worker processes.
     setupFiles: ['./test/offline-guard.ts'],

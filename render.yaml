@@ -54,5 +54,3 @@ services:
         generateValue: true
       - key: GEMINI_API_KEY
         sync: false
-      # TWELVEDATA_API_KEY is optional and set by hand in the dashboard; see
-      # docs/DEPLOYMENT.md.

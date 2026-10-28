@@ -4,7 +4,6 @@ import { In, Repository } from 'typeorm';
 import { WatchlistItem } from './watchlist-item.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
-import { HistoryService } from '../market-data/history.service.js';
 import { UsersService } from '../users/users.service.js';
 
 export interface WatchlistRow {
@@ -21,7 +20,6 @@ export class WatchlistService {
     @InjectRepository(WatchlistItem) private readonly items: Repository<WatchlistItem>,
     @InjectRepository(Instrument) private readonly instruments: Repository<Instrument>,
     private readonly instrumentsService: InstrumentsService,
-    private readonly history: HistoryService,
     private readonly users: UsersService,
   ) {}
 
@@ -51,8 +49,6 @@ export class WatchlistService {
         `The watchlist holds ${WATCHLIST_LIMIT} tickers at most. Remove one before adding another.`,
       );
     }
-    // Daily history for later market-data answers. A no-op once priced; never throws.
-    await this.history.ensurePriced(instrument, instrument.symbol);
     await this.items.save(this.items.create({ userId: user.id, instrumentId: instrument.id }));
     return { added: true, symbol: instrument.symbol };
   }

@@ -103,25 +103,12 @@ Keep the printed hash for the next step.
    (`https://trader-app-55e.pages.dev`). Do not assume `<project>.pages.dev`:
    that name may belong to someone else entirely.
 
-## 4b. Twelve Data, for pre/post-market prices (optional)
+## 4b. Twelve Data (parked)
 
-Yahoo's crumb-gated quote endpoint carries the real
-pre/post-market print, and it's the one blocked from Render's IP. The
-fallback chart endpoint has no extended print at all, so without this key
-production silently shows the regular-session close during pre-market and
-after-hours — quietly disagreeing with a broker showing the live extended
-price. Confirmed against a live account with `prepost=true` on `/quote`,
-not assumed from docs.
-
-1. Create a free account at twelvedata.com and copy the API key.
-2. Render dashboard → the `trader-backend` service → **Environment** → add
-   `TWELVEDATA_API_KEY`. Set by hand rather than in `render.yaml`, so a
-   blueprint sync never prompts for a key that might not exist.
-
-Only ever asked as a second opinion — once per quote where Yahoo's own
-answer had no genuine extended print, never on a regular-session quote and
-never overriding a real Yahoo print. No key means production keeps its
-prior behavior: an honest regular-session price, just not an extended one.
+The Twelve Data client (extended-hours prices) is parked in
+`backend/lib/market-data` and is not loaded by the app. No
+`TWELVEDATA_API_KEY` is needed; a key already set in the Render dashboard is
+ignored and can be removed.
 
 ## 5. Keep the API warm
 

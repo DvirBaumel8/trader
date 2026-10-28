@@ -86,8 +86,7 @@ stored.
 
 - **Trader stores no numbers.** No quantities, prices paid or cash; holdings
   are symbol + direction only.
-- **Prices carry a session.** A quote is labelled `PRE`/`REGULAR`/`POST`/
-  `OVERNIGHT`/`CLOSED` and flagged `stale` on provider failure. Never present a stale or
-  extended-hours price as a regular close.
+- **No prices are served.** Quotes and price history are parked in
+  `backend/lib/market-data`; the API only validates tickers against Yahoo.
 - **Chat misses are prompts, not errors.** An unrecognised message, a question
   or a router failure returns `kind: 'prompt'` with status 200.
