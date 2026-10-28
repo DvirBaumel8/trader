@@ -30,6 +30,7 @@ export function Holdings() {
       setConfirming(null);
       void refresh();
     },
+    onError: () => setConfirming(null),
   });
 
   const canAdd = symbol.trim() !== '' && !add.isPending;
@@ -38,7 +39,10 @@ export function Holdings() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Holdings</h1>
-        <EditModeToggle on={editing} onChange={setEditing} noun="holdings" />
+        <EditModeToggle on={editing} onChange={(next) => {
+            setEditing(next);
+            if (!next) setConfirming(null);
+          }} noun="holdings" />
       </div>
 
       <div className="flex gap-2">
@@ -77,14 +81,14 @@ export function Holdings() {
               </span>
               {editing && confirming !== h.symbol && (
                 <>
-                  <Button onClick={() => flip.mutate({ symbol: h.symbol, direction: other })}>
+                  <Button className="shrink-0 whitespace-nowrap" onClick={() => flip.mutate({ symbol: h.symbol, direction: other })}>
                     {other === 'LONG' ? 'Flip to long' : 'Flip to short'}
                   </Button>
-                  <Button onClick={() => setConfirming(h.symbol)}>Remove</Button>
+                  <Button className="shrink-0 whitespace-nowrap" onClick={() => setConfirming(h.symbol)}>Remove</Button>
                 </>
               )}
               {editing && confirming === h.symbol && (
-                <Button variant="danger" aria-label="Confirm remove" onClick={() => remove.mutate(h.symbol)}>
+                <Button variant="danger" className="shrink-0 whitespace-nowrap" aria-label="Confirm remove" onClick={() => remove.mutate(h.symbol)}>
                   Remove {h.symbol}
                 </Button>
               )}
@@ -92,6 +96,8 @@ export function Holdings() {
           );
         })}
       </ul>
+      {flip.isError && <p className="text-sm text-down">{(flip.error as Error).message}</p>}
+      {remove.isError && <p className="text-sm text-down">{(remove.error as Error).message}</p>}
     </section>
   );
 }

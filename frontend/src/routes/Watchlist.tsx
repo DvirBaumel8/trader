@@ -26,6 +26,7 @@ export function Watchlist() {
       setConfirming(null);
       void refresh();
     },
+    onError: () => setConfirming(null),
   });
 
   const canAdd = symbol.trim() !== '' && !add.isPending;
@@ -34,7 +35,10 @@ export function Watchlist() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Watchlist</h1>
-        <EditModeToggle on={editing} onChange={setEditing} noun="watchlist" />
+        <EditModeToggle on={editing} onChange={(next) => {
+            setEditing(next);
+            if (!next) setConfirming(null);
+          }} noun="watchlist" />
       </div>
 
       <div className="flex gap-2">
@@ -63,15 +67,16 @@ export function Watchlist() {
           <li key={w.symbol} data-testid={`watch-${w.symbol}`} className="flex items-center gap-3 px-3 py-2.5">
             <span className="font-medium">{w.symbol}</span>
             <span className="min-w-0 flex-1 truncate text-sm text-muted">{w.name}</span>
-            {editing && confirming !== w.symbol && <Button onClick={() => setConfirming(w.symbol)}>Remove</Button>}
+            {editing && confirming !== w.symbol && <Button className="shrink-0 whitespace-nowrap" onClick={() => setConfirming(w.symbol)}>Remove</Button>}
             {editing && confirming === w.symbol && (
-              <Button variant="danger" aria-label="Confirm remove" onClick={() => remove.mutate(w.symbol)}>
+              <Button variant="danger" className="shrink-0 whitespace-nowrap" aria-label="Confirm remove" onClick={() => remove.mutate(w.symbol)}>
                 Remove {w.symbol}
               </Button>
             )}
           </li>
         ))}
       </ul>
+      {remove.isError && <p className="text-sm text-down">{(remove.error as Error).message}</p>}
     </section>
   );
 }

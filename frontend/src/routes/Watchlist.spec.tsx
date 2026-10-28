@@ -59,3 +59,30 @@ it('removes only after edit mode and a second tap', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Confirm remove' }));
   await waitFor(() => expect(api).toHaveBeenCalledWith('/watchlist/NVDA', { method: 'DELETE' }));
 });
+
+it('shows why a remove failed and returns the row to normal', async () => {
+  vi.mocked(api).mockImplementation((_path: string, opts?: { method?: string }) =>
+    opts?.method === 'DELETE'
+      ? Promise.reject(new Error('Remove failed'))
+      : Promise.resolve([{ symbol: 'NVDA', name: 'Nvidia' }]),
+  );
+  renderIt();
+  await screen.findByTestId('watch-NVDA');
+  await userEvent.click(screen.getByRole('button', { name: 'Edit watchlist' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm remove' }));
+  expect(await screen.findByText('Remove failed')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+});
+
+it('leaving edit mode resets a pending remove confirmation', async () => {
+  vi.mocked(api).mockResolvedValue([{ symbol: 'NVDA', name: 'Nvidia' }]);
+  renderIt();
+  await screen.findByTestId('watch-NVDA');
+  await userEvent.click(screen.getByRole('button', { name: 'Edit watchlist' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Done editing' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Edit watchlist' }));
+  expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Confirm remove' })).toBeNull();
+});
