@@ -3,14 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/Button';
 import { inputClasses } from '../components/ui/inputClasses';
 import { sendMessage, type AssistantReply } from '../api/assistant';
-import { HOLDINGS_KEY, WATCHLIST_KEY, setHolding } from '../api/lists';
-
-type Shown = AssistantReply | { kind: 'flipped'; message: string };
+import { HOLDINGS_KEY, WATCHLIST_KEY } from '../api/lists';
 
 export function Chat() {
   const queryClient = useQueryClient();
   const [text, setText] = useState('');
-  const [reply, setReply] = useState<Shown | null>(null);
+  const [reply, setReply] = useState<AssistantReply | null>(null);
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -21,19 +19,10 @@ export function Chat() {
     void queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
   };
 
-  const flip = useMutation({
-    mutationFn: (a: { symbol: string; direction: 'LONG' | 'SHORT' }) => setHolding(a.symbol, a.direction),
-    onSuccess: (_res, a) => {
-      setReply({ kind: 'flipped', message: `Flipped ${a.symbol} to ${a.direction.toLowerCase()}.` });
-      refresh();
-    },
-  });
-
   const send = useMutation({
     mutationFn: (message: string) => sendMessage(message),
     onMutate: () => {
       setReply(null);
-      flip.reset();
     },
     onSuccess: (r) => {
       setText('');
@@ -43,7 +32,7 @@ export function Chat() {
     },
   });
 
-  const busy = send.isPending || flip.isPending;
+  const busy = send.isPending;
 
   const submit = () => {
     const message = text.trim();
@@ -95,33 +84,11 @@ export function Chat() {
 
       {reply && (
         <div className="rounded-lg border border-border bg-surface-1 p-3 text-sm">
-          {(reply.kind === 'done' || reply.kind === 'answer' || reply.kind === 'flipped') && <p>{reply.message}</p>}
+          {reply.kind === 'done' && <p className="whitespace-pre-line">{reply.message}</p>}
           {reply.kind === 'error' && <p className="text-down">{reply.message}</p>}
-          {reply.kind === 'confirm' && (
-            <div className="space-y-3">
-              <p>{reply.message}</p>
-              <div className="flex gap-2">
-                <Button
-                  variant="primary"
-                  className="shrink-0 whitespace-nowrap"
-                  disabled={flip.isPending}
-                  onClick={() => flip.mutate(reply.action)}
-                >
-                  {reply.action.label}
-                </Button>
-                <Button className="shrink-0 whitespace-nowrap" onClick={() => {
-                    flip.reset();
-                    setReply(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-              {flip.isError && <p className="text-down">{(flip.error as Error).message}</p>}
-            </div>
-          )}
           {reply.kind === 'prompt' && (
             <div className="space-y-2">
+              {reply.note && <p className="text-muted">{reply.note}</p>}
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-medium">Prompt for Gemini</h2>
                 <Button
