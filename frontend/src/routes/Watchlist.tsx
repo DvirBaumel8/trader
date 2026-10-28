@@ -50,7 +50,7 @@ export function Watchlist() {
           autoCorrect="off"
           onChange={(e) => setSymbol(e.target.value)}
         />
-        <Button variant="accent" disabled={!canAdd} onClick={() => add.mutate()}>
+        <Button variant="accent" className="shrink-0 whitespace-nowrap" disabled={!canAdd} onClick={() => add.mutate()}>
           Watch
         </Button>
       </div>

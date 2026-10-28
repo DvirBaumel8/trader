@@ -54,10 +54,10 @@ export function Holdings() {
           autoCorrect="off"
           onChange={(e) => setSymbol(e.target.value)}
         />
-        <Button variant="accent" disabled={!canAdd} onClick={() => add.mutate('LONG')}>
+        <Button variant="accent" className="shrink-0 whitespace-nowrap" disabled={!canAdd} onClick={() => add.mutate('LONG')}>
           Add long
         </Button>
-        <Button variant="secondary" disabled={!canAdd} onClick={() => add.mutate('SHORT')}>
+        <Button variant="secondary" className="shrink-0 whitespace-nowrap" disabled={!canAdd} onClick={() => add.mutate('SHORT')}>
           Add short
         </Button>
       </div>
