@@ -2,22 +2,17 @@
  * Routes unprefixed API calls from older clients to `/api/*`, and maps
  * `/api/health` onto the unprefixed health route.
  *
- * Several API paths are also SPA screens (`/journal`, `/watchlist`), so a
+ * Several API paths are also SPA screens (`/holdings`, `/watchlist`), so a
  * browser page load — a GET that accepts HTML — is never rewritten: it
  * belongs to the SPA fallback. Rewriting it served raw JSON on refresh or
  * deep link wherever one server hosts both.
  */
 const LEGACY_PREFIXES = [
-  '/portfolio',
-  '/performance',
-  '/journal',
   '/watchlist',
+  '/holdings',
+  '/assistant',
   '/auth',
-  '/ai',
-  '/settings',
   '/instruments',
-  '/market-data',
-  '/history',
 ];
 
 interface RewritableRequest {

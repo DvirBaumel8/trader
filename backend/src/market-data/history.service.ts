@@ -3,12 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DailyClose } from './daily-close.entity.js';
 import { Instrument } from '../instruments/instrument.entity.js';
-import { Transaction } from '../transactions/transaction.entity.js';
 import { YahooClient, type RawBar } from './yahoo.client.js';
 import { InstrumentsService } from '../instruments/instruments.service.js';
 import { catchUpFrom, isHistoryBehind } from './trading-day.js';
-
-export const BENCHMARKS = ['SPY', 'QQQ'] as const;
 
 /**
  * How often a read may trigger a top-up. Short enough that a trailing stop
@@ -16,8 +13,8 @@ export const BENCHMARKS = ['SPY', 'QQQ'] as const;
  * page polling every 60s does not hit Yahoo every time.
  */
 /**
- * Calendar days of history fetched before the first trade (and before today,
- * for a ticker priced on first use).
+ * Calendar days of history fetched before today, for a ticker priced on
+ * first use or topped up.
  *
  * It was 45, which is about 31 trading days — and that is why every long
  * indicator was quietly null or wrong. A 50-day average needs 50 bars, the
@@ -29,7 +26,7 @@ export const BENCHMARKS = ['SPY', 'QQQ'] as const;
  * 500 calendar days is about 345 trading days — a year of window plus room
  * for the 200-day average to be computed from the oldest bar in it. Yahoo
  * serves daily history indefinitely and for free, so the only cost is a
- * slower first backfill and roughly 500 rows per instrument.
+ * slower first fetch and roughly 500 rows per instrument.
  */
 const RUNWAY_DAYS = 500;
 
@@ -55,79 +52,20 @@ export class HistoryService {
     private readonly closes: Repository<DailyClose>,
     @InjectRepository(Instrument)
     private readonly instruments: Repository<Instrument>,
-    @InjectRepository(Transaction)
-    private readonly txns: Repository<Transaction>,
     @Inject(forwardRef(() => InstrumentsService))
     private readonly instrumentsService: InstrumentsService,
     private readonly yahoo: YahooClient,
   ) {}
 
   /**
-   * Fetches daily bars for everything ever traded, plus the benchmarks, from
-   * the first transaction onward. Safe to run repeatedly: bars are upserted on
-   * (instrument, date), so a re-run refreshes rather than duplicates.
-   */
-  async backfill(): Promise<{ symbols: string[]; barsWritten: number }> {
-    const [txnRows, instrumentRows] = await Promise.all([
-      this.txns.find(),
-      this.instruments.find(),
-    ]);
-
-    const earliest = txnRows.reduce<Date | null>(
-      (min, t) => (min === null || t.executedAt < min ? t.executedAt : min),
-      null,
-    );
-    if (earliest === null) return { symbols: [], barsWritten: 0 };
-
-    // Runway before the first trade. Seven days was enough for the benchmark
-    // series to have a prior close; the trade chart needs about a month of
-    // context before an entry, and Yahoo serves daily history indefinitely
-    // for free, so this costs nothing but a slightly longer first backfill.
-    const from = new Date(earliest);
-    from.setDate(from.getDate() - RUNWAY_DAYS);
-
-    const symbolById = new Map(instrumentRows.map((i) => [i.id, i.symbol]));
-    const wanted = new Set(
-      txnRows
-        .map((t) => symbolById.get(t.instrumentId))
-        .filter((s): s is string => Boolean(s)),
-    );
-    for (const b of BENCHMARKS) wanted.add(b);
-
-    let barsWritten = 0;
-    const symbols: string[] = [];
-
-    for (const symbol of wanted) {
-      const instrument = await this.instrumentsService.findOrCreate(symbol);
-      const isBenchmark = (BENCHMARKS as readonly string[]).includes(symbol);
-      if (isBenchmark && !instrument.isBenchmark) {
-        // Marked so benchmarks never appear as holdings.
-        instrument.isBenchmark = true;
-        await this.instruments.save(instrument);
-      }
-
-      const written = await this.fetchAndStore(instrument, symbol, from);
-      if (written > 0) {
-        barsWritten += written;
-        symbols.push(symbol);
-      }
-    }
-
-    return { symbols, barsWritten };
-  }
-
-  /**
    * Fetches bars for one symbol if — and only if — it has no `daily_closes`
-   * rows at all yet. Called at the moment a new instrument first enters a
-   * transaction (see InstrumentsService.findOrCreate), so a ticker traded for
-   * the first time is priced immediately rather than waiting for someone to
-   * remember to run the manual backfill. That gap is exactly what let CRWV
-   * and NBIS get valued at zero on 2026-09-01.
+   * rows at all yet. Called at the moment a new instrument is first held or
+   * watched, so it is priced immediately rather than waiting for a top-up.
    *
    * Safe to call for an already-priced instrument (a no-op) and tolerates a
-   * provider failure the same way backfill() does: log and move on. Must
-   * never throw, because the caller sits directly in the journal write path
-   * and a Yahoo outage must not block writing a trade.
+   * provider failure the same way fetchAndStore() does: log and move on. Must
+   * never throw, because the caller sits directly in the write path and a
+   * Yahoo outage must not block adding a holding or a watched ticker.
    */
   async ensurePriced(instrument: Instrument, symbol: string): Promise<void> {
     const already = await this.closes.count({
@@ -135,11 +73,7 @@ export class HistoryService {
     });
     if (already > 0) return;
 
-    // Same runway as backfill(), anchored to now rather than the
-    // trade's own date — this seam doesn't have that date available. A
-    // heavily backdated first trade may still show as unpriced for its
-    // earliest days until the next full backfill; unpricedSymbols in the
-    // performance response says so rather than hiding it.
+    // Anchored to now: this seam has no other date to start from.
     const from = new Date();
     from.setDate(from.getDate() - RUNWAY_DAYS);
 
@@ -151,52 +85,21 @@ export class HistoryService {
   }
 
   /**
-   * Creates SPY and QQQ as benchmark instruments and prices them, if that has
-   * never happened. The performance chart's calendar is SPY's trading days,
-   * and only the manual `backfill()` used to create them — so a fresh
-   * database showed "No history yet" for good. A no-op (one count query per
-   * benchmark) once they are priced. Never throws: the caller is on the read
-   * path.
-   */
-  private async ensureBenchmarksPriced(): Promise<void> {
-    for (const symbol of BENCHMARKS) {
-      try {
-        const instrument = await this.instrumentsService.findOrCreate(symbol);
-        if (!instrument.isBenchmark) {
-          instrument.isBenchmark = true;
-          await this.instruments.save(instrument);
-        }
-        await this.ensurePriced(instrument, symbol);
-      } catch (err) {
-        this.log.warn(`could not prepare benchmark ${symbol}: ${String(err)}`);
-      }
-    }
-  }
-
-  /**
    * Tops up daily bars when the stored history has fallen behind the market.
    *
-   * Nothing else does this. `backfill()` waits to be called by hand and
-   * `ensurePriced()` only fires for an instrument with no rows at all, so
-   * every symbol froze on the day of the last manual run — which put the
-   * app's BITX trailing stop at 17.17 against the broker's 17.32, because
-   * the high-water mark it trails from was missing two days of highs, and
-   * left the benchmark chart comparing a live portfolio against a stale S&P.
+   * Nothing else does this: `ensurePriced()` only fires for an instrument
+   * with no rows at all, so every symbol would otherwise freeze on the day it
+   * was first priced.
    *
    * Read-triggered rather than scheduled: the API sleeps on its free tier, so
    * a cron would not reliably fire, and this way freshness is a property of
    * asking rather than of a background job having run.
    *
    * Never throws, and never blocks on a provider that is down: the caller is
-   * on the portfolio read path.
+   * on the read path.
    */
   async ensureFresh(now: Date = new Date()): Promise<void> {
     if (now.getTime() - this.lastFreshenAt < FRESHEN_INTERVAL_MS) return;
-
-    // Before the up-to-date check: a database whose holdings are all current
-    // may still never have priced the benchmarks the performance calendar
-    // is built on.
-    await this.ensureBenchmarksPriced();
 
     try {
       // Read through the entity rather than a raw MAX(): TypeORM maps a
@@ -248,7 +151,7 @@ export class HistoryService {
 
       // Fetched in parallel, and never allowed to hold up the response.
       // Sequentially this took four seconds against thirty instruments —
-      // on the portfolio read path, which meant the dashboard simply hung
+      // on the read path, which meant the screen simply hung
       // every time the history had fallen behind.
       const work = Promise.all(
         instrumentRows.map((instrument) =>
@@ -283,7 +186,7 @@ export class HistoryService {
    * merely-researched ticker would quietly change what that table means
    * (see `TickerFactsService`'s own doc comment for the same rule). A
    * caller that wants bars for a ticker that was only ever looked at —
-   * `AiOutcomeService` grading a trade idea — uses this instead.
+   * a chat answer about any ticker — uses this instead.
    */
   async liveDailyBars(symbol: string, from: Date): Promise<RawBar[]> {
     try {
@@ -318,9 +221,7 @@ export class HistoryService {
       );
       return bars.length;
     } catch (err) {
-      // One bad ticker must not abandon the whole backfill; the series
-      // simply carries that instrument's last known price forward (or, if it
-      // never had one, values it at cost — see series.ts).
+      // One bad ticker must not abandon the whole top-up.
       this.log.warn(`daily bars failed for ${symbol}: ${String(err)}`);
       return 0;
     }

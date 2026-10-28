@@ -25,7 +25,6 @@
     "test:cov:all": "rm -rf .vitest-reports && vitest run --coverage --reporter=blob --outputFile=.vitest-reports/unit.json && vitest run --config ./vitest.config.e2e.ts --coverage --reporter=blob --outputFile=.vitest-reports/e2e.json && vitest --merge-reports .vitest-reports --coverage"
   },
   "dependencies": {
-    "@google/genai": "^2.21.0",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.0.0",
     "@nestjs/core": "^12.0.1",

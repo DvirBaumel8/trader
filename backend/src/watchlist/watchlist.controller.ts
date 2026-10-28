@@ -1,80 +1,26 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Post,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Post } from '@nestjs/common';
 import { WatchlistService } from './watchlist.service.js';
-import { WatchlistRankingService } from './watchlist-ranking.service.js';
-import { UpsertWatchlistDto } from './watchlist.dto.js';
-import { DailyBriefService } from '../market-data/daily-brief.service.js';
+import { AddWatchlistDto } from './watchlist.dto.js';
 
 @Controller('watchlist')
 export class WatchlistController {
-  constructor(
-    private readonly watchlist: WatchlistService,
-    private readonly ranking: WatchlistRankingService,
-    private readonly brief: DailyBriefService,
-  ) {}
-
-  // Declared before ':id' routes so "tags" and "ranking" are never matched
-  // as an id — the same ordering the journal controller needed.
-  @Get('tags')
-  tags() {
-    return this.watchlist.listTags();
-  }
-
-  /** The newest stored ranking. No model call — see WatchlistRankingService.current. */
-  @Get('ranking')
-  getRanking() {
-    return this.ranking.current();
-  }
-
-  @Get('daily-brief')
-  dailyBrief(@Query('refresh') refresh?: string) {
-    return this.brief.get({ refresh: refresh === '1' || refresh === 'true' });
-  }
-
-  /** Recomputes the ranking with ONE model call for the whole watchlist. */
-  @Post('ranking/refresh')
-  refreshRanking() {
-    return this.ranking.refresh();
-  }
+  constructor(private readonly watchlist: WatchlistService) {}
 
   @Get()
-  list(@Query('refresh') refresh?: string) {
-    return this.watchlist.list({ refresh: refresh === '1' || refresh === 'true' });
+  list() {
+    return this.watchlist.list();
   }
 
   @Post()
-  upsert(@Body() body: UpsertWatchlistDto) {
-    return this.watchlist.upsert({
-      symbol: body.symbol,
-      targetPrice: body.targetPrice,
-      note: body.note,
-      tags: body.tags,
-    });
+  add(@Body() body: AddWatchlistDto) {
+    return this.watchlist.add(body.symbol);
   }
 
-  @Post(':id/acknowledge')
-  async acknowledge(@Param('id', ParseUUIDPipe) id: string) {
-    await this.watchlist.acknowledge(id);
-    return { ok: true };
-  }
-
-  @Delete()
-  async removeAll() {
-    await this.watchlist.removeAll();
-    return { ok: true };
-  }
-
-  @Delete(':id')
-  async remove(@Param('id', ParseUUIDPipe) id: string) {
-    await this.watchlist.remove(id);
+  @Delete(':symbol')
+  async remove(@Param('symbol') symbol: string) {
+    if (!(await this.watchlist.remove(symbol))) {
+      throw new NotFoundException(`${symbol.toUpperCase()} isn't on your watchlist`);
+    }
     return { ok: true };
   }
 }

@@ -41,12 +41,12 @@ describe('Auth (e2e)', () => {
   });
 
   it('blocks a protected route without a token', async () => {
-    await request(app.getHttpServer()).get('/portfolio').expect(401);
+    await request(app.getHttpServer()).get('/watchlist').expect(401);
   });
 
   it('blocks a protected route with a garbage token', async () => {
     await request(app.getHttpServer())
-      .get('/portfolio')
+      .get('/watchlist')
       .set('Authorization', 'Bearer garbage')
       .expect(401);
   });

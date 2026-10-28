@@ -74,7 +74,7 @@ describe('Accounts (e2e)', () => {
     /**
      * The single most important test here. His account has no email and no
      * password of its own; if this breaks, he is locked out of his own
-     * portfolio by a deploy.
+     * account by a deploy.
      */
     it('still signs in with the shared app password', async () => {
       const res = await post('/auth/login', { password: TEST_PASSWORD }).expect(201);
@@ -85,9 +85,9 @@ describe('Accounts (e2e)', () => {
       await post('/auth/login', { password: 'nope' }).expect(401);
     });
 
-    it('reaches his own portfolio with the token it returns', async () => {
+    it('reaches his own data with the token it returns', async () => {
       const res = await post('/auth/login', { password: TEST_PASSWORD }).expect(201);
-      await http(app, res.body.accessToken).get('/portfolio').expect(200);
+      await http(app, res.body.accessToken).get('/watchlist').expect(200);
     });
   });
 
@@ -135,8 +135,8 @@ describe('Accounts (e2e)', () => {
   });
 
   describe('two users', () => {
-    /** The whole point: one person's journal must not be another's. */
-    it('keeps their portfolios apart', async () => {
+    /** The whole point: one person's watchlist must not be another's. */
+    it('keeps their watchlists apart', async () => {
       const one = await post('/auth/signup', {
         email: 'one@b.com',
         password: 'longenough1',
@@ -163,113 +163,8 @@ describe('Accounts (e2e)', () => {
     });
 
     /**
-     * The watchlist alone proves the seam works; the journal proves it was
-     * applied everywhere. It is the main data path, and the one whose leak
-     * would matter most.
-     */
-    it('keeps their journals apart', async () => {
-      const one = await post('/auth/signup', {
-        email: 'j1@b.com',
-        password: 'longenough1',
-      }).expect(201);
-      const two = await post('/auth/signup', {
-        email: 'j2@b.com',
-        password: 'longenough1',
-      }).expect(201);
-
-      await http(app, one.body.accessToken)
-        .post('/journal')
-        .send({
-          kind: 'TRADE',
-          body: 'mine alone',
-          occurredAt: '2026-01-05T12:00:00.000Z',
-          trade: { symbol: 'NVDA', quantity: 10, price: 100, fee: 0 },
-        })
-        .expect(201);
-
-      const mineJournal = await http(app, one.body.accessToken)
-        .get('/journal')
-        .expect(200);
-      const theirJournal = await http(app, two.body.accessToken)
-        .get('/journal')
-        .expect(200);
-
-      expect(mineJournal.body).toHaveLength(1);
-      expect(theirJournal.body).toEqual([]);
-    });
-
-    /**
-     * Instruments are shared across users, so any query keyed only on an
-     * instrument sees everyone's fills. The journal's position checks must
-     * read the writer's own fills: user two's opening short must not be
-     * recorded as executing user one's stop at the same price.
-     */
-    it("never treats one user's fill as closing the other's position", async () => {
-      const one = await post('/auth/signup', {
-        email: 's1@b.com',
-        password: 'longenough1',
-      }).expect(201);
-      const two = await post('/auth/signup', {
-        email: 's2@b.com',
-        password: 'longenough1',
-      }).expect(201);
-
-      await http(app, one.body.accessToken)
-        .post('/journal')
-        .send({
-          kind: 'TRADE',
-          body: 'long with a stop',
-          occurredAt: '2026-01-05T12:00:00.000Z',
-          trade: {
-            symbol: 'NVDA',
-            quantity: 100,
-            price: 200,
-            fee: 0,
-            stopLevels: [{ kind: 'FIXED', price: 180, quantity: 100 }],
-          },
-        })
-        .expect(201);
-
-      // User two holds no NVDA, so an exit attribution has nothing to close.
-      await http(app, two.body.accessToken)
-        .post('/journal')
-        .send({
-          kind: 'TRADE',
-          body: 'not an exit',
-          occurredAt: '2026-01-07T12:00:00.000Z',
-          trade: {
-            symbol: 'NVDA',
-            quantity: -10,
-            price: 190,
-            fee: 0,
-            exitKind: 'DISCRETIONARY',
-          },
-        })
-        .expect(400);
-
-      // This sell opens a short for user two, at user one's stop price.
-      await http(app, two.body.accessToken)
-        .post('/journal')
-        .send({
-          kind: 'TRADE',
-          body: 'opening short',
-          occurredAt: '2026-01-08T12:00:00.000Z',
-          trade: { symbol: 'NVDA', quantity: -100, price: 180, fee: 0 },
-        })
-        .expect(201);
-
-      const executions = (await dataSource.query(
-        `SELECT se.id FROM stop_executions se
-         JOIN transactions t ON t.id = se."transactionId"
-         JOIN users u ON u.id = t."userId"
-         WHERE u.email IN ('s1@b.com', 's2@b.com')`,
-      )) as unknown[];
-      expect(executions).toEqual([]);
-    });
-
-    /**
      * A signed token for a user who no longer exists used to resolve to the
-     * owner — handing the owner's portfolio to whoever held it.
+     * owner — handing the owner's data to whoever held it.
      */
     it("rejects a deleted user's token instead of serving the owner", async () => {
       const gone = await post('/auth/signup', {
@@ -278,75 +173,9 @@ describe('Accounts (e2e)', () => {
       }).expect(201);
       await dataSource.query(`DELETE FROM users WHERE email = 'gone@b.com'`);
 
-      await http(app, gone.body.accessToken).get('/portfolio').expect(401);
+      await http(app, gone.body.accessToken).get('/watchlist').expect(401);
     });
 
-    /** A second user's portfolio starts empty rather than showing the owner's. */
-    it("does not show one user the other's positions", async () => {
-      const two = await post('/auth/signup', {
-        email: 'p2@b.com',
-        password: 'longenough1',
-      }).expect(201);
-      const res = await http(app, two.body.accessToken)
-        .get('/portfolio')
-        .expect(200);
-      expect(res.body.positions).toEqual([]);
-    });
-
-    /** Settings are per user: one person's default fee is not another's. */
-    it('keeps their settings apart', async () => {
-      const one = await post('/auth/signup', {
-        email: 's1@b.com',
-        password: 'longenough1',
-      }).expect(201);
-      const two = await post('/auth/signup', {
-        email: 's2@b.com',
-        password: 'longenough1',
-      }).expect(201);
-
-      await http(app, one.body.accessToken)
-        .patch('/settings')
-        .send({ defaultFee: 12 })
-        .expect(200);
-
-      const theirs = await http(app, two.body.accessToken)
-        .get('/settings')
-        .expect(200);
-      expect(theirs.body.defaultFee).not.toBe(12);
-    });
-
-    it('records and returns an interest accrual snapshot', async () => {
-      const signup = await post('/auth/signup', {
-        email: 's3@b.com',
-        password: 'longenough1',
-      }).expect(201);
-      const accessToken = signup.body.accessToken;
-
-      const before = await http(app, accessToken).get('/settings').expect(200);
-      expect(before.body.interestAccrualAmount).toBeNull();
-      expect(before.body.interestAccrualAsOf).toBeNull();
-
-      await http(app, accessToken)
-        .patch('/settings/interest-accrual')
-        .send({ amount: 28.05, asOf: '2026-09-21' })
-        .expect(200);
-
-      const after = await http(app, accessToken).get('/settings').expect(200);
-      expect(after.body.interestAccrualAmount).toBe(28.05);
-      expect(after.body.interestAccrualAsOf).toBe('2026-09-21');
-    });
-
-    it('rejects a non-positive interest accrual amount', async () => {
-      const signup = await post('/auth/signup', {
-        email: 's4@b.com',
-        password: 'longenough1',
-      }).expect(201);
-
-      await http(app, signup.body.accessToken)
-        .patch('/settings/interest-accrual')
-        .send({ amount: 0, asOf: '2026-09-21' })
-        .expect(400);
-    });
   });
 
   describe('google', () => {
