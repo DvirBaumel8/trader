@@ -16,7 +16,7 @@ export async function login(app: INestApplication): Promise<string> {
   return res.body.accessToken as string;
 }
 
-type Method = 'get' | 'post' | 'patch' | 'delete';
+type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
 /**
  * Same call shape as `request(app.getHttpServer())`, with the bearer token
@@ -37,6 +37,7 @@ export function http(app: INestApplication, token?: string) {
   return {
     get: bound('get'),
     post: bound('post'),
+    put: bound('put'),
     patch: bound('patch'),
     delete: bound('delete'),
   };

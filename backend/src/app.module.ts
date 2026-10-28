@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { UsersModule } from './users/users.module.js';
 import { InstrumentsModule } from './instruments/instruments.module.js';
 import { WatchlistModule } from './watchlist/watchlist.module.js';
+import { HoldingsModule } from './holdings/holdings.module.js';
 import { buildConnectionOptions } from './database/connection-options.js';
 
 @Module({
@@ -30,6 +31,7 @@ import { buildConnectionOptions } from './database/connection-options.js';
     UsersModule,
     InstrumentsModule,
     WatchlistModule,
+    HoldingsModule,
     HealthModule,
     AuthModule,
   ],
