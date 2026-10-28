@@ -194,3 +194,22 @@ UI (exact copy):
 - **Copy & open Gemini:** for prompt replies, a second button `Copy & open Gemini` that copies (same success/failure handling) and opens `https://gemini.google.com/app` in a new tab (`window.open(url, '_blank', 'noopener')`) — open after the copy promise settles, inside the same click handler.
 - Tests: prompt.spec for the holdings line (list, empty) and the date; Chat.spec for Clear (removes reply, focuses input), the new placeholder, and Copy & open (clipboard called, `window.open` called with the URL).
 - Commits: `feat(chat): clear button, accurate placeholder, cleaner prompt, copy & open Gemini` and `refactor: holdings are long-only symbols`
+
+---
+
+### Task 5c: Custom order for Holdings and Watchlist (owner: "I need the ability to determine the order — your call how")
+
+Runs after Task 5b (holdings are long-only by then).
+
+**Files:**
+- Create: `backend/src/database/migrations/1790208000000-AddListPositions.ts`
+- Modify: `backend/src/database/data-source.ts`, holdings and watchlist entity/service/controller/dto (+ specs and e2e), `backend/src/assistant/prompt.ts` callers (order already flows from `list()`), `frontend/src/api/lists.ts`, `frontend/src/routes/Holdings.tsx`, `frontend/src/routes/Watchlist.tsx` (+ specs), `e2e/` (one reorder browser test), docs (`docs/api.md`, `docs/current-state.md`). Add frontend dependency `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities` (`npm install -w frontend`).
+
+**Behaviour:**
+- Migration: `ALTER TABLE holdings ADD COLUMN IF NOT EXISTS position integer`; same for `watchlist_items`; backfill per user in alphabetical symbol order (`UPDATE … FROM (SELECT h.id, row_number() OVER (PARTITION BY h."userId" ORDER BY i.symbol) - 1 AS pos FROM holdings h JOIN instruments i ON i.id = h."instrumentId") …`); then `SET NOT NULL` and `DEFAULT 0`. `down` drops the columns. Nothing else changes.
+- `list()` (both) orders by `position ASC`, ties by symbol. A newly added item gets `max(position) + 1` for that user.
+- New endpoints: `PUT /holdings/order` and `PUT /watchlist/order`, body `{ symbols: string[] }` (1..500, strings). The service rewrites positions for that user in the given order; symbols not in the user's list → 400 `Unknown symbol in order: X`; user's symbols missing from the body keep their relative order and go after the listed ones. Declare the `order` route before `:symbol` routes. Returns the new list.
+- Prompt and earnings `upcoming` "A–Z" are unaffected; the prompt's holdings and watchlist lines follow `list()` order.
+- Frontend: in edit mode each row shows a drag handle (`≡`, `aria-label="Reorder {SYMBOL}"`, `touch-action: none`) using dnd-kit `SortableContext` with `PointerSensor` (activation distance 4px) and `TouchSensor` (delay 150ms, tolerance 5px) and `KeyboardSensor`. On drop: reorder locally (optimistic), `PUT …/order` with the full symbol list, invalidate the query; on failure revert and show the error text under the list. Outside edit mode no handles; rows render in server order.
+- Tests: service unit (append position, reorder, unknown symbol 400, partial body); e2e (reorder persists, per-user isolation); frontend spec (handles only in edit mode; a simulated reorder via keyboard sensor calls the order endpoint with the new sequence; failure reverts); browser test at iPhone width dragging the last holding to the top and reloading to confirm the order stuck.
+- Commit: `feat: drag to reorder holdings and watchlist`
