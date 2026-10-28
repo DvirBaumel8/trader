@@ -13,6 +13,7 @@ describe('legacyApiPrefix', () => {
   it('prefixes an unprefixed API call from an old client', () => {
     expect(run('/holdings?sort=symbol')).toBe('/api/holdings?sort=symbol');
     expect(run('/watchlist')).toBe('/api/watchlist');
+    expect(run('/earnings/week')).toBe('/api/earnings/week');
   });
 
   it('leaves a browser page load of a screen to the SPA', () => {

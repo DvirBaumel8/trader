@@ -11,6 +11,7 @@ const LEGACY_PREFIXES = [
   '/watchlist',
   '/holdings',
   '/assistant',
+  '/earnings',
   '/auth',
 ];
 
