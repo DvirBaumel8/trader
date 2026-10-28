@@ -48,6 +48,18 @@ A new fourth tab, **Earnings**, shows the current week as a calendar of earnings
 - **Loading:** a skeleton grid. **Error:** "Couldn't load earnings dates right now."
 - Tapping a ticker does nothing in phase 1.
 
+### Days-until list (below the calendar)
+
+- **Every ticker** from the holdings and the watchlist, following the same Both/Holdings/Watchlist filter, one row each:
+  - the ticker
+  - `●` for a holding or `○` for watchlist only
+  - the next earnings date (e.g. `Nov 5`), with `~` when estimated
+  - **days left**: `today` for 0, `1 day`, then `N days`
+- **Days left** is the calendar-day difference between today's ET date and the report's ET date. The backend computes it.
+- **No known date** (ETFs, crypto, anything Yahoo has no earnings for): the date and days columns show `—`.
+- **Sort toggle** with two options, `Soonest` (default) and `A–Z`. Soonest sorts by days ascending, rows without a date last, ties by ticker. A–Z sorts by ticker. The choice is remembered on the device.
+- An empty list (no holdings and nothing watched) reads "Nothing to show yet — add holdings or watch some tickers."
+
 ### Data
 
 - **Endpoint:** `GET /api/earnings/week` returns:
@@ -64,9 +76,15 @@ A new fourth tab, **Earnings**, shows the current week as a calendar of earnings
           { "symbol": "AAPL", "source": "holding", "timing": "after_close", "estimated": false }
         ]
       }
+    ],
+    "upcoming": [
+      { "symbol": "LMND", "source": "holding", "date": "2026-11-05", "daysUntil": 7, "estimated": false },
+      { "symbol": "QQQ", "source": "watchlist", "date": null, "daysUntil": null, "estimated": false }
     ]
   }
   ```
+
+  `upcoming` has one row per ticker on either list (de-duplicated, holding wins), regardless of week, sorted Soonest by default. The frontend may re-sort it A–Z.
 
   - `days` always has 5 entries, Mon–Fri.
   - `source` is `holding` or `watchlist`.
