@@ -87,3 +87,57 @@ it('Shift+Enter adds a newline instead of sending', async () => {
   expect(api).not.toHaveBeenCalled();
   expect(box()).toHaveValue('line one\nline two');
 });
+
+it('does not carry a failed flip error into later replies', async () => {
+  const confirm = {
+    kind: 'confirm',
+    message: 'You hold LMND long. Flip it to short?',
+    action: { symbol: 'LMND', direction: 'SHORT', label: 'Flip to short' },
+  };
+  vi.mocked(api).mockResolvedValueOnce(confirm);
+  vi.mocked(api).mockRejectedValueOnce(new Error('Flip failed'));
+  vi.mocked(api).mockResolvedValueOnce(confirm);
+  renderIt();
+  await userEvent.type(box(), 'short LMND{Enter}');
+  await userEvent.click(await screen.findByRole('button', { name: 'Flip to short' }));
+  expect(await screen.findByText('Flip failed')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  await userEvent.type(box(), 'short LMND again{Enter}');
+  expect(await screen.findByRole('button', { name: 'Flip to short' })).toBeInTheDocument();
+  expect(screen.queryByText('Flip failed')).toBeNull();
+});
+
+it('clears the previous reply when a send fails', async () => {
+  vi.mocked(api).mockResolvedValueOnce({
+    kind: 'confirm',
+    message: 'You hold LMND long. Flip it to short?',
+    action: { symbol: 'LMND', direction: 'SHORT', label: 'Flip to short' },
+  });
+  vi.mocked(api).mockRejectedValueOnce(new Error('network'));
+  renderIt();
+  await userEvent.type(box(), 'short LMND{Enter}');
+  await screen.findByRole('button', { name: 'Flip to short' });
+  await userEvent.type(box(), 'again{Enter}');
+  expect(await screen.findByText(/Couldn’t reach Trader/)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Flip to short' })).toBeNull();
+});
+
+it('disables the box and Send while a send is pending', async () => {
+  vi.mocked(api).mockReturnValue(new Promise(() => {}));
+  renderIt();
+  await userEvent.type(box(), 'hello{Enter}');
+  await waitFor(() => expect(box()).toBeDisabled());
+  expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+});
+
+it('shows a manual-copy message when the clipboard rejects', async () => {
+  const writeText = vi.fn(async () => {
+    throw new Error('denied');
+  });
+  Object.assign(navigator, { clipboard: { writeText } });
+  vi.mocked(api).mockResolvedValue({ kind: 'prompt', text: 'hi' });
+  renderIt();
+  await userEvent.type(box(), 'hello{Enter}');
+  await userEvent.click(await screen.findByRole('button', { name: 'Copy' }));
+  expect(await screen.findByText('Copy failed — select the text and copy it manually.')).toBeInTheDocument();
+});

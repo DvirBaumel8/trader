@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/Button';
 import { inputClasses } from '../components/ui/inputClasses';
@@ -13,20 +13,13 @@ export function Chat() {
   const [reply, setReply] = useState<Shown | null>(null);
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
 
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
+
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: HOLDINGS_KEY });
     void queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
   };
-
-  const send = useMutation({
-    mutationFn: (message: string) => sendMessage(message),
-    onSuccess: (r) => {
-      setText('');
-      setCopy('idle');
-      setReply(r);
-      refresh();
-    },
-  });
 
   const flip = useMutation({
     mutationFn: (a: { symbol: string; direction: 'LONG' | 'SHORT' }) => setHolding(a.symbol, a.direction),
@@ -36,13 +29,29 @@ export function Chat() {
     },
   });
 
+  const send = useMutation({
+    mutationFn: (message: string) => sendMessage(message),
+    onMutate: () => {
+      setReply(null);
+      flip.reset();
+    },
+    onSuccess: (r) => {
+      setText('');
+      setCopy('idle');
+      setReply(r);
+      refresh();
+    },
+  });
+
+  const busy = send.isPending || flip.isPending;
+
   const submit = () => {
     const message = text.trim();
-    if (message && !send.isPending) send.mutate(message);
+    if (message && !busy) send.mutate(message);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
     }
@@ -52,7 +61,8 @@ export function Chat() {
     try {
       await navigator.clipboard.writeText(value);
       setCopy('copied');
-      setTimeout(() => setCopy('idle'), 2000);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopy('idle'), 2000);
     } catch {
       setCopy('failed');
     }
@@ -68,12 +78,13 @@ export function Chat() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
+          disabled={busy}
         />
         <Button
           variant="primary"
           size="lg"
           className="shrink-0 whitespace-nowrap"
-          disabled={!text.trim() || send.isPending}
+          disabled={!text.trim() || busy}
           onClick={submit}
         >
           Send
@@ -98,7 +109,11 @@ export function Chat() {
                 >
                   {reply.action.label}
                 </Button>
-                <Button className="shrink-0 whitespace-nowrap" onClick={() => setReply(null)}>
+                <Button className="shrink-0 whitespace-nowrap" onClick={() => {
+                    flip.reset();
+                    setReply(null);
+                  }}
+                >
                   Cancel
                 </Button>
               </div>
