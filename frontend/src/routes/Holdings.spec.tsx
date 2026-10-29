@@ -205,3 +205,33 @@ it('Show ATR adds the columns, colours big moves, and is remembered', async () =
   await userEvent.click(screen.getByRole('button', { name: 'Hide ATR' }));
   expect(screen.queryByTestId('atr-LMND')).toBeNull();
 });
+
+it('hides the ATR columns and header while editing, and restores them after', async () => {
+  window.localStorage.clear();
+  vi.mocked(api).mockImplementation((path: string) =>
+    Promise.resolve(
+      path.startsWith('/market/moves')
+        ? [{ symbol: 'LMND', atrPercent: 3, movePercent: 5, live: true, asOf: '2026-10-29' }]
+        : [{ symbol: 'LMND', name: 'X' }],
+    ),
+  );
+  renderIt();
+  await userEvent.click(await screen.findByRole('button', { name: 'Show ATR' }));
+  expect(await screen.findByTestId('today-LMND')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Edit holdings' }));
+  expect(screen.queryByTestId('atr-LMND')).toBeNull();
+  expect(screen.queryByTestId('today-LMND')).toBeNull();
+  expect(screen.queryByTestId('moves-header')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Hide ATR' })).toBeInTheDocument();
+  expect(screen.getByText('LMND')).not.toHaveClass('text-up');
+  await userEvent.click(screen.getByRole('button', { name: 'Done editing' }));
+  expect(screen.getByTestId('today-LMND')).toBeInTheDocument();
+  expect(screen.getByTestId('moves-header')).toBeInTheDocument();
+});
+
+it('keeps the bulk-add placeholder in normal case', async () => {
+  vi.mocked(api).mockResolvedValue([]);
+  renderIt();
+  const box = await screen.findByPlaceholderText('Tickers — e.g. GSIT, LMND NVDA');
+  expect(box.className).toContain('placeholder:normal-case');
+});

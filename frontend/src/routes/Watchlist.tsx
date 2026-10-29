@@ -18,7 +18,7 @@ export function Watchlist() {
   const [editing, setEditing] = useState(false);
   const [showAtr, setShowAtr] = usePersistentState<boolean>('trader.watchlist.atr.v1', false, Infinity);
   const moves = useMoves((data ?? []).map((r) => r.symbol), showAtr);
-  const moveOf = (symbol: string) => moves.data?.find((m) => m.symbol === symbol);
+  const moveOf = (sym: string) => moves.data?.find((m) => m.symbol === sym);
   const [confirming, setConfirming] = useState<string | null>(null);
   const order = useListOrder<WatchRow>(WATCHLIST_KEY, reorderWatchlist);
   const refresh = () => queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
@@ -67,7 +67,7 @@ export function Watchlist() {
 
       <div className="flex gap-2">
         <input
-          className={inputClasses('md', 'uppercase')}
+          className={inputClasses('md', 'uppercase placeholder:normal-case')}
           placeholder="Tickers — e.g. GSIT, LMND NVDA"
           value={symbol}
           autoCapitalize="characters"
@@ -87,7 +87,7 @@ export function Watchlist() {
         <p className="text-sm text-muted">Nothing watched yet. Tell the chat “watch NVDA”, or add one above.</p>
       )}
 
-      {showAtr && data && data.length > 0 && <MovesHeader moves={moves.data} />}
+      {showAtr && !editing && data && data.length > 0 && <MovesHeader moves={moves.data} />}
       <ReorderableList
         rows={data ?? []}
         editing={editing}
@@ -95,9 +95,9 @@ export function Watchlist() {
         onReorder={order.reorder}
         renderRow={(w) => (
           <>
-            <span className={`font-medium ${toneClass(moveTone(moveOf(w.symbol)))}`.trim()}>{w.symbol}</span>
+            <span className={`font-medium ${toneClass(showAtr && !editing ? moveTone(moveOf(w.symbol)) : null)}`.trim()}>{w.symbol}</span>
             <span className="min-w-0 flex-1 truncate text-sm text-muted">{w.name}</span>
-            {showAtr && <MoveCells symbol={w.symbol} move={moveOf(w.symbol)} />}
+            {showAtr && !editing && <MoveCells symbol={w.symbol} move={moveOf(w.symbol)} />}
             {editing && confirming !== w.symbol && <Button className="shrink-0 whitespace-nowrap" onClick={() => setConfirming(w.symbol)}>Remove</Button>}
             {editing && confirming === w.symbol && (
               <Button variant="danger" className="shrink-0 whitespace-nowrap" aria-label="Confirm remove" onClick={() => remove.mutate(w.symbol)}>
