@@ -235,3 +235,51 @@ it('keeps the bulk-add placeholder in normal case', async () => {
   const box = await screen.findByPlaceholderText('Tickers — e.g. GSIT, LMND NVDA');
   expect(box.className).toContain('placeholder:normal-case');
 });
+
+it('sorts by Today with a tap cycle, never saves an order, resets on edit, and is remembered', async () => {
+  window.localStorage.clear();
+  vi.mocked(api).mockImplementation((path: string, opts?: { method?: string }) =>
+    Promise.resolve(
+      path.startsWith('/market/moves')
+        ? [
+            { symbol: 'AAA', atrPercent: 2, movePercent: 1, live: true, asOf: '2026-10-29' },
+            { symbol: 'BBB', atrPercent: null, movePercent: null, live: true, asOf: '2026-10-29' },
+            { symbol: 'CCC', atrPercent: 2, movePercent: 5, live: true, asOf: '2026-10-29' },
+          ]
+        : opts?.method
+          ? {}
+          : [{ symbol: 'AAA', name: 'a' }, { symbol: 'BBB', name: 'b' }, { symbol: 'CCC', name: 'c' }],
+    ),
+  );
+  renderIt();
+  await userEvent.click(await screen.findByRole('button', { name: 'Show ATR' }));
+  await screen.findByTestId('today-CCC');
+  const order = () => screen.getAllByTestId(/^holding-/).map((el) => el.getAttribute('data-testid')!.slice(8));
+  const header = () => screen.getByRole('button', { name: /^Today/ });
+  expect(order()).toEqual(['AAA', 'BBB', 'CCC']);
+  expect(header()).toHaveAttribute('aria-sort', 'none');
+
+  await userEvent.click(header());
+  expect(order()).toEqual(['CCC', 'AAA', 'BBB']);
+  expect(header()).toHaveAttribute('aria-sort', 'descending');
+  expect(header()).toHaveTextContent('▼');
+  await userEvent.click(header());
+  expect(order()).toEqual(['AAA', 'CCC', 'BBB']);
+  expect(header()).toHaveAttribute('aria-sort', 'ascending');
+  await userEvent.click(header());
+  expect(order()).toEqual(['AAA', 'BBB', 'CCC']);
+
+  await userEvent.click(header());
+  expect(window.localStorage.getItem('trader.holdings.sort.v1')).toContain('today');
+  cleanup();
+  renderIt();
+  await waitFor(() => expect(screen.getByTestId('today-CCC')).toHaveTextContent('+5.0%'));
+  expect(order()).toEqual(['CCC', 'AAA', 'BBB']);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Edit holdings' }));
+  expect(order()).toEqual(['AAA', 'BBB', 'CCC']);
+  expect(screen.getAllByRole('button', { name: /^Reorder / })).toHaveLength(3);
+  await userEvent.click(screen.getByRole('button', { name: 'Done editing' }));
+  expect(order()).toEqual(['AAA', 'BBB', 'CCC']);
+  expect(vi.mocked(api).mock.calls.some(([, o]) => (o as { method?: string } | undefined)?.method === 'PUT' || String((o as { method?: string } | undefined)?.method) === 'POST')).toBe(false);
+});

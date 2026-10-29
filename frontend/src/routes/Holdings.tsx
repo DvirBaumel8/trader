@@ -8,6 +8,7 @@ import { ReorderableList } from '../components/ReorderableList';
 import { useListOrder } from '../lib/useListOrder';
 import { parseTickers, summarize } from '../lib/tickers';
 import { usePersistentState } from '../lib/persistentState';
+import { nextSort, sortRows, type SortState } from '../lib/sortRows';
 import { useMoves } from '../api/moves';
 import { AtrToggle, MoveCells, MovesHeader, moveTone, toneClass } from '../components/MoveColumns';
 
@@ -18,8 +19,10 @@ export function Holdings() {
   const [editing, setEditing] = useState(false);
   const [showAtr, setShowAtr] = usePersistentState<boolean>('trader.holdings.atr.v1', false, Infinity);
   const moves = useMoves((data ?? []).map((r) => r.symbol), showAtr);
+  const [sort, setSort] = usePersistentState<SortState | null>('trader.holdings.sort.v1', null, Infinity);
   const moveOf = (sym: string) => moves.data?.find((m) => m.symbol === sym);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const shownRows = sortRows(data ?? [], showAtr && !editing ? sort : null, moves.data);
   const order = useListOrder<HoldingRow>(HOLDINGS_KEY, reorderHoldings);
   const refresh = () => queryClient.invalidateQueries({ queryKey: HOLDINGS_KEY });
 
@@ -55,6 +58,7 @@ export function Holdings() {
           <AtrToggle on={showAtr} onChange={setShowAtr} />
           <EditModeToggle on={editing} onChange={(next) => {
               setEditing(next);
+              if (next && sort) setSort(null);
               if (!next) setConfirming(null);
             }} noun="holdings" />
         </div>
@@ -82,9 +86,9 @@ export function Holdings() {
         <p className="text-sm text-muted">No holdings yet. Tell the chat “bought LMND”, or add one above.</p>
       )}
 
-      {showAtr && !editing && data && data.length > 0 && <MovesHeader moves={moves.data} />}
+      {showAtr && !editing && data && data.length > 0 && <MovesHeader moves={moves.data} sort={sort} onSort={(k) => setSort(nextSort(sort, k))} />}
       <ReorderableList
-        rows={data ?? []}
+        rows={shownRows}
         editing={editing}
         testIdPrefix="holding"
         onReorder={order.reorder}

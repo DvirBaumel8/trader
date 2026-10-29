@@ -1,4 +1,5 @@
 import type { Move } from '../api/moves';
+import type { SortKey, SortState } from '../lib/sortRows';
 
 export const fmtAtr = (n: number | null) => (n === null ? '—' : `${n.toFixed(1)}%`);
 
@@ -35,14 +36,54 @@ export function MoveCells({ symbol, move }: { symbol: string; move: Move | undef
   );
 }
 
-/** Header row above the list. `Today (close)` once every returned move is a settled close. */
-export function MovesHeader({ moves }: { moves: Move[] | undefined }) {
+function SortHeader({
+  label,
+  col,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string;
+  col: SortKey;
+  sort: SortState | null;
+  onSort?: (key: SortKey) => void;
+  className: string;
+}) {
+  const active = sort?.key === col ? sort.dir : null;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort?.(col)}
+      aria-sort={active === 'asc' ? 'ascending' : active === 'desc' ? 'descending' : 'none'}
+      className={`${className} whitespace-nowrap ${active ? 'text-text' : ''}`}
+    >
+      <span>{label}</span>
+      {active && <span aria-hidden="true"> {active === 'asc' ? '▲' : '▼'}</span>}
+    </button>
+  );
+}
+
+/**
+ * Header row above the list; Ticker / ATR / Today are sort buttons.
+ * `Today (close)` once every returned move is a settled close.
+ */
+export function MovesHeader({
+  moves,
+  sort = null,
+  onSort,
+}: {
+  moves: Move[] | undefined;
+  sort?: SortState | null;
+  onSort?: (key: SortKey) => void;
+}) {
   const closed = !!moves && moves.length > 0 && moves.every((m) => !m.live);
   return (
     <div className="flex items-center gap-3 px-3 text-xs text-muted" data-testid="moves-header">
-      <span className="flex-1">Ticker</span>
-      <span className={`${ATR_W} text-xs`}>ATR</span>
-      <span className={`${TODAY_W} text-xs`}>{closed ? 'Today (close)' : 'Today'}</span>
+      <span className="flex-1 text-left">
+        <SortHeader label="Ticker" col="ticker" sort={sort} onSort={onSort} className="text-left text-xs" />
+      </span>
+      <SortHeader label="ATR" col="atr" sort={sort} onSort={onSort} className={`${ATR_W} text-xs`} />
+      <SortHeader label={closed ? 'Today (close)' : 'Today'} col="today" sort={sort} onSort={onSort} className={`${TODAY_W} text-xs`} />
     </div>
   );
 }
