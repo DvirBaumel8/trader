@@ -159,6 +159,23 @@ test.describe('the Know tab', () => {
     await page.screenshot({ path: '.superpowers/sdd/2026-10-29-knowledge-graph/task-4-polish-starter.png' });
   });
 
+  test('labels of two edges into one node do not overlap', async ({ page }) => {
+    const g = buildStarter();
+    g.edges.push({ from: 'ceo', to: 'outlook', label: 'Linked to' }, { from: 'revenue', to: 'outlook', label: 'Also feeds' });
+    await seed(page, 'AMD', g);
+    await page.goto('/knowledge/AMD');
+    await expect(page.getByTestId('kg-node-summary')).toBeVisible();
+    await page.waitForTimeout(400);
+    const labels = page.getByTestId('kg-edge-label');
+    expect(await labels.count()).toBe(8);
+    const rects = (await labels.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON()))) as { x: number; y: number; width: number; height: number }[];
+    for (let i = 0; i < rects.length; i++)
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i], b = rects[j];
+        expect(a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height).toBe(false);
+      }
+  });
+
   test('a newly selected neighbour opens its sheet at the top', async ({ page }) => {
     await page.goto('/knowledge/NVDA');
     await page.getByTestId('kg-node-sec-2').click();

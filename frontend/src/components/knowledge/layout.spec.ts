@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { layoutGraph } from './layout';
+import { edgeLabelAnchor, layoutGraph } from './layout';
 
 const nodes = ['summary', 'a', 'b', 'a1', 'a2'].map((id) => ({ id }));
 const edges = [
@@ -30,4 +30,12 @@ it('stacks siblings vertically without overlap', () => {
   const pos = layoutGraph(nodes, edges);
   expect(pos.a1.x).toBe(pos.a2.x);
   expect(Math.abs(pos.a1.y - pos.a2.y)).toBeGreaterThanOrEqual(44 + 24);
+});
+
+it('gives labels of edges into the same node their own line', () => {
+  const ys = [0, 1, 2, 3].map((slot) => edgeLabelAnchor(250, 100, slot).y);
+  expect(ys[0]).toBe(100);
+  expect(new Set(ys).size).toBe(4);
+  const sorted = [...ys].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) expect(sorted[i] - sorted[i - 1]).toBeGreaterThanOrEqual(16);
 });

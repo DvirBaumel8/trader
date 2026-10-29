@@ -18,7 +18,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { KnowledgeEdge, KnowledgeNode } from '../../api/knowledge';
-import { layoutGraph, NODE_HEIGHT, NODE_WIDTH } from './layout';
+import { edgeLabelAnchor, layoutGraph, NODE_HEIGHT, NODE_WIDTH } from './layout';
 import { NodeSheet, type Neighbour } from './NodeSheet';
 
 type KgData = { title: string; isNew: boolean };
@@ -44,8 +44,10 @@ function KgNode({ id, data, selected }: NodeProps<Node<KgData>>) {
   );
 }
 
-/** Bezier edge whose label sits just before the child, so sibling labels never share a spot. */
-function KgEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label }: EdgeProps) {
+/** Bezier edge whose label sits just before the child, on its own line per incoming edge. */
+function KgEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, data }: EdgeProps) {
+  const slot = (data as { slot?: number } | undefined)?.slot ?? 0;
+  const anchor = edgeLabelAnchor(targetX, targetY, slot);
   const [path] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   return (
     <>
@@ -54,8 +56,8 @@ function KgEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, target
         <EdgeLabelRenderer>
           <div
             data-testid="kg-edge-label"
-            className="nodrag nopan pointer-events-none absolute max-w-[110px] truncate rounded bg-surface-0 px-1 text-[10px] text-text"
-            style={{ transform: `translate(-100%, -50%) translate(${targetX - 6}px, ${targetY}px)` }}
+            className="nodrag nopan pointer-events-none absolute block max-w-[80px] truncate rounded bg-surface-0 px-1 text-[10px] text-text"
+            style={{ transform: `translate(-100%, -50%) translate(${anchor.x}px, ${anchor.y}px)` }}
           >
             {label}
           </div>
@@ -96,14 +98,14 @@ function Inner({
     [nodes, positions, newIds, selectedId],
   );
   const flowEdges: Edge[] = useMemo(
-    () =>
-      edges.map((e) => ({
-        id: `${e.from}->${e.to}`,
-        source: e.from,
-        target: e.to,
-        label: e.label,
-        type: 'kg',
-      })),
+    () => {
+      const seen = new Map<string, number>();
+      return edges.map((e) => {
+        const slot = seen.get(e.to) ?? 0;
+        seen.set(e.to, slot + 1);
+        return { id: `${e.from}->${e.to}`, source: e.from, target: e.to, label: e.label, type: 'kg', data: { slot } };
+      });
+    },
     [edges],
   );
 

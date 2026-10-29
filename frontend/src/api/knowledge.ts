@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from './client';
 
@@ -76,4 +76,10 @@ export function useMarkViewed() {
     },
     [qc],
   );
+}
+
+/** Symbols that have a knowledge graph. Empty while loading or on error, so lists never wait on it. */
+export function useKnowledgeSymbols(): Set<string> {
+  const { data } = useKnowledgeList();
+  return useMemo(() => new Set(Array.isArray(data) ? data.map((r) => r.symbol) : []), [data]);
 }

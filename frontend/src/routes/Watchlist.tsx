@@ -10,7 +10,8 @@ import { parseTickers, summarize } from '../lib/tickers';
 import { usePersistentState } from '../lib/persistentState';
 import { nextSort, sortRows, type SortState } from '../lib/sortRows';
 import { useMoves } from '../api/moves';
-import { TickerLink, useKnowledgeSymbols } from '../components/TickerLink';
+import { TickerLink } from '../components/TickerLink';
+import { useKnowledgeSymbols } from '../api/knowledge';
 import { AtrToggle, MoveCells, MovesHeader, moveTone, toneClass } from '../components/MoveColumns';
 
 export function Watchlist() {
@@ -109,7 +110,7 @@ export function Watchlist() {
               <TickerLink
                 symbol={w.symbol}
                 hasGraph={knowledge.has(w.symbol)}
-                className={`font-medium ${toneClass(showAtr ? moveTone(moveOf(w.symbol)) : null)}`.trim()}
+                className={`-my-1 font-medium ${toneClass(showAtr ? moveTone(moveOf(w.symbol)) : null)}`.trim()}
               />
             )}
             <span className="min-w-0 flex-1 truncate text-sm text-muted">{w.name}</span>

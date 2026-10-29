@@ -1,6 +1,7 @@
 import { useEarningsWeek } from '../api/earnings';
 import type { EarningsEntry, EarningsSource, EarningsTiming } from '../api/earnings';
-import { TickerLink, useKnowledgeSymbols } from '../components/TickerLink';
+import { TickerLink } from '../components/TickerLink';
+import { useKnowledgeSymbols } from '../api/knowledge';
 import { usePersistentState } from '../lib/persistentState';
 
 type Filter = 'both' | 'holdings' | 'watchlist';
@@ -76,7 +77,7 @@ function Cell({ entry, hasGraph }: { entry: EarningsEntry; hasGraph: boolean }) 
       className="min-w-0 rounded border border-border bg-surface-1 px-1 py-1 text-center"
     >
       <div className="flex justify-center text-xs font-medium">
-        <TickerLink symbol={entry.symbol} hasGraph={hasGraph} prefix={entry.estimated ? '~' : ''} />
+        <TickerLink symbol={entry.symbol} hasGraph={hasGraph} prefix={entry.estimated ? '~' : ''} className="-my-2" />
       </div>
       <div className="truncate text-[11px] text-muted">
         {TIMING_ICON[entry.timing]}
@@ -173,7 +174,7 @@ export function Earnings() {
                   className="flex items-center gap-3 px-3 py-2.5 text-sm"
                 >
                   <span className="w-20 shrink-0 font-medium">
-                    <TickerLink symbol={u.symbol} hasGraph={knowledge.has(u.symbol)} />
+                    <TickerLink symbol={u.symbol} hasGraph={knowledge.has(u.symbol)} className="-my-1.5" />
                   </span>
                   <span className="shrink-0 text-muted">{sourceMark(u.source)}</span>
                   <span className="min-w-0 flex-1 truncate text-muted">

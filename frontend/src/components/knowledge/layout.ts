@@ -21,3 +21,13 @@ export function layoutGraph(
   }
   return out;
 }
+
+/**
+ * Where an edge's label is right-aligned: just before the child. Edges into
+ * the same node take their own line (alternating below/above, label height
+ * is ~13px), so labels never coincide.
+ */
+export function edgeLabelAnchor(tx: number, ty: number, slot: number): { x: number; y: number } {
+  const dy = (slot % 2 ? 1 : -1) * 16 * Math.ceil(slot / 2);
+  return { x: tx - 6, y: ty + dy };
+}
