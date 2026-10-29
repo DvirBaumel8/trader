@@ -47,7 +47,7 @@ Every pack has a **Summary** root. Every pack node hangs directly off it, has a 
 | Management (`management`) | The founders: who they are, and how involved they are today (CEO, chair, board member, large shareholder only, or gone). The CEO, if not a founder: their background and how long they've been in the role. At most one or two other key people, and only when they matter. |
 | How they make money (`business`) | The business model. Later questions can branch into a node per segment. |
 | Where the next dollar goes (`capital`) | Capital allocation: paying down debt, reinvesting, acquisitions, buybacks, dividends, and stock pay to management. Includes last year's split where it is reported. |
-| Last earnings call (`last-call`) | A short summary and the **bottom line**: what changed, the guidance, and the one thing to remember. Also revenue vs expectations, which the free data feed doesn't provide. `asOf` names the quarter. |
+| Last earnings call (`last-call`) | A short summary and the **bottom line**: what changed, the guidance, and the one thing to remember. `asOf` names the quarter. |
 | Key risks (`risks`) | The 2–3 things that could break the story. |
 
 **Every other kind** gets **Summary** and **Bottom line** (`bottom-line`, why this matters to the owner), plus:
@@ -79,16 +79,18 @@ Every pack has a **Summary** root. Every pack node hangs directly off it, has a 
 A company's Fundamentals node is filled by the app from Yahoo once per ET day, rather than written by Claude, so it is always current.
 
 - **It shows:**
-  - **Revenue by quarter:** the last 4 quarters, each with growth vs the same quarter a year earlier.
-  - **EPS by quarter:** the last 4 quarters, each as actual vs estimate, with the surprise %.
+  - **Revenue growth:** for each of those quarters, vs the same quarter a year earlier.
+  - **EPS and revenue by quarter:** the last 4 quarters, each as actual vs expected, with the surprise %.
   - **Next quarter's estimates:** both the EPS and the revenue estimate. These move daily, which is the point of refreshing daily.
   - **Free cash flow by quarter:** the last 4 quarters.
   - **Latest cash, latest debt, and net cash or net debt.**
   - **The fetch date and the fiscal quarter labels**, e.g. `Q2 FY27`.
-- **Known gap:** revenue *expectations* for past quarters aren't available from free sources. Checked 2026-10-29: Yahoo provides only actuals for past quarters and an estimate for the coming quarter. A past quarter's revenue beat or miss goes in the `last-call` text instead.
-- **Sources** (yahoo-finance2, through the slim `YahooClient`):
-  - `quoteSummary` modules `earnings` (quarterly EPS actual vs estimate, quarterly revenue), `earningsTrend` (the `0q` EPS and revenue estimates), `financialData` (`totalCash`, `totalDebt`) and `price` (`quoteType`, currency)
-  - `fundamentalsTimeSeries` quarterly, for 8 quarters of revenue (for growth) and free cash flow
+- **Sources:**
+  - **Actuals from Yahoo** (yahoo-finance2, through the slim `YahooClient`):
+    - `quoteSummary` modules `earnings` (quarterly EPS actuals and revenue, report dates), `financialData` (`totalCash`, `totalDebt`) and `price` (`quoteType`, currency)
+    - `fundamentalsTimeSeries` quarterly, for 8 quarters of revenue (for growth) and free cash flow
+  - **Expectations from Alpha Vantage** `EARNINGS_ESTIMATES` (free key `ALPHAVANTAGE_API_KEY`, 25 calls/day): the consensus EPS and revenue estimate for each past fiscal quarter and the next one. Yahoo and Finnhub's free tier have no past revenue expectations. Checked 2026-10-29 against the owner's Investing.com screen for NVDA: within about 1% (e.g. Jul 2026 revenue $92.18B vs $91.90B). Different sites average different analysts.
+  - `backend/src/market-data/alpha-vantage.client.ts` is the only Alpha Vantage import boundary. Its quota-exhausted reply (a JSON `Information` or `Note` field) is treated as a failure. When expectations are missing, the table still shows the actuals, with `—` for expected.
 - **Endpoint:** `GET /knowledge/:symbol/fundamentals` returns:
 
   ```json
@@ -103,9 +105,9 @@ A company's Fundamentals node is filled by the app from Yahoo once per ET day, r
   }
   ```
 
-  Any field can be null. It returns 404 when the ticker isn't a company.
+  `quarters` also carry `revenueEstimate`, `reportedAt` and `revenueSurprisePct`. Any field can be null. It returns 404 when the ticker isn't a company.
 - **Cache:** a shared `fundamentals_cache` table (symbol, data, fetchedAt), refreshed at most once per ET day and only when a Fundamentals node is opened. On a Yahoo failure it serves the last cached data with its date; with nothing cached, the node shows "Couldn't load the numbers right now."
-- **Display:** a compact table inside the node sheet. Money is shown as `$96.2B`, and beats and misses are coloured with the app's up and down colours. On the canvas, the node shows only its title, like every other node.
+- **Display:** a compact table inside the node sheet, modelled on Investing.com's earnings table: one row per quarter (the report date and fiscal quarter), EPS expected vs actual and revenue expected vs actual, with the actual coloured green on a beat and red on a miss. The next report is a top row with expectations only. Below the table: free cash flow for the 4 quarters, then cash, debt and net cash. Money is shown as `$96.2B`, and beats and misses are coloured with the app's up and down colours. On the canvas, the node shows only its title, like every other node.
 
 ## Versions
 

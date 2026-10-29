@@ -214,7 +214,7 @@ export function layoutGraph(nodes: {id:string}[], edges: {from:string;to:string}
 
 **Files:**
 - Modify: `backend/src/market-data/yahoo.client.ts` (+ spec), `backend/test/yahoo-stub.ts`, `backend/src/knowledge/knowledge.controller.ts`, `knowledge.module.ts`, `backend/src/database/data-source.ts`, `backend/src/main.e2e.ts` (stub fundamentals), `AGENTS.md` (the Yahoo boundary now also offers fundamentals), `docs/api.md`
-- Create: `backend/src/knowledge/fundamentals.ts` (pure shaping) + spec, `fundamentals.service.ts` + spec, `fundamentals-cache.entity.ts`, migration `backend/src/database/migrations/1790380800000-AddFundamentalsCache.ts`, `backend/test/fundamentals.e2e-spec.ts`
+- Create: `backend/src/market-data/alpha-vantage.client.ts` (+ spec; the only Alpha Vantage boundary, key `ALPHAVANTAGE_API_KEY`, add to `.env.example` and `docs/DEPLOYMENT.md`), `backend/src/knowledge/fundamentals.ts` (pure shaping) + spec, `fundamentals.service.ts` + spec, `fundamentals-cache.entity.ts`, migration `backend/src/database/migrations/1790380800000-AddFundamentalsCache.ts`, `backend/test/fundamentals.e2e-spec.ts`
 - Frontend: `frontend/src/api/knowledge.ts` (`useFundamentals(symbol, enabled)`), create `frontend/src/components/knowledge/FundamentalsTable.tsx` (+ spec), modify `NodeSheet.tsx`, `e2e/knowledge.spec.ts`
 
 **Interfaces — Produces:**
@@ -223,31 +223,35 @@ export function layoutGraph(nodes: {id:string}[], edges: {from:string;to:string}
 // yahoo.client.ts
 export interface RawFundamentals {
   quoteType: string | null; currency: string | null;
-  epsQuarters: { periodEnd: string; fiscalQuarter: string | null; actual: number | null; estimate: number | null; surprisePct: number | null }[]; // earnings.earningsChart.quarterly
-  next: { periodEnd: string | null; epsEstimate: number | null; revenueEstimate: number | null } | null;                                     // earningsTrend '0q'
+  epsQuarters: { periodEnd: string; fiscalQuarter: string | null; actual: number | null; reportedAt: string | null }[];                     // earnings.earningsChart.quarterly
   cash: number | null; debt: number | null;                                                                                                // financialData totalCash / totalDebt
   series: { periodEnd: string; revenue: number | null; fcf: number | null }[];                                                             // fundamentalsTimeSeries quarterly, oldest first
 }
 YahooClient.fundamentals(symbol: string): Promise<RawFundamentals>; // throws on provider failure
 
+// alpha-vantage.client.ts
+export interface QuarterEstimate { periodEnd: string; epsEstimate: number | null; revenueEstimate: number | null } // horizon 'fiscal quarter' rows only
+AlphaVantageClient.quarterEstimates(symbol: string): Promise<QuarterEstimate[]>; // throws on HTTP failure, missing key, or an 'Information'/'Note'/'Error Message' reply; 15 s timeout
+
 // fundamentals.ts
 export interface Fundamentals {
   fetchedAt: string; currency: string | null;
-  quarters: { label: string; periodEnd: string; revenue: number | null; revenueYoY: number | null; eps: number | null; epsEstimate: number | null; epsSurprisePct: number | null; fcf: number | null }[]; // newest first, max 4
-  next: { label: string | null; periodEnd: string | null; epsEstimate: number | null; revenueEstimate: number | null } | null;
+  quarters: { label: string; periodEnd: string; reportedAt: string | null; revenue: number | null; revenueEstimate: number | null; revenueSurprisePct: number | null; revenueYoY: number | null; eps: number | null; epsEstimate: number | null; epsSurprisePct: number | null; fcf: number | null }[]; // newest first, max 4
+  next: { label: string | null; periodEnd: string | null; reportAt: string | null; epsEstimate: number | null; revenueEstimate: number | null } | null; // first estimate period after the newest reported quarter; reportAt from instruments.nextEarningsAt if known
   cash: number | null; debt: number | null; netCash: number | null;
 }
-export function shapeFundamentals(raw: RawFundamentals, fetchedAt: string): Fundamentals;
+export function shapeFundamentals(raw: RawFundamentals, estimates: QuarterEstimate[] | null, fetchedAt: string, today: string): Fundamentals;
 // GET /knowledge/:symbol/fundamentals -> Fundamentals | 404 { message: 'NVDA is not a company' } (quoteType !== 'EQUITY') | 503
 ```
 
-- [ ] **Step 1: `YahooClient.fundamentals`** via `quoteSummary(symbol, { modules: ['earnings', 'earningsTrend', 'financialData', 'price'] })` and `fundamentalsTimeSeries(symbol, { period1: <today − 30 months>, type: 'quarterly', module: 'all' })` (`totalRevenue`, `freeCashFlow`). Spec with a mocked `yf`. Verified live 2026-10-29 for NVDA: all these fields exist; past-quarter revenue estimates do not.
-- [ ] **Step 2: `shapeFundamentals` + spec (TDD).** Label from `fiscalQuarter` (`"2Q2027"` → `Q2 FY27`), else from `periodEnd` as `Jul 2026`; join EPS quarters and series by `periodEnd` (same calendar month = match); `revenueYoY` = (revenue ÷ revenue of the quarter ~12 months earlier − 1) × 100, 1 decimal, null when either missing; `netCash = cash − debt` (null if either null); newest 4 quarters; `next.label` from `next.periodEnd`.
-- [ ] **Step 3: cache + service.** Migration: `fundamentals_cache (symbol varchar PRIMARY KEY, data jsonb NOT NULL, "fetchedAt" timestamptz NOT NULL)`, registered in data-source. `FundamentalsService.get(symbol, now)`: fetched on today's ET date → cached; else fetch → shape → upsert → return. Failure → cached data if any, else 503 `Couldn't load the numbers right now.`. `quoteType !== 'EQUITY'` → 404, remembered for the day as `{ notCompany: true }` so Yahoo isn't re-asked. Spec: same-day hit, next-day refresh, failure with and without cache, non-company.
+- [ ] **Step 1a: `AlphaVantageClient.quarterEstimates`** via `GET https://www.alphavantage.co/query?function=EARNINGS_ESTIMATES&symbol=…&apikey=…` (fields `date`, `horizon`, `eps_estimate_average`, `revenue_estimate_average`, strings → numbers). Spec with mocked `fetch`: parsing, quota reply → throws, missing key → throws. Verified live 2026-10-29 for NVDA.
+- [ ] **Step 1: `YahooClient.fundamentals`** via `quoteSummary(symbol, { modules: ['earnings', 'financialData', 'price'] })` and `fundamentalsTimeSeries(symbol, { period1: <today − 30 months>, type: 'quarterly', module: 'all' })` (`totalRevenue`, `freeCashFlow`). Spec with a mocked `yf`. Verified live 2026-10-29 for NVDA: all these fields exist.
+- [ ] **Step 2: `shapeFundamentals` + spec (TDD).** Label from `fiscalQuarter` (`"2Q2027"` → `Q2 FY27`), else from `periodEnd` as `Jul 2026`; join EPS quarters, series and estimates by `periodEnd` (same calendar month = match); surprise % = (actual ÷ estimate − 1) × 100, 1 decimal; `revenueYoY` = (revenue ÷ revenue of the quarter ~12 months earlier − 1) × 100, 1 decimal, null when either missing; `netCash = cash − debt` (null if either null); newest 4 quarters; `next` = the earliest estimate whose period ends after the newest reported quarter (label from its period end; fiscal label inferred by stepping the newest fiscal quarter forward by one); estimates null → all estimate fields null.
+- [ ] **Step 3: cache + service.** Migration: `fundamentals_cache (symbol varchar PRIMARY KEY, data jsonb NOT NULL, "fetchedAt" timestamptz NOT NULL)`, registered in data-source. `FundamentalsService.get(symbol, now)`: fetched on today's ET date → cached; else fetch Yahoo and Alpha Vantage in parallel → shape → upsert → return. An Alpha Vantage failure alone still caches the actuals but marks the row so estimates are retried on the next open (at most once an hour). A Yahoo failure → cached data if any, else 503 `Couldn't load the numbers right now.`. `quoteType !== 'EQUITY'` → 404, remembered for the day as `{ notCompany: true }` so Yahoo isn't re-asked. Spec: same-day hit, next-day refresh, failure with and without cache, non-company.
 - [ ] **Step 4: endpoint** on the knowledge controller (class already `@AllowApiKey()`); e2e with stub data: shape, cache hit (stub called once across two requests), 404 for a non-EQUITY stub, 503 path.
-- [ ] **Step 5: frontend.** `useFundamentals(symbol, enabled)` only while a `type: 'fundamentals'` node's sheet is open. `FundamentalsTable` above the takeaway: quarters as 4 columns (newest left) with rows Revenue (`$96.2B`), YoY (`+105.4%`), EPS (`2.22 vs 2.09`, surprise coloured `text-up` / `text-down`), FCF; then `Next quarter: EPS est 2.47 · Revenue est $109.0B`; then `Cash $62.5B · Debt $38.9B · Net cash $23.6B`; then `Updated Oct 29`. Money: `$1.2T / $96.2B / $850M`, negatives with a real minus. Null → `—`. Loading skeleton; error text. Spec: formatting, colours, nulls, error, no fetch for text nodes.
+- [ ] **Step 5: frontend.** `useFundamentals(symbol, enabled)` only while a `type: 'fundamentals'` node's sheet is open. `FundamentalsTable` above the takeaway, modelled on the owner's Investing.com screen: header `Report · Expected · Actual`; first row the next report (`Nov 17, 2026` / `Q3 FY27`, expected EPS `2.47` and revenue `$109.0B`, actual blank); then one row per past quarter, newest first (report date + fiscal label; EPS expected / actual; revenue expected / actual, each actual `text-up` on a beat, `text-down` on a miss, plain when equal or no estimate), with `+105% YoY` small under the revenue actual; below: `Free cash flow` row for the 4 quarters, then `Cash $62.5B · Debt $38.9B · Net cash $23.6B`, then `Updated Oct 29 · expectations: Alpha Vantage`. Money: `$1.2T / $96.2B / $850M`, negatives with a real minus. Null → `—`. Loading skeleton; error text. Spec: formatting, colours, nulls, error, no fetch for text nodes.
 - [ ] **Step 6: browser test:** the seeded graph gets a fundamentals node; its sheet shows the stubbed table with no horizontal overflow at 402px.
 - [ ] **Step 7:** backend `npm test`, `npm run test:e2e`, `npm run lint`; frontend `npm test`, `npm run lint`, `npm run build`; root `npm run test:browser`.
 - [ ] **Step 8: Commit** `feat(knowledge): live fundamentals table for companies`.
 
-**Deploy (controller):** migration check on a scratch production copy, push, rebuild the Mac host, live check with the test user's key (NVDA → table data, QQQ → 404), deploy-web.
+**Deploy (controller):** migration check on a scratch production copy, push, rebuild the Mac host, add `ALPHAVANTAGE_API_KEY` to the Mac host env (already in `prod.env`) and later Render, live check with the test user's key (NVDA → table data matching Investing.com within ~1%, QQQ → 404), deploy-web.
