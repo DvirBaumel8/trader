@@ -49,6 +49,7 @@ Every pack has a **Summary** root. Every pack node hangs directly off it, has a 
 | Where the next dollar goes (`capital`) | Capital allocation: paying down debt, reinvesting, acquisitions, buybacks, dividends, and stock pay to management. Includes last year's split where it is reported. |
 | Last earnings call (`last-call`) | A short summary and the **bottom line**: what changed, the guidance, and the one thing to remember. `asOf` names the quarter. |
 | Key risks (`risks`) | The 2–3 things that could break the story. |
+| Competitors (`competitors`) | Main rivals grouped by kind, and where the company wins or loses against each. Added at the owner's request after the first graph. |
 
 **Every other kind** gets **Summary** and **Bottom line** (`bottom-line`, why this matters to the owner), plus:
 

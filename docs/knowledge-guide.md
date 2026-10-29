@@ -24,6 +24,7 @@ Each ticker can have one private knowledge graph: short notes (nodes) joined by 
 | Where the next dollar goes (`capital`) | Capital allocation: paying down debt, reinvesting, acquisitions, buybacks, dividends, and stock pay to management. Includes last year's split where it is reported. |
 | Last earnings call (`last-call`) | A short summary and the bottom line: what changed, the guidance, and the one thing to remember. `asOf` names the quarter. |
 | Key risks (`risks`) | The 2 to 3 things that could break the story. |
+| Competitors (`competitors`) | The main rivals grouped by kind (direct peers and substitutes), and where the company wins or loses against each. |
 
 **Every other kind** gets `summary` and `bottom-line` (why this matters to the owner), plus:
 
