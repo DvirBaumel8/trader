@@ -10,6 +10,15 @@
  */
 export const STUB_EARNINGS: Record<string, { at: string; estimated: boolean } | null> = {};
 
+/** `dailyBars` per symbol (oldest first); unlisted symbols have none. */
+export const STUB_BARS: Record<
+  string,
+  { date: string; open: number | null; high: number | null; low: number | null; close: number }[]
+> = {};
+
+/** `quote` per symbol; unlisted symbols have none (null). */
+export const STUB_QUOTES: Record<string, { price: number; previousClose: number } | null> = {};
+
 export function yahooStub() {
   return {
     lookup: async (symbol: string) => {
@@ -21,5 +30,7 @@ export function yahooStub() {
       const e = STUB_EARNINGS[symbol.toUpperCase()];
       return e ? { at: new Date(e.at), estimated: e.estimated } : null;
     },
+    dailyBars: async (symbol: string, _from?: Date) => STUB_BARS[symbol.toUpperCase()] ?? [],
+    quote: async (symbol: string) => STUB_QUOTES[symbol.toUpperCase()] ?? null,
   };
 }

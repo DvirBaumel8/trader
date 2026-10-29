@@ -11,6 +11,7 @@ import { WatchlistModule } from './watchlist/watchlist.module.js';
 import { HoldingsModule } from './holdings/holdings.module.js';
 import { AssistantModule } from './assistant/assistant.module.js';
 import { EarningsModule } from './earnings/earnings.module.js';
+import { MarketModule } from './market/market.module.js';
 import { buildConnectionOptions } from './database/connection-options.js';
 
 @Module({
@@ -36,6 +37,7 @@ import { buildConnectionOptions } from './database/connection-options.js';
     HoldingsModule,
     AssistantModule,
     EarningsModule,
+    MarketModule,
     HealthModule,
     AuthModule,
   ],

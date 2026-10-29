@@ -14,6 +14,7 @@ describe('legacyApiPrefix', () => {
     expect(run('/holdings?sort=symbol')).toBe('/api/holdings?sort=symbol');
     expect(run('/watchlist')).toBe('/api/watchlist');
     expect(run('/earnings/week')).toBe('/api/earnings/week');
+    expect(run('/market/moves?symbols=A')).toBe('/api/market/moves?symbols=A');
   });
 
   it('leaves a browser page load of a screen to the SPA', () => {

@@ -12,6 +12,7 @@ const LEGACY_PREFIXES = [
   '/holdings',
   '/assistant',
   '/earnings',
+  '/market',
   '/auth',
 ];
 

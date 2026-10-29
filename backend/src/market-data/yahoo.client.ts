@@ -1,5 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
 import YahooFinance from 'yahoo-finance2';
+import { etDate } from '../earnings/week.js';
 
 export interface TickerInfo {
   symbol: string;
@@ -12,7 +13,24 @@ export interface NextEarnings {
   estimated: boolean;
 }
 
+/** One regular-session daily bar; `date` is the ET calendar date of the session. */
+export interface DailyBar {
+  date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number;
+}
+
+/** Regular-session price and the previous regular-session close. Never pre/post-market. */
+export interface RegularQuote {
+  price: number;
+  previousClose: number;
+}
+
 interface QuoteLike {
+  regularMarketPrice?: unknown;
+  regularMarketPreviousClose?: unknown;
   symbol?: string;
   shortName?: string;
   longName?: string;
@@ -76,5 +94,54 @@ export class YahooClient {
     const first = earnings?.earningsDate?.[0];
     if (!(first instanceof Date) || Number.isNaN(first.getTime())) return null;
     return { at: first, estimated: earnings?.isEarningsDateEstimate === true };
+  }
+
+  /**
+   * Regular-session daily bars from `from` to now, oldest first. A bar still
+   * forming today may be last. Throws on provider failure.
+   */
+  async dailyBars(symbol: string, from: Date): Promise<DailyBar[]> {
+    const result = await this.yf.chart(symbol, {
+      period1: from,
+      period2: new Date(),
+      interval: '1d',
+    });
+    const quotes = (result?.quotes ?? []) as {
+      date: Date | string;
+      open?: number | null;
+      high?: number | null;
+      low?: number | null;
+      close?: number | null;
+    }[];
+    const finite = (n: unknown): number | null =>
+      typeof n === 'number' && Number.isFinite(n) ? n : null;
+
+    const bars: DailyBar[] = [];
+    for (const q of quotes) {
+      const close = finite(q.close);
+      if (close === null) continue;
+      bars.push({
+        date: etDate(new Date(q.date)),
+        open: finite(q.open),
+        high: finite(q.high),
+        low: finite(q.low),
+        close,
+      });
+    }
+    // The provider is not contracted to return bars in order.
+    return bars.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * Regular-market price and previous close; null when Yahoo lacks either
+   * (or the symbol). Throws on provider failure.
+   */
+  async quote(symbol: string): Promise<RegularQuote | null> {
+    const q = (await this.yf.quote(symbol)) as QuoteLike | undefined;
+    const price = q?.regularMarketPrice;
+    const previousClose = q?.regularMarketPreviousClose;
+    if (typeof price !== 'number' || !Number.isFinite(price)) return null;
+    if (typeof previousClose !== 'number' || !Number.isFinite(previousClose)) return null;
+    return { price, previousClose };
   }
 }

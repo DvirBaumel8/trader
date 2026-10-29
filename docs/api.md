@@ -77,6 +77,12 @@ on the signed-in user.
 |---|---|
 | `GET /earnings/week` | `{ weekStart, weekEnd, today, days, upcoming }`. `days` is always five entries (Mon-Fri, America/New_York; the coming week on Sat/Sun), each `{ date, entries: [{ symbol, source: 'holding'\|'watchlist', timing: 'before_open'\|'during'\|'after_close'\|'unknown', estimated }] }`. `upcoming` is `[{ symbol, source, date, daysUntil, estimated }]`, soonest first, undated last. A symbol can appear twice in one week (a past report and the next one). |
 
+### Market — `market/`
+
+| Route | Notes |
+|---|---|
+| `GET /market/moves?symbols=A,B` | 1 to 60 symbols (trimmed, upper-cased, de-duplicated; otherwise 400) -> `[{ symbol, atrPercent, movePercent, live, asOf }]` in request order. `atrPercent` is Wilder's 14-day ATR over completed regular-session daily bars as a percent of the reference close; `movePercent` is the regular-session move (live price vs previous close while the market is open, otherwise the last completed session vs the one before). Both rounded to 1 decimal, either `null` when it cannot be computed (fewer than 15 bars, missing quote, provider failure). `asOf` is the ET date of the session the move belongs to. Pre-market and after-hours prices are never used. Behind the global auth guard; the data is not per-user. |
+
 ### Assistant — `assistant/`
 
 `POST /assistant { text }` (1-2000 characters). A small Gemini model routes the
