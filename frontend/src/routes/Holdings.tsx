@@ -7,12 +7,18 @@ import { type HoldingRow, HOLDINGS_KEY, reorderHoldings, addHoldings, removeHold
 import { ReorderableList } from '../components/ReorderableList';
 import { useListOrder } from '../lib/useListOrder';
 import { parseTickers, summarize } from '../lib/tickers';
+import { usePersistentState } from '../lib/persistentState';
+import { useMoves } from '../api/moves';
+import { AtrToggle, MoveCells, MovesHeader, moveTone, toneClass } from '../components/MoveColumns';
 
 export function Holdings() {
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useHoldings();
   const [symbol, setSymbol] = useState('');
   const [editing, setEditing] = useState(false);
+  const [showAtr, setShowAtr] = usePersistentState<boolean>('trader.holdings.atr.v1', false, Infinity);
+  const moves = useMoves((data ?? []).map((r) => r.symbol), showAtr);
+  const moveOf = (symbol: string) => moves.data?.find((m) => m.symbol === symbol);
   const [confirming, setConfirming] = useState<string | null>(null);
   const order = useListOrder<HoldingRow>(HOLDINGS_KEY, reorderHoldings);
   const refresh = () => queryClient.invalidateQueries({ queryKey: HOLDINGS_KEY });
@@ -45,10 +51,13 @@ export function Holdings() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Holdings</h1>
-        <EditModeToggle on={editing} onChange={(next) => {
-            setEditing(next);
-            if (!next) setConfirming(null);
-          }} noun="holdings" />
+        <div className="flex items-center gap-2">
+          <AtrToggle on={showAtr} onChange={setShowAtr} />
+          <EditModeToggle on={editing} onChange={(next) => {
+              setEditing(next);
+              if (!next) setConfirming(null);
+            }} noun="holdings" />
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -73,6 +82,7 @@ export function Holdings() {
         <p className="text-sm text-muted">No holdings yet. Tell the chat “bought LMND”, or add one above.</p>
       )}
 
+      {showAtr && data && data.length > 0 && <MovesHeader moves={moves.data} />}
       <ReorderableList
         rows={data ?? []}
         editing={editing}
@@ -80,8 +90,9 @@ export function Holdings() {
         onReorder={order.reorder}
         renderRow={(h) => (
           <>
-            <span className="font-medium">{h.symbol}</span>
+            <span className={`font-medium ${toneClass(moveTone(moveOf(h.symbol)))}`.trim()}>{h.symbol}</span>
             <span className="min-w-0 flex-1 truncate text-sm text-muted">{h.name}</span>
+            {showAtr && <MoveCells symbol={h.symbol} move={moveOf(h.symbol)} />}
             {editing && confirming !== h.symbol && (
               <Button className="shrink-0 whitespace-nowrap" onClick={() => setConfirming(h.symbol)}>Remove</Button>
             )}

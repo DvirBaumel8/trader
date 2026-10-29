@@ -164,3 +164,44 @@ it('puts the rows back and says why when saving the order fails', async () => {
   expect(await screen.findByText('Unknown symbol in order: LMND')).toBeInTheDocument();
   await waitFor(() => expect(symbols()).toEqual(['LMND', 'TSLA']));
 });
+
+const movesApi = (moves: unknown[]) =>
+  vi.mocked(api).mockImplementation((path: string) =>
+    Promise.resolve(path.startsWith('/market/moves') ? moves : [{ symbol: 'LMND', name: 'Lemonade' }, { symbol: 'TSLA', name: 'Tesla' }]),
+  );
+const movesCalls = () => vi.mocked(api).mock.calls.filter(([p]) => String(p).startsWith('/market/moves'));
+
+it('shows no ATR columns and fetches no moves until Show ATR is on', async () => {
+  window.localStorage.clear();
+  movesApi([]);
+  renderIt();
+  await screen.findByTestId('holding-LMND');
+  expect(screen.getByRole('button', { name: 'Show ATR' })).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.queryByText('Ticker')).toBeNull();
+  expect(screen.queryByTestId('atr-LMND')).toBeNull();
+  expect(movesCalls()).toHaveLength(0);
+});
+
+it('Show ATR adds the columns, colours big moves, and is remembered', async () => {
+  window.localStorage.clear();
+  movesApi([
+    { symbol: 'LMND', atrPercent: 3.2, movePercent: 4.1, live: false, asOf: '2026-10-28' },
+    { symbol: 'TSLA', atrPercent: null, movePercent: null, live: false, asOf: '2026-10-28' },
+  ]);
+  renderIt();
+  await screen.findByTestId('holding-LMND');
+  await userEvent.click(screen.getByRole('button', { name: 'Show ATR' }));
+  expect(await screen.findByTestId('atr-LMND')).toHaveTextContent('3.2%');
+  expect(screen.getByTestId('today-LMND')).toHaveTextContent('+4.1%');
+  expect(screen.getByTestId('today-LMND')).toHaveClass('text-up');
+  expect(screen.getByTestId('today-TSLA')).toHaveTextContent('—');
+  expect(screen.getByText('Today (close)')).toBeInTheDocument();
+  expect(movesCalls()[0][0]).toBe('/market/moves?symbols=LMND,TSLA');
+  expect(screen.getByRole('button', { name: 'Hide ATR' })).toHaveAttribute('aria-pressed', 'true');
+
+  cleanup();
+  renderIt();
+  expect(await screen.findByTestId('atr-LMND')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Hide ATR' }));
+  expect(screen.queryByTestId('atr-LMND')).toBeNull();
+});

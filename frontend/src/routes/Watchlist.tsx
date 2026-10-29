@@ -7,12 +7,18 @@ import { type WatchRow, WATCHLIST_KEY, reorderWatchlist, addWatches, removeWatch
 import { ReorderableList } from '../components/ReorderableList';
 import { useListOrder } from '../lib/useListOrder';
 import { parseTickers, summarize } from '../lib/tickers';
+import { usePersistentState } from '../lib/persistentState';
+import { useMoves } from '../api/moves';
+import { AtrToggle, MoveCells, MovesHeader, moveTone, toneClass } from '../components/MoveColumns';
 
 export function Watchlist() {
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useWatchlist();
   const [symbol, setSymbol] = useState('');
   const [editing, setEditing] = useState(false);
+  const [showAtr, setShowAtr] = usePersistentState<boolean>('trader.watchlist.atr.v1', false, Infinity);
+  const moves = useMoves((data ?? []).map((r) => r.symbol), showAtr);
+  const moveOf = (symbol: string) => moves.data?.find((m) => m.symbol === symbol);
   const [confirming, setConfirming] = useState<string | null>(null);
   const order = useListOrder<WatchRow>(WATCHLIST_KEY, reorderWatchlist);
   const refresh = () => queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
@@ -50,10 +56,13 @@ export function Watchlist() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Watchlist</h1>
-        <EditModeToggle on={editing} onChange={(next) => {
-            setEditing(next);
-            if (!next) setConfirming(null);
-          }} noun="watchlist" />
+        <div className="flex items-center gap-2">
+          <AtrToggle on={showAtr} onChange={setShowAtr} />
+          <EditModeToggle on={editing} onChange={(next) => {
+              setEditing(next);
+              if (!next) setConfirming(null);
+            }} noun="watchlist" />
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -78,6 +87,7 @@ export function Watchlist() {
         <p className="text-sm text-muted">Nothing watched yet. Tell the chat “watch NVDA”, or add one above.</p>
       )}
 
+      {showAtr && data && data.length > 0 && <MovesHeader moves={moves.data} />}
       <ReorderableList
         rows={data ?? []}
         editing={editing}
@@ -85,8 +95,9 @@ export function Watchlist() {
         onReorder={order.reorder}
         renderRow={(w) => (
           <>
-            <span className="font-medium">{w.symbol}</span>
+            <span className={`font-medium ${toneClass(moveTone(moveOf(w.symbol)))}`.trim()}>{w.symbol}</span>
             <span className="min-w-0 flex-1 truncate text-sm text-muted">{w.name}</span>
+            {showAtr && <MoveCells symbol={w.symbol} move={moveOf(w.symbol)} />}
             {editing && confirming !== w.symbol && <Button className="shrink-0 whitespace-nowrap" onClick={() => setConfirming(w.symbol)}>Remove</Button>}
             {editing && confirming === w.symbol && (
               <Button variant="danger" className="shrink-0 whitespace-nowrap" aria-label="Confirm remove" onClick={() => remove.mutate(w.symbol)}>

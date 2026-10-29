@@ -8,8 +8,9 @@ import { AppModule } from './app.module.js';
 import { ensureDatabaseReady } from './database/startup.js';
 import { YahooClient } from './market-data/yahoo.client.js';
 import { LlmClient } from './llm/llm.client.js';
-import { yahooStub, STUB_EARNINGS } from '../test/yahoo-stub.js';
+import { yahooStub, STUB_EARNINGS, STUB_BARS, STUB_QUOTES } from '../test/yahoo-stub.js';
 import { etWeek } from './earnings/week.js';
+import { currentSession, previousTradingDay } from './market-data/session.js';
 
 /**
  * The API, for browser tests only.
@@ -36,6 +37,21 @@ async function bootstrap() {
   const { days } = etWeek(new Date());
   STUB_EARNINGS.AMD = { at: `${days[1]}T11:00:00Z`, estimated: false };
   STUB_EARNINGS.SMCI = { at: `${days[3]}T21:00:00Z`, estimated: true };
+
+  // ATR columns: 25 flat-ish completed sessions (close 100, range 99-101, so
+  // ATR% is 2.0) walked back from the current session through the real
+  // trading calendar, plus a final session bar and a matching quote. That
+  // makes the numbers identical whether the suite runs mid-session, after the
+  // close, or on a weekend: NVDA +5.0% (green), AMD -3.0% (red).
+  const { asOf } = currentSession(new Date());
+  const history: string[] = [];
+  for (let d = previousTradingDay(asOf); history.length < 25; d = previousTradingDay(d)) history.unshift(d);
+  const flat = history.map((date) => ({ date, open: 100, high: 101, low: 99, close: 100 }));
+  const lastBar = (close: number) => ({ date: asOf, open: 100, high: Math.max(100, close) + 1, low: Math.min(100, close) - 1, close });
+  STUB_BARS.NVDA = [...flat, lastBar(105)];
+  STUB_BARS.AMD = [...flat, lastBar(97)];
+  STUB_QUOTES.NVDA = { price: 105, previousClose: 100 };
+  STUB_QUOTES.AMD = { price: 97, previousClose: 100 };
 
   /**
    * Built through the testing module, which is the ONLY way to substitute a

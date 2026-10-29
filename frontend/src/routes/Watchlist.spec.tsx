@@ -157,3 +157,22 @@ it('puts the rows back and says why when saving the order fails', async () => {
   expect(await screen.findByText('Unknown symbol in order: LMND')).toBeInTheDocument();
   await waitFor(() => expect(symbols()).toEqual(['LMND', 'TSLA']));
 });
+
+it('Show ATR adds the columns on the watchlist and is remembered', async () => {
+  window.localStorage.clear();
+  vi.mocked(api).mockImplementation((path: string) =>
+    Promise.resolve(
+      path.startsWith('/market/moves')
+        ? [{ symbol: 'NVDA', atrPercent: 3, movePercent: -3.5, live: true, asOf: '2026-10-29' }]
+        : [{ symbol: 'NVDA', name: 'Nvidia' }],
+    ),
+  );
+  renderIt();
+  await screen.findByTestId('watch-NVDA');
+  expect(vi.mocked(api).mock.calls.some(([p]) => String(p).startsWith('/market/moves'))).toBe(false);
+  await userEvent.click(screen.getByRole('button', { name: 'Show ATR' }));
+  expect(await screen.findByTestId('today-NVDA')).toHaveTextContent('−3.5%');
+  expect(screen.getByTestId('today-NVDA')).toHaveClass('text-down');
+  expect(screen.getByText('Today')).toBeInTheDocument();
+  expect(window.localStorage.getItem('trader.watchlist.atr.v1')).toContain('true');
+});

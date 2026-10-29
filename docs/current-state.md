@@ -25,8 +25,10 @@ plus Login:
   tickers at once (spaces, commas or semicolons; list numbering is ignored) and
   shows a one-line summary of what was added; remove uses edit mode plus a
   second tap. In edit mode each row has a drag handle (`≡`); the order is saved
-  on the server per user and new items go last.
-- **Watchlist** (`/watchlist`). Symbols only; bulk add like Holdings, drag to reorder, and remove (limit 50).
+  on the server per user and new items go last. A `Show ATR` button (remembered
+  on the device) adds ATR% and today's move columns from `/api/market/moves`;
+  the move is coloured only when it is bigger than the ATR.
+- **Watchlist** (`/watchlist`). Symbols only; bulk add like Holdings, drag to reorder, and remove (limit 50). Has the same `Show ATR` columns.
 - **Earnings** (`/earnings`). This week's (Mon-Fri) reports for holdings and
   watchlist as a five-column calendar: timing icon, holding/watchlist mark,
   `~` when the date is an estimate. A Both/Holdings/Watchlist filter, and a
