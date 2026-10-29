@@ -147,7 +147,16 @@ test.describe('the Know tab', () => {
       expect(b.x + b.width).toBeLessThanOrEqual(canvas.x + canvas.width + 1);
       expect(b.y + b.height).toBeLessThanOrEqual(canvas.y + canvas.height + 1);
     }
-    await page.screenshot({ path: '.superpowers/sdd/2026-10-29-knowledge-graph/task-3-fix-starter.png' });
+    const labels = page.getByTestId('kg-edge-label');
+    expect(await labels.count()).toBe(6);
+    const rects = (await labels.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON()))) as { x: number; y: number; width: number; height: number }[];
+    for (let i = 0; i < rects.length; i++)
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i], b = rects[j];
+        const overlap = a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+        expect(overlap).toBe(false);
+      }
+    await page.screenshot({ path: '.superpowers/sdd/2026-10-29-knowledge-graph/task-4-polish-starter.png' });
   });
 
   test('a newly selected neighbour opens its sheet at the top', async ({ page }) => {

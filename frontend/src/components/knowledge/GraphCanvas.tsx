@@ -1,6 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Background,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
   Handle,
   Position,
   ReactFlow,
@@ -9,6 +12,7 @@ import {
   useReactFlow,
   type ReactFlowInstance,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeProps,
 } from '@xyflow/react';
@@ -23,7 +27,7 @@ function KgNode({ id, data, selected }: NodeProps<Node<KgData>>) {
   return (
     <div
       data-testid={`kg-node-${id}`}
-      className={`max-w-[160px] rounded-lg border bg-surface-1 px-2 py-1.5 text-center text-[13px] leading-tight ${
+      className={`flex max-w-[160px] items-center justify-center rounded-lg border bg-surface-1 px-2 py-1.5 text-center text-[13px] leading-tight ${
         data.isNew ? 'border-accent ring-2 ring-accent' : 'border-border'
       } ${selected ? 'bg-accent/15' : ''}`}
       style={{ width: NODE_WIDTH, minHeight: NODE_HEIGHT }}
@@ -40,7 +44,29 @@ function KgNode({ id, data, selected }: NodeProps<Node<KgData>>) {
   );
 }
 
+/** Bezier edge whose label sits just before the child, so sibling labels never share a spot. */
+function KgEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label }: EdgeProps) {
+  const [path] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  return (
+    <>
+      <BaseEdge id={id} path={path} />
+      {label && (
+        <EdgeLabelRenderer>
+          <div
+            data-testid="kg-edge-label"
+            className="nodrag nopan pointer-events-none absolute max-w-[110px] truncate rounded bg-surface-0 px-1 text-[10px] text-text"
+            style={{ transform: `translate(-100%, -50%) translate(${targetX - 6}px, ${targetY}px)` }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
 const nodeTypes = { kg: KgNode };
+const edgeTypes = { kg: KgEdge };
 
 function Inner({
   nodes,
@@ -76,8 +102,7 @@ function Inner({
         source: e.from,
         target: e.to,
         label: e.label,
-        type: 'smoothstep',
-        labelStyle: { fontSize: 10 },
+        type: 'kg',
       })),
     [edges],
   );
@@ -144,6 +169,7 @@ function Inner({
         nodes={flowNodes}
         edges={flowEdges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onInit={initialView}
         minZoom={0.1}
         panOnDrag
