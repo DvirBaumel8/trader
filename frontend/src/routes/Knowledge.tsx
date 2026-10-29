@@ -46,7 +46,7 @@ export function Knowledge() {
               className="flex items-center gap-3 py-3"
             >
               <span className="w-20 font-medium">{r.symbol}</span>
-              {r.hasNew && <span aria-label="new" className="h-2 w-2 rounded-full bg-accent" />}
+              {r.hasNew && <span role="img" aria-label="new" className="h-2 w-2 rounded-full bg-accent" />}
               <span className="ml-auto text-sm text-muted">
                 {r.nodeCount} {r.nodeCount === 1 ? 'node' : 'nodes'}
               </span>

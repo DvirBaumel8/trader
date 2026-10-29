@@ -1,3 +1,4 @@
+import { useEffect, type Ref } from 'react';
 import type { KnowledgeNode } from '../../api/knowledge';
 import { etDate } from '../../lib/dates';
 
@@ -11,18 +12,28 @@ export function NodeSheet({
   neighbours,
   onSelect,
   onClose,
+  sheetRef,
 }: {
   node: KnowledgeNode;
   neighbours: Neighbour[];
   onSelect: (id: string) => void;
   onClose: () => void;
+  sheetRef?: Ref<HTMLDivElement>;
 }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
     <div
+      ref={sheetRef}
       data-testid="kg-sheet"
       role="dialog"
       aria-label={node.title}
       className="fixed inset-x-0 bottom-0 z-20 mx-auto max-h-[70dvh] max-w-3xl space-y-3 overflow-y-auto rounded-t-2xl border border-border bg-surface-1 p-4 shadow-2xl"
+      style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
     >
       <div className="flex items-start gap-2">
         <h2 className="flex-1 text-base font-semibold">{node.title}</h2>

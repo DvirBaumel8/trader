@@ -18,15 +18,16 @@ it('positions every node', () => {
   }
 });
 
-it('puts summary at the top and children below their parent', () => {
+it('puts summary at the left and children to the right of their parent', () => {
   const pos = layoutGraph(nodes, edges);
-  const ys = Object.values(pos).map((p) => p.y);
-  expect(pos.summary.y).toBe(Math.min(...ys));
-  expect(pos.a.y).toBeGreaterThan(pos.summary.y);
-  expect(pos.a1.y).toBeGreaterThan(pos.a.y);
+  const xs = Object.values(pos).map((p) => p.x);
+  expect(pos.summary.x).toBe(Math.min(...xs));
+  expect(pos.a.x).toBeGreaterThan(pos.summary.x);
+  expect(pos.a1.x).toBeGreaterThan(pos.a.x);
 });
 
-it('does not overlap siblings', () => {
+it('stacks siblings vertically without overlap', () => {
   const pos = layoutGraph(nodes, edges);
-  expect(Math.abs(pos.a1.x - pos.a2.x)).toBeGreaterThanOrEqual(160 + 24);
+  expect(pos.a1.x).toBe(pos.a2.x);
+  expect(Math.abs(pos.a1.y - pos.a2.y)).toBeGreaterThanOrEqual(44 + 24);
 });

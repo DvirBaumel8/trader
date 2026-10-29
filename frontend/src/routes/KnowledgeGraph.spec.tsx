@@ -170,3 +170,23 @@ it('shows an error', async () => {
   renderIt();
   expect(await screen.findByText('Couldn’t load this graph right now.')).toBeInTheDocument();
 });
+
+it('closes the sheet on Escape', async () => {
+  mockApi(graph(null));
+  renderIt();
+  await userEvent.click(await screen.findByRole('button', { name: 'CEO' }));
+  expect(screen.getByTestId('kg-sheet')).toBeInTheDocument();
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByTestId('kg-sheet')).not.toBeInTheDocument();
+});
+
+it('lists a neighbour once even when edges run both ways', async () => {
+  const g = graph(null);
+  g.edges.push({ from: 'ceo', to: 'summary', label: 'Reports to' });
+  mockApi(g);
+  renderIt();
+  await userEvent.click(await screen.findByRole('button', { name: 'CEO' }));
+  const sheet = screen.getByTestId('kg-sheet');
+  expect(within(sheet).getAllByRole('button', { name: /Summary/ })).toHaveLength(1);
+  expect(within(sheet).getByRole('button', { name: /Leadership \/ Reports to/ })).toBeInTheDocument();
+});
