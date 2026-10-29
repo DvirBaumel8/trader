@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ApiKeysService, hashApiKey } from './api-keys.service.js';
+import { hashApiKey } from './api-key-format.js';
+import { ApiKeysService } from './api-keys.service.js';
 
 function setup() {
   const rows: Array<{ id: string; userId: string; name: string; keyHash: string; lastUsedAt: Date | null }> = [];

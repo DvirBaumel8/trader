@@ -9,7 +9,7 @@ export class ApiKey {
   @Column('uuid')
   userId: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   name: string;
 
   @Column({ type: 'varchar', unique: true })

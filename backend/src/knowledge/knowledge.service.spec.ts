@@ -16,7 +16,7 @@ function setup(userId = 'u1') {
   const graphs: KnowledgeGraph[] = [];
   const versions: KnowledgeVersion[] = [];
   let seq = 0;
-  const table = (entity: unknown) => (entity === KnowledgeGraph ? graphs : versions) as Array<Record<string, unknown>>;
+  const table = (entity: unknown) => (entity === KnowledgeGraph ? graphs : versions) as unknown as Array<Record<string, unknown>>;
   const matches = (row: Record<string, unknown>, where: Record<string, unknown>) =>
     Object.entries(where).every(([k, v]) => row[k] === v);
   const repo = (rows: Array<Record<string, unknown>>) => ({
@@ -48,8 +48,8 @@ function setup(userId = 'u1') {
   };
   const users = { currentUser: async () => ({ id: userId }) };
   const service = new KnowledgeService(
-    repo(graphs) as never,
-    repo(versions) as never,
+    repo(graphs as unknown as Array<Record<string, unknown>>) as never,
+    repo(versions as unknown as Array<Record<string, unknown>>) as never,
     dataSource as never,
     instruments as never,
     users as never,

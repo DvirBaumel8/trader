@@ -1,20 +1,8 @@
-import { createHash, randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApiKey } from './api-key.entity.js';
-
-export const API_KEY_PREFIX = 'kb_';
-
-export function hashApiKey(key: string): string {
-  return createHash('sha256').update(key).digest('hex');
-}
-
-/** A fresh random key and the hash that gets stored. The one place keys are made. */
-export function newApiKey(): { key: string; keyHash: string } {
-  const key = API_KEY_PREFIX + randomBytes(32).toString('base64url');
-  return { key, keyHash: hashApiKey(key) };
-}
+import { API_KEY_PREFIX, hashApiKey, newApiKey } from './api-key-format.js';
 
 @Injectable()
 export class ApiKeysService {

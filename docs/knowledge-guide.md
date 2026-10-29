@@ -89,6 +89,8 @@ kb history NVDA      kb revert NVDA <version>      kb delete NVDA
 kb pull NVDA file.json      kb push NVDA file.json -m "message"
 ```
 
+A value that starts with a dash must be written with an equals sign: `--text="-3% yoy"`.
+
 Writes print `NVDA v3 · add ceo` and the changed node. A `409` ("changed since it was read") means run the command again. Use `-m` for a useful message (1 to 120 characters); otherwise a default like `add ceo` is used.
 
 ## Keys and privacy

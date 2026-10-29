@@ -1,7 +1,6 @@
 // Usage: tsx src/database/create-api-key.ts <email> <name>
 // Prints a new API key for the user once; only its hash is stored.
-import dataSource from './data-source.js';
-import { newApiKey } from '../users/api-keys.service.js';
+import { newApiKey } from '../users/api-key-format.js';
 
 async function main(): Promise<void> {
   const [emailArg, name] = process.argv.slice(2);
@@ -9,6 +8,7 @@ async function main(): Promise<void> {
     console.error('Usage: create-api-key <email> <name>');
     process.exit(1);
   }
+  const { default: dataSource } = await import('./data-source.js');
   const email = emailArg.trim().toLowerCase();
   await dataSource.initialize();
   try {

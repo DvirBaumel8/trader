@@ -8,7 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { IS_PUBLIC_KEY } from './public.decorator.js';
 import { ALLOW_API_KEY } from './allow-api-key.decorator.js';
-import { API_KEY_PREFIX } from '../users/api-keys.service.js';
+import { API_KEY_PREFIX } from '../users/api-key-format.js';
 import { currentUserId } from '../users/user-context.js';
 
 @Injectable()

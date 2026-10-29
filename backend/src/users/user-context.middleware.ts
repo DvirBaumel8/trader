@@ -2,7 +2,8 @@ import { Injectable, NestMiddleware } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { NextFunction, Request, Response } from 'express';
 import { userContext } from './user-context.js';
-import { API_KEY_PREFIX, ApiKeysService } from './api-keys.service.js';
+import { API_KEY_PREFIX } from './api-key-format.js';
+import { ApiKeysService } from './api-keys.service.js';
 
 /**
  * Puts the authenticated user's id where the services can find it.
