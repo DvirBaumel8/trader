@@ -1,10 +1,12 @@
 import 'dotenv/config';
 import { Test } from '@nestjs/testing';
 import { ValidationPipe } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import express from 'express';
 import { AppModule } from './app.module.js';
+import { JSON_BODY_LIMIT } from './body-limit.js';
 import { ensureDatabaseReady } from './database/startup.js';
 import { YahooClient } from './market-data/yahoo.client.js';
 import { LlmClient } from './llm/llm.client.js';
@@ -78,7 +80,8 @@ async function bootstrap() {
       },
     })
     .compile();
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
   // The same /api rewrite and static serving main.ts does, so the browser

@@ -60,8 +60,9 @@ export function validateGraph(g: GraphInput): string[] {
       errors.push(`node "${String(n.id)}": invalid id (lower-case letters, digits and dashes, up to 40 characters)`);
     } else if (ids.has(n.id)) {
       errors.push(`duplicate node id "${n.id}"`);
+    } else {
+      ids.add(n.id);
     }
-    ids.add(n.id);
 
     const where = `node ${n.id}`;
     const isFundamentals = n.type === 'fundamentals';
@@ -115,7 +116,7 @@ export function validateGraph(g: GraphInput): string[] {
   }
 
   if (ids.has(ROOT_ID)) {
-    const reachable = reachableFromRoot(g.nodes, g.edges);
+    const reachable = reachableFromRoot(g.nodes.filter((n) => ids.has(n.id)), g.edges);
     for (const id of ids) {
       if (!reachable.has(id)) errors.push(`node ${id}: not reachable from "${ROOT_ID}"`);
     }

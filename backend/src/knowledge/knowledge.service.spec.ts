@@ -69,6 +69,15 @@ describe('KnowledgeService', () => {
     expect(looked).toEqual(['NVDA']);
   });
 
+  it('caps the 400 message at 20 problems and says how many more', async () => {
+    const { service } = setup();
+    const ids = Array.from({ length: 25 }, (_, i) => `n${i}`);
+    const bad = { nodes: [node('summary')], edges: ids.map((id) => ({ from: 'summary', to: id, label: 'x' })) };
+    await expect(service.put('NVDA', 0, 'x', bad)).rejects.toMatchObject({
+      response: { message: expect.stringMatching(/^(edge [^;]+; ){19}edge [^;]+; and 5 more$/) },
+    });
+  });
+
   it('rejects an unknown ticker and saves nothing', async () => {
     const { service, graphs } = setup();
     await expect(service.put('ZZZZ1', 0, 'x', graphOf())).rejects.toBeInstanceOf(NotFoundException);
@@ -95,7 +104,7 @@ describe('KnowledgeService', () => {
     expect(versions).toHaveLength(2);
   });
 
-  it('409s when creating over a graph that exists, and for a non-zero base with no graph', async () => {
+  it('409s on a non-zero base version when no graph exists', async () => {
     const { service } = setup();
     await expect(service.put('NVDA', 3, 'x', graphOf())).rejects.toBeInstanceOf(ConflictException);
   });

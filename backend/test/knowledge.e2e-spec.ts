@@ -122,6 +122,16 @@ describe('Knowledge (e2e)', () => {
     expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
   });
 
+  it('lets only one of two concurrent edits from the same version win', async () => {
+    await put('NVDA', 0, graph()).expect(200);
+    const results = await Promise.all([put('NVDA', 1, graph('a')), put('NVDA', 1, graph('b'))]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    const winner = results.find((r) => r.status === 200)!;
+    const got = (await http(app, token).get('/knowledge/NVDA').expect(200)).body;
+    expect(got.version).toBe(2);
+    expect(got.nodes.map((n: { id: string }) => n.id)).toEqual(winner.body.nodes.map((n: { id: string }) => n.id));
+  });
+
   it('rejects an invalid graph with a message naming the problem', async () => {
     const bad = { nodes: [node('summary'), node('revenue')], edges: [{ from: 'summary', to: 'revenue', label: 'x' }, { from: 'revenue', to: 'gaming', label: 'x' }] };
     const res = await put('NVDA', 0, bad).expect(400);

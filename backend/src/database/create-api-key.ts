@@ -1,7 +1,7 @@
 // Usage: tsx src/database/create-api-key.ts <email> <name>
 // Prints a new API key for the user once; only its hash is stored.
-import { createHash, randomBytes } from 'node:crypto';
 import dataSource from './data-source.js';
+import { newApiKey } from '../users/api-keys.service.js';
 
 async function main(): Promise<void> {
   const [emailArg, name] = process.argv.slice(2);
@@ -21,8 +21,7 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const key = 'kb_' + randomBytes(32).toString('base64url');
-    const keyHash = createHash('sha256').update(key).digest('hex');
+    const { key, keyHash } = newApiKey();
     await dataSource.query('INSERT INTO api_keys ("userId", name, "keyHash") VALUES ($1, $2, $3)', [
       users[0].id,
       name,

@@ -10,14 +10,20 @@ export function hashApiKey(key: string): string {
   return createHash('sha256').update(key).digest('hex');
 }
 
+/** A fresh random key and the hash that gets stored. The one place keys are made. */
+export function newApiKey(): { key: string; keyHash: string } {
+  const key = API_KEY_PREFIX + randomBytes(32).toString('base64url');
+  return { key, keyHash: hashApiKey(key) };
+}
+
 @Injectable()
 export class ApiKeysService {
   constructor(@InjectRepository(ApiKey) private readonly keys: Repository<ApiKey>) {}
 
   /** Returns the plaintext key; it is never stored and cannot be shown again. */
   async create(userId: string, name: string): Promise<string> {
-    const key = API_KEY_PREFIX + randomBytes(32).toString('base64url');
-    await this.keys.save(this.keys.create({ userId, name, keyHash: hashApiKey(key), lastUsedAt: null }));
+    const { key, keyHash } = newApiKey();
+    await this.keys.save(this.keys.create({ userId, name, keyHash, lastUsedAt: null }));
     return key;
   }
 

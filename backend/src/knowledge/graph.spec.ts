@@ -44,6 +44,13 @@ describe('validateGraph', () => {
     }
   });
 
+  it('does not let an invalid id take part in edges or reachability', () => {
+    const g = { nodes: [node('summary'), node('Bad')], edges: [edge('summary', 'Bad')] };
+    const errors = validateGraph(g);
+    expect(errors).toContain('edge summary→Bad: unknown node "Bad"');
+    expect(errors.join('|')).toContain('invalid id');
+  });
+
   it('enforces text field lengths', () => {
     const cases: [Partial<NodeInput>, string][] = [
       [{ title: '' }, 'title'],

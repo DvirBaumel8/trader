@@ -40,8 +40,12 @@ function view(g: KnowledgeGraph): GraphView {
   };
 }
 
+const MAX_REPORTED_PROBLEMS = 20;
+
 function problems(errors: string[]): never {
-  throw new BadRequestException({ message: errors.join('; ') });
+  const shown = errors.slice(0, MAX_REPORTED_PROBLEMS).join('; ');
+  const more = errors.length - MAX_REPORTED_PROBLEMS;
+  throw new BadRequestException({ message: more > 0 ? `${shown}; and ${more} more` : shown });
 }
 
 @Injectable()
