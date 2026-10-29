@@ -48,7 +48,7 @@ function Screen({ symbol }: { symbol: string }) {
       {data === null && (
         <p className="text-sm text-muted">No knowledge on {symbol} yet — ask Claude to start it.</p>
       )}
-      {data && <GraphCanvas nodes={data.nodes} edges={data.edges} newIds={newIds} />}
+      {data && <GraphCanvas symbol={symbol} nodes={data.nodes} edges={data.edges} newIds={newIds} />}
     </section>
   );
 }

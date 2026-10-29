@@ -28,6 +28,34 @@ export interface RegularQuote {
   previousClose: number;
 }
 
+/** Quarterly fundamentals as Yahoo reports them; shaped for display by knowledge/fundamentals.ts. */
+export interface RawFundamentals {
+  quoteType: string | null;
+  currency: string | null;
+  /** earnings.earningsChart.quarterly; dates are YYYY-MM-DD / ISO strings. */
+  epsQuarters: { periodEnd: string; fiscalQuarter: string | null; actual: number | null; reportedAt: string | null }[];
+  cash: number | null;
+  debt: number | null;
+  /** fundamentalsTimeSeries quarterly, oldest first. */
+  series: { periodEnd: string; revenue: number | null; fcf: number | null }[];
+}
+
+interface FundamentalsSummaryLike {
+  price?: { quoteType?: unknown; currency?: unknown };
+  financialData?: { totalCash?: unknown; totalDebt?: unknown };
+  earnings?: {
+    earningsChart?: {
+      quarterly?: {
+        date?: unknown;
+        actual?: unknown;
+        fiscalQuarter?: unknown;
+        periodEndDate?: unknown;
+        reportedDate?: unknown;
+      }[];
+    };
+  };
+}
+
 interface QuoteLike {
   regularMarketPrice?: unknown;
   regularMarketPreviousClose?: unknown;
@@ -143,5 +171,69 @@ export class YahooClient {
     if (typeof price !== 'number' || !Number.isFinite(price)) return null;
     if (typeof previousClose !== 'number' || !Number.isFinite(previousClose)) return null;
     return { price, previousClose };
+  }
+
+  /**
+   * Quarterly actuals, cash and debt for a company. Anything that is not an
+   * EQUITY comes back with only `quoteType` set. Throws on provider failure.
+   */
+  async fundamentals(symbol: string): Promise<RawFundamentals> {
+    const empty: RawFundamentals = { quoteType: null, currency: null, epsQuarters: [], cash: null, debt: null, series: [] };
+    let summary: FundamentalsSummaryLike | undefined;
+    try {
+      summary = (await this.yf.quoteSummary(symbol, {
+        modules: ['earnings', 'financialData', 'price'],
+      })) as FundamentalsSummaryLike | undefined;
+    } catch (err) {
+      // Same "not a company" answer as nextEarnings gives for ETFs.
+      if (err instanceof Error && err.message.includes('No fundamentals data found')) return empty;
+      throw err;
+    }
+    const quoteType = typeof summary?.price?.quoteType === 'string' ? summary.price.quoteType : null;
+    const currency = typeof summary?.price?.currency === 'string' ? summary.price.currency : null;
+    if (quoteType !== 'EQUITY') return { ...empty, quoteType, currency };
+
+    const finite = (n: unknown): number | null => (typeof n === 'number' && Number.isFinite(n) ? n : null);
+    const day = (d: unknown): string | null => {
+      const t = d instanceof Date ? d : typeof d === 'string' ? new Date(d) : null;
+      return t && !Number.isNaN(t.getTime()) ? t.toISOString().slice(0, 10) : null;
+    };
+
+    const epsQuarters: RawFundamentals['epsQuarters'] = [];
+    for (const q of summary?.earnings?.earningsChart?.quarterly ?? []) {
+      const periodEnd = day(q.periodEndDate);
+      if (!periodEnd) continue;
+      const reported = q.reportedDate instanceof Date ? q.reportedDate : null;
+      epsQuarters.push({
+        periodEnd,
+        fiscalQuarter: typeof q.fiscalQuarter === 'string' ? q.fiscalQuarter : null,
+        actual: finite(q.actual),
+        reportedAt: reported && !Number.isNaN(reported.getTime()) ? reported.toISOString() : null,
+      });
+    }
+
+    const since = new Date();
+    since.setUTCMonth(since.getUTCMonth() - 30);
+    const items = (await this.yf.fundamentalsTimeSeries(symbol, {
+      period1: since,
+      type: 'quarterly',
+      module: 'all',
+    })) as unknown as { date?: unknown; totalRevenue?: unknown; freeCashFlow?: unknown }[];
+    const series: RawFundamentals['series'] = [];
+    for (const it of items ?? []) {
+      const periodEnd = day(it.date);
+      if (!periodEnd) continue;
+      series.push({ periodEnd, revenue: finite(it.totalRevenue), fcf: finite(it.freeCashFlow) });
+    }
+    series.sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+
+    return {
+      quoteType,
+      currency,
+      epsQuarters,
+      cash: finite(summary?.financialData?.totalCash),
+      debt: finite(summary?.financialData?.totalDebt),
+      series,
+    };
   }
 }

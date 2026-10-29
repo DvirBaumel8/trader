@@ -71,10 +71,12 @@ const nodeTypes = { kg: KgNode };
 const edgeTypes = { kg: KgEdge };
 
 function Inner({
+  symbol,
   nodes,
   edges,
   newIds,
 }: {
+  symbol: string;
   nodes: KnowledgeNode[];
   edges: KnowledgeEdge[];
   newIds: Set<string>;
@@ -199,6 +201,7 @@ function Inner({
         <NodeSheet
           key={selected.id}
           sheetRef={sheetRef}
+          symbol={symbol}
           node={selected}
           neighbours={neighbours}
           onSelect={selectAndCentre}
@@ -209,7 +212,7 @@ function Inner({
   );
 }
 
-export function GraphCanvas(props: { nodes: KnowledgeNode[]; edges: KnowledgeEdge[]; newIds: Set<string> }) {
+export function GraphCanvas(props: { symbol: string; nodes: KnowledgeNode[]; edges: KnowledgeEdge[]; newIds: Set<string> }) {
   return (
     <ReactFlowProvider>
       <Inner {...props} />

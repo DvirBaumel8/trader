@@ -1,6 +1,7 @@
 import { useEffect, type Ref } from 'react';
 import type { KnowledgeNode } from '../../api/knowledge';
 import { etDate } from '../../lib/dates';
+import { FundamentalsTable } from './FundamentalsTable';
 
 export interface Neighbour {
   node: KnowledgeNode;
@@ -8,12 +9,14 @@ export interface Neighbour {
 }
 
 export function NodeSheet({
+  symbol,
   node,
   neighbours,
   onSelect,
   onClose,
   sheetRef,
 }: {
+  symbol: string;
   node: KnowledgeNode;
   neighbours: Neighbour[];
   onSelect: (id: string) => void;
@@ -48,6 +51,7 @@ export function NodeSheet({
       </div>
       {node.question && <p className="text-sm text-muted">Q: {node.question}</p>}
       {node.asOf && <p className="text-xs text-muted">As of {node.asOf}</p>}
+      {node.type === 'fundamentals' && <FundamentalsTable symbol={symbol} />}
       {node.text && <p className="whitespace-pre-line text-sm">{node.text}</p>}
       {node.sources && node.sources.length > 0 && (
         <ul className="space-y-1 text-sm">

@@ -9,8 +9,10 @@ import { AppModule } from './app.module.js';
 import { JSON_BODY_LIMIT } from './body-limit.js';
 import { ensureDatabaseReady } from './database/startup.js';
 import { YahooClient } from './market-data/yahoo.client.js';
+import { AlphaVantageClient } from './market-data/alpha-vantage.client.js';
 import { LlmClient } from './llm/llm.client.js';
-import { yahooStub, STUB_EARNINGS, STUB_BARS, STUB_QUOTES } from '../test/yahoo-stub.js';
+import { yahooStub, STUB_EARNINGS, STUB_BARS, STUB_QUOTES, STUB_FUNDAMENTALS } from '../test/yahoo-stub.js';
+import { alphaVantageStub, STUB_ESTIMATES } from '../test/alpha-vantage-stub.js';
 import { etWeek } from './earnings/week.js';
 import { currentSession, previousTradingDay } from './market-data/session.js';
 
@@ -55,6 +57,36 @@ async function bootstrap() {
   STUB_QUOTES.NVDA = { price: 105, previousClose: 100 };
   STUB_QUOTES.AMD = { price: 97, previousClose: 100 };
 
+  // Fundamentals for the Know-tab browser spec (NVDA-like, made-up numbers).
+  // Quarter ends are fixed past dates, so the table is the same every day.
+  const B = 1_000_000_000;
+  STUB_FUNDAMENTALS.NVDA = {
+    quoteType: 'EQUITY',
+    currency: 'USD',
+    epsQuarters: [
+      { periodEnd: '2025-10-31', fiscalQuarter: '3Q2026', actual: 1.3, reportedAt: '2025-11-19T21:20:00.000Z' },
+      { periodEnd: '2026-01-31', fiscalQuarter: '4Q2026', actual: 1.5, reportedAt: '2026-02-25T21:20:00.000Z' },
+      { periodEnd: '2026-04-30', fiscalQuarter: '1Q2027', actual: 1.9, reportedAt: '2026-05-27T20:20:00.000Z' },
+      { periodEnd: '2026-07-31', fiscalQuarter: '2Q2027', actual: 2.22, reportedAt: '2026-08-26T20:20:00.000Z' },
+    ],
+    cash: 62.5 * B,
+    debt: 38.9 * B,
+    series: [
+      { periodEnd: '2025-07-31', revenue: 46.7 * B, fcf: 13 * B },
+      { periodEnd: '2025-10-31', revenue: 57 * B, fcf: 22 * B },
+      { periodEnd: '2026-01-31', revenue: 68 * B, fcf: 34 * B },
+      { periodEnd: '2026-04-30', revenue: 80 * B, fcf: 40 * B },
+      { periodEnd: '2026-07-31', revenue: 96.2 * B, fcf: 45.1 * B },
+    ],
+  };
+  STUB_ESTIMATES.NVDA = [
+    { periodEnd: '2025-10-31', epsEstimate: 1.25, revenueEstimate: 57.5 * B },
+    { periodEnd: '2026-01-31', epsEstimate: 1.5, revenueEstimate: 66 * B },
+    { periodEnd: '2026-04-30', epsEstimate: 1.95, revenueEstimate: 81 * B },
+    { periodEnd: '2026-07-31', epsEstimate: 2.0916, revenueEstimate: 92.18 * B },
+    { periodEnd: '2026-10-31', epsEstimate: 2.47, revenueEstimate: 109 * B },
+  ];
+
   /**
    * Built through the testing module, which is the ONLY way to substitute a
    * provider in a real server process — `NestFactory.create` has no
@@ -66,6 +98,8 @@ async function bootstrap() {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(YahooClient)
     .useValue(yahooStub())
+    .overrideProvider(AlphaVantageClient)
+    .useValue(alphaVantageStub())
     // No real model in browser tests: map the few messages the specs send to
     // the router's JSON, and everything else to "none" (a prompt).
     .overrideProvider(LlmClient)

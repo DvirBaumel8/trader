@@ -129,3 +129,74 @@ describe('YahooClient.quote', () => {
     await expect(client.quote('NVDA')).rejects.toThrow('429');
   });
 });
+
+describe('YahooClient.fundamentals', () => {
+  const summary = {
+    price: { quoteType: 'EQUITY', currency: 'USD' },
+    financialData: { totalCash: 62_500_000_000, totalDebt: 38_900_000_000 },
+    earnings: {
+      earningsChart: {
+        quarterly: [
+          { date: '2Q2026', actual: 2.22, estimate: 2.1, fiscalQuarter: '2Q2027', periodEndDate: new Date('2026-07-31T00:00:00Z'), reportedDate: new Date('2026-08-26T20:20:00Z') },
+          { date: '1Q2026', actual: null, periodEndDate: null },
+        ],
+      },
+    },
+  };
+  const items = [
+    { date: new Date('2026-07-31T00:00:00Z'), totalRevenue: 96_000_000_000, freeCashFlow: 20_000_000_000 },
+    { date: new Date('2026-04-30T00:00:00Z'), totalRevenue: 90_000_000_000, freeCashFlow: null },
+  ];
+
+  it('maps summary and series, oldest first', async () => {
+    let args: unknown;
+    const client = clientWith({
+      quoteSummary: async () => summary,
+      fundamentalsTimeSeries: async (_s: string, a: unknown) => {
+        args = a;
+        return items;
+      },
+    });
+    const raw = await client.fundamentals('NVDA');
+    expect(raw).toEqual({
+      quoteType: 'EQUITY',
+      currency: 'USD',
+      epsQuarters: [{ periodEnd: '2026-07-31', fiscalQuarter: '2Q2027', actual: 2.22, reportedAt: '2026-08-26T20:20:00.000Z' }],
+      cash: 62_500_000_000,
+      debt: 38_900_000_000,
+      series: [
+        { periodEnd: '2026-04-30', revenue: 90_000_000_000, fcf: null },
+        { periodEnd: '2026-07-31', revenue: 96_000_000_000, fcf: 20_000_000_000 },
+      ],
+    });
+    expect(args).toMatchObject({ type: 'quarterly', module: 'all' });
+  });
+
+  it('skips the time series for a non-company', async () => {
+    const client = clientWith({
+      quoteSummary: async () => ({ price: { quoteType: 'ETF', currency: 'USD' } }),
+      fundamentalsTimeSeries: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    expect(await client.fundamentals('QQQ')).toMatchObject({ quoteType: 'ETF', series: [], epsQuarters: [] });
+  });
+
+  it('treats "No fundamentals data found" as not a company', async () => {
+    const client = clientWith({
+      quoteSummary: async () => {
+        throw new Error('Quote not found: No fundamentals data found for symbol: QQQ');
+      },
+    });
+    expect((await client.fundamentals('QQQ')).quoteType).toBeNull();
+  });
+
+  it('throws on provider failure', async () => {
+    const client = clientWith({
+      quoteSummary: async () => {
+        throw new Error('429');
+      },
+    });
+    await expect(client.fundamentals('NVDA')).rejects.toThrow('429');
+  });
+});

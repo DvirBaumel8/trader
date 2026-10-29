@@ -1,3 +1,5 @@
+import type { RawFundamentals } from '../src/market-data/yahoo.client.js';
+
 /**
  * A deterministic stand-in for `YahooClient`, so no test reaches the network.
  *
@@ -19,6 +21,16 @@ export const STUB_BARS: Record<
 /** `quote` per symbol; unlisted symbols have none (null). */
 export const STUB_QUOTES: Record<string, { price: number; previousClose: number } | null> = {};
 
+/**
+ * `fundamentals` per symbol; `'fail'` makes the provider throw. Unlisted
+ * symbols are not companies (an ETF-shaped answer), so a new spec that forgets
+ * to list one gets the 404 path rather than the network.
+ */
+export const STUB_FUNDAMENTALS: Record<string, RawFundamentals | 'fail'> = {};
+
+/** How many times `fundamentals` was asked, per symbol; a spec resets it. */
+export const STUB_FUNDAMENTALS_CALLS: Record<string, number> = {};
+
 export function yahooStub() {
   return {
     lookup: async (symbol: string) => {
@@ -32,5 +44,12 @@ export function yahooStub() {
     },
     dailyBars: async (symbol: string, _from?: Date) => STUB_BARS[symbol.toUpperCase()] ?? [],
     quote: async (symbol: string) => STUB_QUOTES[symbol.toUpperCase()] ?? null,
+    fundamentals: async (symbol: string): Promise<RawFundamentals> => {
+      const upper = symbol.toUpperCase();
+      STUB_FUNDAMENTALS_CALLS[upper] = (STUB_FUNDAMENTALS_CALLS[upper] ?? 0) + 1;
+      const f = STUB_FUNDAMENTALS[upper];
+      if (f === 'fail') throw new Error('stubbed Yahoo failure');
+      return f ?? { quoteType: 'ETF', currency: 'USD', epsQuarters: [], cash: null, debt: null, series: [] };
+    },
   };
 }

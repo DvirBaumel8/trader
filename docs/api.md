@@ -70,6 +70,7 @@ Per-ticker knowledge graphs, private to the user. Accepts a login or an API key 
 |---|---|
 | `GET /knowledge` | `[{ symbol, nodeCount, updatedAt, hasNew }]`, most recently updated first; deleted graphs are left out. |
 | `GET /knowledge/:symbol` | `{ symbol, version, updatedAt, lastViewedAt, nodes, edges }`; 404 when there is none or it was deleted. |
+| `GET /knowledge/:symbol/fundamentals` | Live table for a company, shared cache refreshed once per ET day: `{ fetchedAt, currency, quarters[≤4, newest first: label, periodEnd, reportedAt, revenue, revenueEstimate, revenueSurprisePct, revenueYoY, eps, epsEstimate, epsSurprisePct, fcf], next, cash, debt, netCash }`; any field can be null (expectations come from Alpha Vantage and are null when it fails). 404 `NVDA is not a company` when not an `EQUITY`; 503 `Couldn't load the numbers right now.` when Yahoo fails with nothing cached (otherwise the last cached data is served). |
 | `POST /knowledge/:symbol/viewed` | Sets `lastViewedAt` to now -> `{ ok: true }`; 404 when none. |
 | `PUT /knowledge/:symbol` | `{ baseVersion, message, nodes, edges }` -> the graph as above. Creates it at `baseVersion: 0` (the ticker must pass the market-data lookup, else 404; it need not be on any list). Server-owned `createdAt`/`updatedAt` per node. 400 with `message` naming each problem, e.g. `edge revenue→gaming: unknown node "gaming"`. A `PUT` at the current version also un-deletes. |
 | `GET /knowledge/:symbol/versions` | `[{ version, message, createdAt }]`, newest first; also works for a deleted graph. |

@@ -230,3 +230,48 @@ test.describe('ticker shortcuts', () => {
     await expect(page.getByText('No knowledge on AMD yet — ask Claude to start it.')).toBeVisible();
   });
 });
+
+test.describe('live fundamentals', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/login');
+    await signUpAndSignIn(page, 'know-fund');
+    const g = buildStarter();
+    g.nodes.push({ id: 'fundamentals', title: 'Fundamentals', text: 'Made-up takeaway.', type: 'fundamentals' } as (typeof g.nodes)[number]);
+    g.edges.push({ from: 'summary', to: 'fundamentals', label: 'Numbers' });
+    await seed(page, 'NVDA', g);
+  });
+
+  test('the sheet shows the stubbed table without horizontal overflow', async ({ page }) => {
+    await page.goto('/knowledge/NVDA');
+    await page.getByTestId('kg-node-fundamentals').click();
+    const sheet = page.getByTestId('kg-sheet');
+    const table = sheet.getByTestId('fundamentals');
+    await expect(table).toBeVisible();
+    await expect(sheet.getByTestId('fundamentals-next')).toContainText('Q3 FY27');
+    await expect(sheet.getByTestId('fundamentals-next')).toContainText('$109.0B');
+    const row = sheet.getByTestId('fundamentals-q-2026-07-31');
+    await expect(row).toContainText('Q2 FY27');
+    await expect(row).toContainText('2.22');
+    await expect(row).toContainText('$96.2B');
+    await expect(row).toContainText('+106% YoY');
+    await expect(sheet.getByTestId('fundamentals-balance')).toContainText('Cash $62.5B · Debt $38.9B · Net cash $23.6B');
+    await expect(sheet).toContainText('Made-up takeaway.');
+    await expect(sheet).toContainText('expectations: Alpha Vantage');
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sheet.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    expect(await table.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    await page.screenshot({ path: '.superpowers/sdd/2026-10-29-knowledge-graph/task-5-fundamentals.png' });
+  });
+
+  test('a text node does not ask for fundamentals', async ({ page }) => {
+    let asked = false;
+    page.on('request', (r) => {
+      if (r.url().includes('/fundamentals')) asked = true;
+    });
+    await page.goto('/knowledge/NVDA');
+    await page.getByTestId('kg-node-ceo').click();
+    await expect(page.getByTestId('kg-sheet')).toContainText('Made-up CEO text.');
+    expect(asked).toBe(false);
+  });
+});

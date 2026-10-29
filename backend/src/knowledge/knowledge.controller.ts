@@ -1,12 +1,16 @@
 import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
 import { AllowApiKey } from '../auth/allow-api-key.decorator.js';
 import { DeleteGraphDto, PutGraphDto, RevertDto } from './dto.js';
+import { FundamentalsService } from './fundamentals.service.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 @AllowApiKey()
 @Controller('knowledge')
 export class KnowledgeController {
-  constructor(private readonly knowledge: KnowledgeService) {}
+  constructor(
+    private readonly knowledge: KnowledgeService,
+    private readonly fundamentals: FundamentalsService,
+  ) {}
 
   @Get()
   list() {
@@ -16,6 +20,11 @@ export class KnowledgeController {
   @Get(':symbol')
   get(@Param('symbol') symbol: string) {
     return this.knowledge.get(symbol);
+  }
+
+  @Get(':symbol/fundamentals')
+  fundamentalsFor(@Param('symbol') symbol: string) {
+    return this.fundamentals.get(symbol, new Date());
   }
 
   @Post(':symbol/viewed')

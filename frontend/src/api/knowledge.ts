@@ -37,6 +37,36 @@ export interface KnowledgeGraph {
   edges: KnowledgeEdge[];
 }
 
+export interface FundamentalsQuarter {
+  label: string;
+  periodEnd: string;
+  reportedAt: string | null;
+  revenue: number | null;
+  revenueEstimate: number | null;
+  revenueSurprisePct: number | null;
+  revenueYoY: number | null;
+  eps: number | null;
+  epsEstimate: number | null;
+  epsSurprisePct: number | null;
+  fcf: number | null;
+}
+export interface Fundamentals {
+  fetchedAt: string;
+  currency: string | null;
+  /** Newest first. */
+  quarters: FundamentalsQuarter[];
+  next: {
+    label: string | null;
+    periodEnd: string | null;
+    reportAt: string | null;
+    epsEstimate: number | null;
+    revenueEstimate: number | null;
+  } | null;
+  cash: number | null;
+  debt: number | null;
+  netCash: number | null;
+}
+
 export const KNOWLEDGE_KEY = ['knowledge'] as const;
 
 export function useKnowledgeList() {
@@ -82,4 +112,15 @@ export function useMarkViewed() {
 export function useKnowledgeSymbols(): Set<string> {
   const { data } = useKnowledgeList();
   return useMemo(() => new Set(Array.isArray(data) ? data.map((r) => r.symbol) : []), [data]);
+}
+
+/** The live numbers for a company; only fetched while a fundamentals node's sheet is open. */
+export function useFundamentals(symbol: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['fundamentals', symbol],
+    queryFn: () => api<Fundamentals>(`/knowledge/${encodeURIComponent(symbol)}/fundamentals`),
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
 }

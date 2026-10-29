@@ -50,7 +50,9 @@ Trader is a chat, a holdings list and a watchlist. It grows one case at a time.
   If revived, price selection must follow the market session and label
   pre-market or after-hours prices rather than presenting them as a close.
 - `backend/src/market-data/yahoo.client.ts` is the only Yahoo Finance import
-  boundary; it offers ticker lookup and next earnings date only.
+  boundary; it offers ticker lookup, next earnings date and quarterly fundamentals
+  (`fundamentals`). `backend/src/market-data/alpha-vantage.client.ts` is the
+  only Alpha Vantage boundary (analyst estimates).
 - Knowledge graphs are private to the owner: edit them only through `kb`, and
   never commit their content to the repo.
 - Schema changes require a TypeORM migration registered in
