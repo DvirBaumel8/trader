@@ -22,7 +22,9 @@ export function Holdings() {
   const [sort, setSort] = usePersistentState<SortState | null>('trader.holdings.sort.v1', null, Infinity);
   const moveOf = (sym: string) => moves.data?.find((m) => m.symbol === sym);
   const [confirming, setConfirming] = useState<string | null>(null);
-  const shownRows = sortRows(data ?? [], showAtr && !editing ? sort : null, moves.data);
+  // A saved ATR/Today sort waits for the numbers: until they arrive (or if they fail) the list stays in My order.
+  const activeSort = showAtr && !editing && sort && (sort.key === 'ticker' || moves.data) ? sort : null;
+  const shownRows = sortRows(data ?? [], activeSort, moves.data);
   const order = useListOrder<HoldingRow>(HOLDINGS_KEY, reorderHoldings);
   const refresh = () => queryClient.invalidateQueries({ queryKey: HOLDINGS_KEY });
 
@@ -86,7 +88,7 @@ export function Holdings() {
         <p className="text-sm text-muted">No holdings yet. Tell the chat “bought LMND”, or add one above.</p>
       )}
 
-      {showAtr && !editing && data && data.length > 0 && <MovesHeader moves={moves.data} sort={sort} onSort={(k) => setSort(nextSort(sort, k))} />}
+      {showAtr && !editing && data && data.length > 0 && <MovesHeader moves={moves.data} sort={activeSort} onSort={(k) => setSort(nextSort(sort, k))} />}
       <ReorderableList
         rows={shownRows}
         editing={editing}

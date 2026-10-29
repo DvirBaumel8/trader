@@ -226,7 +226,7 @@ it('sorts by Today with a tap cycle, never saves an order, resets on edit, and i
   await userEvent.click(await screen.findByRole('button', { name: 'Show ATR' }));
   await screen.findByTestId('today-CCC');
   const order = () => screen.getAllByTestId(/^watch-/).map((el) => el.getAttribute('data-testid')!.slice(6));
-  const header = () => screen.getByRole('button', { name: /^Today/ });
+  const header = () => screen.getByRole('button', { name: /^Sort by Today/ });
   expect(order()).toEqual(['AAA', 'BBB', 'CCC']);
   expect(header()).toHaveAttribute('aria-sort', 'none');
 
@@ -252,5 +252,28 @@ it('sorts by Today with a tap cycle, never saves an order, resets on edit, and i
   expect(screen.getAllByRole('button', { name: /^Reorder / })).toHaveLength(3);
   await userEvent.click(screen.getByRole('button', { name: 'Done editing' }));
   expect(order()).toEqual(['AAA', 'BBB', 'CCC']);
-  expect(vi.mocked(api).mock.calls.some(([, o]) => (o as { method?: string } | undefined)?.method === 'PUT' || String((o as { method?: string } | undefined)?.method) === 'POST')).toBe(false);
+  expect(vi.mocked(api).mock.calls.some(([, o]) => (o as { method?: string } | undefined)?.method === 'PUT' || (o as { method?: string } | undefined)?.method === 'POST' || (o as { method?: string } | undefined)?.method === 'DELETE')).toBe(false);
+});
+
+it('keeps My order and shows no arrow while a saved Today sort waits for its numbers', async () => {
+  window.localStorage.clear();
+  window.localStorage.setItem('trader.watchlist.atr.v1', JSON.stringify({ v: true, savedAt: Date.now() }));
+  window.localStorage.setItem('trader.watchlist.sort.v1', JSON.stringify({ v: { key: 'today', dir: 'desc' }, savedAt: Date.now() }));
+  let release: (v: unknown) => void = () => {};
+  vi.mocked(api).mockImplementation((path: string) =>
+    path.startsWith('/market/moves')
+      ? new Promise((r) => { release = r; })
+      : Promise.resolve([{ symbol: 'AAA', name: 'a' }, { symbol: 'CCC', name: 'c' }, { symbol: 'BBB', name: 'b' }]),
+  );
+  renderIt();
+  await screen.findByTestId('watch-AAA');
+  const order = () => screen.getAllByTestId(/^watch-/).map((el) => el.getAttribute('data-testid')!.slice(6));
+  expect(order()).toEqual(['AAA', 'CCC', 'BBB']);
+  expect(screen.getByRole('button', { name: 'Sort by Today' })).toHaveAttribute('aria-sort', 'none');
+  release([
+    { symbol: 'AAA', atrPercent: 2, movePercent: 1, live: true, asOf: null },
+    { symbol: 'BBB', atrPercent: 2, movePercent: 3, live: true, asOf: null },
+    { symbol: 'CCC', atrPercent: 2, movePercent: 2, live: true, asOf: null },
+  ]);
+  await waitFor(() => expect(order()).toEqual(['BBB', 'CCC', 'AAA']));
 });

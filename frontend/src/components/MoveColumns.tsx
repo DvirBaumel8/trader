@@ -55,7 +55,8 @@ function SortHeader({
       type="button"
       onClick={() => onSort?.(col)}
       aria-sort={active === 'asc' ? 'ascending' : active === 'desc' ? 'descending' : 'none'}
-      className={`${className} whitespace-nowrap ${active ? 'text-text' : ''}`}
+      aria-label={`Sort by ${label}${active ? `, ${active === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+      className={`${className} -my-2 py-2 ${active ? 'text-text' : ''}`}
     >
       <span>{label}</span>
       {active && <span aria-hidden="true"> {active === 'asc' ? '▲' : '▼'}</span>}
