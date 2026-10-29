@@ -25,11 +25,87 @@ Decisions from the conversation:
   - `text`: one short paragraph, plain text, up to 1,500 characters
   - `question` (optional): the owner's question that created it, e.g. "Who is the CEO?"
   - `sources` (optional): a list of `{ label, url }`
+  - `asOf` (optional): up to 40 characters, e.g. `Q2 FY2027`, for content that goes stale. It is shown as "As of …".
+  - `type` (optional): `text` (the default) or `fundamentals`. See [Live Fundamentals](#live-fundamentals). A fundamentals node may have empty `text`, which is then used as Claude's one-line takeaway under the numbers. A graph has at most one fundamentals node.
   - `createdAt`, `updatedAt`: set by the server
 - **The root node** has the id `summary`. It is the first paragraph, and every graph has one.
 - **An edge** is `{ from, to, label }`. The label is short, e.g. `CEO` or `How they make money`. Both ends must be nodes in the same graph, and no node is left unconnected from `summary`.
-- **One node type for now.** Typed nodes (a risk with a severity, for example) are added later, only when a real question needs one.
+- **Node types:** besides the live `fundamentals` node, every node is plain text. Other typed nodes (a risk with a severity, for example) are added later, only when a real question needs one.
 - **Limits:** 300 nodes and 600 edges per graph.
+
+## Starter packs
+
+"Start NVIDIA" builds a fixed starter pack, chosen by what kind of ticker it is. After that, the graph grows from the owner's questions. Claude checks the kind (Yahoo `quoteType`: `EQUITY`, `ETF`, `CRYPTOCURRENCY`, `FUTURE`, and so on) and tells the owner which pack is being used.
+
+Every pack has a **Summary** root. Every pack node hangs directly off it, has a short paragraph, and carries `asOf` when the content goes stale.
+
+**Company** (a single company, `EQUITY`):
+
+| Node (id) | Content |
+|---|---|
+| Fundamentals (`fundamentals`) | The live table (see below), plus Claude's one-line takeaway |
+| Management (`management`) | The founders: who they are, and how involved they are today (CEO, chair, board member, large shareholder only, or gone). The CEO, if not a founder: their background and how long they've been in the role. At most one or two other key people, and only when they matter. |
+| How they make money (`business`) | The business model. Later questions can branch into a node per segment. |
+| Where the next dollar goes (`capital`) | Capital allocation: paying down debt, reinvesting, acquisitions, buybacks, dividends, and stock pay to management. Includes last year's split where it is reported. |
+| Last earnings call (`last-call`) | A short summary and the **bottom line**: what changed, the guidance, and the one thing to remember. Also revenue vs expectations, which the free data feed doesn't provide. `asOf` names the quarter. |
+| Key risks (`risks`) | The 2–3 things that could break the story. |
+
+**Every other kind** gets **Summary** and **Bottom line** (`bottom-line`, why this matters to the owner), plus:
+
+- **Crypto:**
+  - what it is and why it has value
+  - supply (the cap, issuance and halvings)
+  - milestones (spot ETFs, corporate treasuries, countries holding it)
+  - regulation in progress, by region, each item marked passed, pending or proposed
+  - who holds it, and the flows
+  - what moves the price
+- **ETF:**
+  - what it tracks
+  - top holdings and concentration
+  - cost and size
+  - what drives it
+  - a single-asset ETF (e.g. IBIT) gets a short node naming the underlying asset instead of repeating it
+- **Commodity** (oil and similar):
+  - supply
+  - demand
+  - inventories
+  - geopolitics
+  - the calendar (OPEC meetings, weekly EIA reports)
+
+**Freshness:** after a company reports, Claude offers to refresh `last-call` (and anything else dated). Refreshes are new versions, so earlier quarters stay in the history.
+
+## Live Fundamentals
+
+A company's Fundamentals node is filled by the app from Yahoo once per ET day, rather than written by Claude, so it is always current.
+
+- **It shows:**
+  - **Revenue by quarter:** the last 4 quarters, each with growth vs the same quarter a year earlier.
+  - **EPS by quarter:** the last 4 quarters, each as actual vs estimate, with the surprise %.
+  - **Next quarter's estimates:** both the EPS and the revenue estimate. These move daily, which is the point of refreshing daily.
+  - **Free cash flow by quarter:** the last 4 quarters.
+  - **Latest cash, latest debt, and net cash or net debt.**
+  - **The fetch date and the fiscal quarter labels**, e.g. `Q2 FY27`.
+- **Known gap:** revenue *expectations* for past quarters aren't available from free sources. Checked 2026-10-29: Yahoo provides only actuals for past quarters and an estimate for the coming quarter. A past quarter's revenue beat or miss goes in the `last-call` text instead.
+- **Sources** (yahoo-finance2, through the slim `YahooClient`):
+  - `quoteSummary` modules `earnings` (quarterly EPS actual vs estimate, quarterly revenue), `earningsTrend` (the `0q` EPS and revenue estimates), `financialData` (`totalCash`, `totalDebt`) and `price` (`quoteType`, currency)
+  - `fundamentalsTimeSeries` quarterly, for 8 quarters of revenue (for growth) and free cash flow
+- **Endpoint:** `GET /knowledge/:symbol/fundamentals` returns:
+
+  ```json
+  {
+    "fetchedAt": "...",
+    "currency": "USD",
+    "quarters": [{ "label": "Q2 FY27", "periodEnd": "...", "revenue": 0, "revenueYoY": 0, "eps": 0, "epsEstimate": 0, "epsSurprisePct": 0, "fcf": 0 }],
+    "next": { "label": "...", "periodEnd": "...", "epsEstimate": 0, "revenueEstimate": 0 },
+    "cash": 0,
+    "debt": 0,
+    "netCash": 0
+  }
+  ```
+
+  Any field can be null. It returns 404 when the ticker isn't a company.
+- **Cache:** a shared `fundamentals_cache` table (symbol, data, fetchedAt), refreshed at most once per ET day and only when a Fundamentals node is opened. On a Yahoo failure it serves the last cached data with its date; with nothing cached, the node shows "Couldn't load the numbers right now."
+- **Display:** a compact table inside the node sheet. Money is shown as `$96.2B`, and beats and misses are coloured with the app's up and down colours. On the canvas, the node shows only its title, like every other node.
 
 ## Versions
 
@@ -90,6 +166,7 @@ Decisions from the conversation:
   - Attach the new node to the node under discussion. If that's unclear, attach it to `summary`.
   - Check facts against current sources online and record them in `sources`.
   - Reply in chat with what was added and where, e.g. "Added `CEO` under NVDA's summary (v2)", plus the paragraph itself.
+  - "Start <ticker>" builds the starter pack for its kind (see [Starter packs](#starter-packs)) and nothing more.
   - Never remove or rewrite content the owner didn't ask about.
   - Use the owner's key for real knowledge, and the test user's key for every test.
 
@@ -122,6 +199,7 @@ Each task ships on its own:
 2. **The `kb` tool and the guide.** Create the owner's key and the test user's key on the Mac host, rebuild the host, and live-check on the test user.
 3. **The `Know` tab and the graph screen.**
 4. **Ticker shortcuts and dots** in Holdings, Watch and Earnings.
+5. **Live Fundamentals:** the endpoint, the cache and the table in the sheet. Before this ships, a fundamentals node shows only its takeaway text.
 
 ## Testing
 
@@ -135,7 +213,7 @@ Each task ships on its own:
 ## Out of scope
 
 - Edges to another ticker's graph. The format leaves room for them (`TSMC:summary`) later.
-- Typed nodes.
+- Typed nodes other than `fundamentals`.
 - Editing or deleting in the app.
 - Rich text.
 - Showing version history in the app.

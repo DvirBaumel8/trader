@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Each task is shipped (pushed to `main` and deployed) on its own once reviewed — owner's hard rule. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** A private, versioned node graph per ticker that Claude edits with a `kb` command-line tool and the owner views in a new `Know` tab, delivered as four independently shippable tasks.
+**Goal:** A private, versioned node graph per ticker that Claude edits with a `kb` command-line tool and the owner views in a new `Know` tab, with a live Fundamentals node for companies, delivered as five independently shippable tasks.
 
 **Architecture:** Backend `knowledge` module: two tables (current graph + versions), a pure `graph.ts` (validation, node timestamps, "new" logic) shared with the CLI, and `/knowledge` endpoints accepting either a login token or a hashed `kb_` API key (key auth only on routes marked `@AllowApiKey()`). CLI at `backend/tools/kb/` (tsx) applies one small edit per command via `GET` + `PUT` with `baseVersion`. Frontend: `Know` list tab and a React Flow graph screen with dagre layout and a bottom sheet; then ticker shortcuts from the other tabs.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Graphs are private: never written to the repo, logs, or fixtures with real content. Tests use made-up text.
-- Node: `id` matches `/^[a-z0-9][a-z0-9-]{0,39}$/`; `title` 1–80 chars; `text` 1–1500 chars; `question` optional ≤ 300; `sources` optional ≤ 10 of `{ label ≤ 80, url http(s) ≤ 500 }`; server-owned `createdAt`/`updatedAt` (ISO strings).
+- Node: `id` matches `/^[a-z0-9][a-z0-9-]{0,39}$/`; `title` 1–80 chars; `text` 1–1500 chars (0–1500 for `type: 'fundamentals'`); `type` optional `'text' | 'fundamentals'` (omitted = text; at most one fundamentals node per graph); `asOf` optional 1–40 chars; `question` optional ≤ 300; `sources` optional ≤ 10 of `{ label ≤ 80, url http(s) ≤ 500 }`; server-owned `createdAt`/`updatedAt` (ISO strings).
 - Root node id is `summary`; every graph has it; every node must be reachable from `summary` by following edges in their direction (from → to). Reachable only via reversed edges does not count.
 - Edge `{ from, to, label }`, label 1–40 chars, both ends existing nodes, no self-loops, no duplicate (from, to) pair.
 - Limits: 300 nodes, 600 edges.
@@ -52,13 +52,14 @@
 ```ts
 // graph.ts (pure, no Nest imports — the CLI imports it)
 export interface Source { label: string; url: string }
-export interface NodeInput { id: string; title: string; text: string; question?: string; sources?: Source[] }
+export type NodeType = 'text' | 'fundamentals';
+export interface NodeInput { id: string; title: string; text: string; type?: NodeType; asOf?: string; question?: string; sources?: Source[] }
 export interface GraphNode extends NodeInput { createdAt: string; updatedAt: string }
 export interface Edge { from: string; to: string; label: string }
 export interface GraphInput { nodes: NodeInput[]; edges: Edge[] }
 export const ROOT_ID = 'summary';
 export function validateGraph(g: GraphInput): string[];          // [] when valid; else human messages, e.g. 'edge revenue→gaming: unknown node "gaming"'
-export function stampNodes(next: NodeInput[], prev: GraphNode[], now: string): GraphNode[]; // keeps createdAt; updatedAt = now only if title/text/question/sources changed or node is new
+export function stampNodes(next: NodeInput[], prev: GraphNode[], now: string): GraphNode[]; // keeps createdAt; updatedAt = now only if title/text/type/asOf/question/sources changed or node is new
 export function isNew(node: GraphNode, lastViewedAt: string | null): boolean;
 export function reachableFromRoot(nodes: { id: string }[], edges: Edge[]): Set<string>;
 
@@ -76,7 +77,7 @@ create(userId: string, name: string): Promise<string>;   // returns the plaintex
 resolve(key: string): Promise<string | null>;            // userId, updates lastUsedAt
 ```
 
-- [ ] **Step 1: `graph.ts` + spec (TDD).** Tests first: valid minimal graph (summary only) → `[]`; missing summary; duplicate id; bad id pattern; title/text/question/source length and url scheme; unknown edge end; self-loop; duplicate edge; unreachable node (`a` exists with only edge `a→summary`); node and edge limits (301 nodes / 601 edges); `stampNodes` keeps `createdAt`, bumps `updatedAt` only on content change, new node gets both = now; `isNew` with null and with older/newer `lastViewedAt`.
+- [ ] **Step 1: `graph.ts` + spec (TDD).** Tests first: valid minimal graph (summary only) → `[]`; missing summary; duplicate id; bad id pattern; title/text/question/asOf/source length and url scheme; unknown `type`; empty text allowed only on a fundamentals node; two fundamentals nodes rejected; unknown edge end; self-loop; duplicate edge; unreachable node (`a` exists with only edge `a→summary`); node and edge limits (301 nodes / 601 edges); `stampNodes` keeps `createdAt`, bumps `updatedAt` only on content change, new node gets both = now; `isNew` with null and with older/newer `lastViewedAt`.
 - [ ] **Step 2: Migration `AddKnowledge1790294400000`** (register in data-source). SQL:
 
 ```sql
@@ -137,7 +138,7 @@ CREATE TABLE IF NOT EXISTS public.api_keys (
 ```ts
 // edits.ts — each returns a new GraphInput or throws Error(message); none touch the network
 start(input: { title: string; text: string; sources?: Source[] }): GraphInput;               // summary only
-addNode(g, { under, id, label, title, text, question?, sources? }): GraphInput;               // 'under' must exist; id must be free
+addNode(g, { under, id, label, title, text, type?, asOf?, question?, sources? }): GraphInput;               // 'under' must exist; id must be free
 editNode(g, id, patch: Partial<Omit<NodeInput,'id'>>): GraphInput;                            // sources replace the list when given
 link(g, from, to, label): GraphInput;  unlink(g, from, to): GraphInput;                     // unlink refuses if it orphans nodes
 moveNode(g, id, { under, label? }): GraphInput;                                              // replaces the node's incoming edges with one from 'under'; refuses id === summary, or moving under its own descendant
@@ -146,8 +147,8 @@ removeNode(g, id, withChildren: boolean): GraphInput;                           
 
 - [ ] **Step 1: `edits.ts` + spec (TDD).** Every edit's result passes `validateGraph`, and the spec asserts that, plus: add under unknown parent; duplicate id; move under own descendant refused; remove leaving orphans refused, `--with-children` removes the subtree but keeps a child also linked from elsewhere; unlink that orphans refused; `remove summary` refused.
 - [ ] **Step 2: `tree.ts` + spec.** Prints the graph as an indented tree from `summary` (`── CEO → Jensen Huang [ceo]`), extra (non-tree) edges listed at the end as `↪ from → to (label)`, and nodes' text wrapped under the title only with `--full`.
-- [ ] **Step 3: `main.ts`.** Reads `KB_ENV` (default `~/.config/trader-host/kb.env`) for `KB_API_URL`, `KB_API_KEY`; exits 1 with a clear message if missing. Commands exactly as in the spec table (`list, show [--full], start, add, edit, link, unlink, move, remove [--with-children], history, revert, delete, pull, push`). Repeated `--source "label=url"`. Every write: `GET` (404 → `baseVersion 0` only for `start`), apply the edit, `PUT` with `-m` or a default message (`add ceo`, `edit ceo`, …), print `NVDA v3 · add ceo` and the changed node. Errors: 400/404 body message printed; 409 → `NVDA changed since it was read — run the command again.` Exit codes 0/1. Uses global `fetch`, 15 s timeout.
-- [ ] **Step 4: `docs/knowledge-guide.md`.** Contents: what the graph is; the incremental rule (add only what was asked; one short paragraph ≈ 80 words; attach to the node under discussion, else `summary`; short edge labels); facts checked online and recorded as sources; reply format (`Added "CEO" under NVDA's summary (v2)` + the paragraph); never remove or rewrite unasked content; `kb remove` only on the owner's explicit request; command cheat-sheet (`npm run -s kb --prefix backend -- …`); owner key in `kb.env`, test user key in `kb-test.env` (`KB_ENV=~/.config/trader-host/kb-test.env`); graphs are private — never paste them into the repo.
+- [ ] **Step 3: `main.ts`.** Reads `KB_ENV` (default `~/.config/trader-host/kb.env`) for `KB_API_URL`, `KB_API_KEY`; exits 1 with a clear message if missing. Commands exactly as in the spec table (`list, show [--full], start, add, edit, link, unlink, move, remove [--with-children], history, revert, delete, pull, push`). Repeated `--source "label=url"`; `--as-of "Q2 FY2027"` on add/edit (`--as-of ""` clears it); `--type fundamentals` on add (text may then be empty). Every write: `GET` (404 → `baseVersion 0` only for `start`), apply the edit, `PUT` with `-m` or a default message (`add ceo`, `edit ceo`, …), print `NVDA v3 · add ceo` and the changed node. Errors: 400/404 body message printed; 409 → `NVDA changed since it was read — run the command again.` Exit codes 0/1. Uses global `fetch`, 15 s timeout.
+- [ ] **Step 4: `docs/knowledge-guide.md`.** Contents: what the graph is; the starter packs copied from the spec's "Starter packs" section (company pack with node ids `fundamentals` (type fundamentals, text = one-line takeaway), `management`, `business`, `capital`, `last-call`, `risks`; the crypto / ETF / commodity packs with `bottom-line`), how to decide the kind (Yahoo `quoteType`), and that "start X" builds the pack and nothing more; the freshness rule (offer to refresh `last-call` after a report; set `asOf`); the incremental rule (add only what was asked; one short paragraph ≈ 80 words; attach to the node under discussion, else `summary`; short edge labels); facts checked online and recorded as sources; reply format (`Added "CEO" under NVDA's summary (v2)` + the paragraph); never remove or rewrite unasked content; `kb remove` only on the owner's explicit request; command cheat-sheet (`npm run -s kb --prefix backend -- …`); owner key in `kb.env`, test user key in `kb-test.env` (`KB_ENV=~/.config/trader-host/kb-test.env`); graphs are private — never paste them into the repo.
 - [ ] **Step 5:** `npm test` and `npm run lint` in `backend` (lint covers `tools/` — extend the `lint` script to `oxlint src/ test/ tools/`).
 - [ ] **Step 6: Commit** `feat(knowledge): kb command-line tool and Claude knowledge guide`.
 
@@ -185,7 +186,7 @@ export function layoutGraph(nodes: {id:string}[], edges: {from:string;to:string}
   - On load success, capture `lastViewedAt` from the first response in a ref (highlights use it), then call `markViewed(symbol)` once.
   - Header: back link `‹ Knowledge`, ticker, `Updated Oct 29 · v7`.
   - Canvas: `ReactFlow` with custom node type (title only, `max-w-[160px]`, 2-line clamp; accent ring + `new` tag when `isNew`), edges with labels (`type: 'smoothstep'`, small label text), `fitView` on load, `minZoom 0.2`, `panOnDrag`, `zoomOnPinch`, no node dragging/connecting/deleting (`nodesDraggable={false} nodesConnectable={false}`); keep React Flow's default attribution (don't set `hideAttribution`). A `Fit` button calls `fitView`. Canvas height `calc(100dvh - 210px)`, full width, `touch-action: none` on the canvas only.
-  - Tap a node → `NodeSheet`: fixed bottom sheet (max-h 70dvh, scrollable), `Q: …` (if question), paragraph (`whitespace-pre-line`), sources as `<a target="_blank" rel="noopener noreferrer">`, `Updated Oct 29`, `Connected` list of neighbour nodes (incoming and outgoing, each with the edge label) — tapping one selects it and centres it (`setCenter`); close button and tap-outside close.
+  - Tap a node → `NodeSheet`: fixed bottom sheet (max-h 70dvh, scrollable), `Q: …` (if question), `As of …` (if asOf), paragraph (`whitespace-pre-line`; for a fundamentals node this is the takeaway, and Task 5 adds the table above it), sources as `<a target="_blank" rel="noopener noreferrer">`, `Updated Oct 29`, `Connected` list of neighbour nodes (incoming and outgoing, each with the edge label) — tapping one selects it and centres it (`setCenter`); close button and tap-outside close.
   - No graph (null): `No knowledge on NVDA yet — ask Claude to start it.`; error: `Couldn't load this graph right now.`
   - Spec (jsdom: mock `@xyflow/react`'s `ReactFlow` to render nodes as buttons so behaviour is testable): renders node titles; new highlight uses the captured `lastViewedAt` not the refreshed one; tap opens sheet with question, text, sources; neighbour tap switches; no-graph text; `viewed` posted once.
 - [ ] **Step 5: Nav.** Fifth tab `Know`. AppShell spec updated. Check the five labels fit 402px (browser test below); if they don't, tighten `linkClass` padding, not the labels.
@@ -208,3 +209,45 @@ export function layoutGraph(nodes: {id:string}[], edges: {from:string;to:string}
 - [ ] **Step 5: Commit** `feat(frontend): tap a ticker to open its knowledge graph`.
 
 **Deploy (controller):** push; deploy-web; tell the owner what to try.
+
+### Task 5: Live Fundamentals
+
+**Files:**
+- Modify: `backend/src/market-data/yahoo.client.ts` (+ spec), `backend/test/yahoo-stub.ts`, `backend/src/knowledge/knowledge.controller.ts`, `knowledge.module.ts`, `backend/src/database/data-source.ts`, `backend/src/main.e2e.ts` (stub fundamentals), `AGENTS.md` (the Yahoo boundary now also offers fundamentals), `docs/api.md`
+- Create: `backend/src/knowledge/fundamentals.ts` (pure shaping) + spec, `fundamentals.service.ts` + spec, `fundamentals-cache.entity.ts`, migration `backend/src/database/migrations/1790380800000-AddFundamentalsCache.ts`, `backend/test/fundamentals.e2e-spec.ts`
+- Frontend: `frontend/src/api/knowledge.ts` (`useFundamentals(symbol, enabled)`), create `frontend/src/components/knowledge/FundamentalsTable.tsx` (+ spec), modify `NodeSheet.tsx`, `e2e/knowledge.spec.ts`
+
+**Interfaces — Produces:**
+
+```ts
+// yahoo.client.ts
+export interface RawFundamentals {
+  quoteType: string | null; currency: string | null;
+  epsQuarters: { periodEnd: string; fiscalQuarter: string | null; actual: number | null; estimate: number | null; surprisePct: number | null }[]; // earnings.earningsChart.quarterly
+  next: { periodEnd: string | null; epsEstimate: number | null; revenueEstimate: number | null } | null;                                     // earningsTrend '0q'
+  cash: number | null; debt: number | null;                                                                                                // financialData totalCash / totalDebt
+  series: { periodEnd: string; revenue: number | null; fcf: number | null }[];                                                             // fundamentalsTimeSeries quarterly, oldest first
+}
+YahooClient.fundamentals(symbol: string): Promise<RawFundamentals>; // throws on provider failure
+
+// fundamentals.ts
+export interface Fundamentals {
+  fetchedAt: string; currency: string | null;
+  quarters: { label: string; periodEnd: string; revenue: number | null; revenueYoY: number | null; eps: number | null; epsEstimate: number | null; epsSurprisePct: number | null; fcf: number | null }[]; // newest first, max 4
+  next: { label: string | null; periodEnd: string | null; epsEstimate: number | null; revenueEstimate: number | null } | null;
+  cash: number | null; debt: number | null; netCash: number | null;
+}
+export function shapeFundamentals(raw: RawFundamentals, fetchedAt: string): Fundamentals;
+// GET /knowledge/:symbol/fundamentals -> Fundamentals | 404 { message: 'NVDA is not a company' } (quoteType !== 'EQUITY') | 503
+```
+
+- [ ] **Step 1: `YahooClient.fundamentals`** via `quoteSummary(symbol, { modules: ['earnings', 'earningsTrend', 'financialData', 'price'] })` and `fundamentalsTimeSeries(symbol, { period1: <today − 30 months>, type: 'quarterly', module: 'all' })` (`totalRevenue`, `freeCashFlow`). Spec with a mocked `yf`. Verified live 2026-10-29 for NVDA: all these fields exist; past-quarter revenue estimates do not.
+- [ ] **Step 2: `shapeFundamentals` + spec (TDD).** Label from `fiscalQuarter` (`"2Q2027"` → `Q2 FY27`), else from `periodEnd` as `Jul 2026`; join EPS quarters and series by `periodEnd` (same calendar month = match); `revenueYoY` = (revenue ÷ revenue of the quarter ~12 months earlier − 1) × 100, 1 decimal, null when either missing; `netCash = cash − debt` (null if either null); newest 4 quarters; `next.label` from `next.periodEnd`.
+- [ ] **Step 3: cache + service.** Migration: `fundamentals_cache (symbol varchar PRIMARY KEY, data jsonb NOT NULL, "fetchedAt" timestamptz NOT NULL)`, registered in data-source. `FundamentalsService.get(symbol, now)`: fetched on today's ET date → cached; else fetch → shape → upsert → return. Failure → cached data if any, else 503 `Couldn't load the numbers right now.`. `quoteType !== 'EQUITY'` → 404, remembered for the day as `{ notCompany: true }` so Yahoo isn't re-asked. Spec: same-day hit, next-day refresh, failure with and without cache, non-company.
+- [ ] **Step 4: endpoint** on the knowledge controller (class already `@AllowApiKey()`); e2e with stub data: shape, cache hit (stub called once across two requests), 404 for a non-EQUITY stub, 503 path.
+- [ ] **Step 5: frontend.** `useFundamentals(symbol, enabled)` only while a `type: 'fundamentals'` node's sheet is open. `FundamentalsTable` above the takeaway: quarters as 4 columns (newest left) with rows Revenue (`$96.2B`), YoY (`+105.4%`), EPS (`2.22 vs 2.09`, surprise coloured `text-up` / `text-down`), FCF; then `Next quarter: EPS est 2.47 · Revenue est $109.0B`; then `Cash $62.5B · Debt $38.9B · Net cash $23.6B`; then `Updated Oct 29`. Money: `$1.2T / $96.2B / $850M`, negatives with a real minus. Null → `—`. Loading skeleton; error text. Spec: formatting, colours, nulls, error, no fetch for text nodes.
+- [ ] **Step 6: browser test:** the seeded graph gets a fundamentals node; its sheet shows the stubbed table with no horizontal overflow at 402px.
+- [ ] **Step 7:** backend `npm test`, `npm run test:e2e`, `npm run lint`; frontend `npm test`, `npm run lint`, `npm run build`; root `npm run test:browser`.
+- [ ] **Step 8: Commit** `feat(knowledge): live fundamentals table for companies`.
+
+**Deploy (controller):** migration check on a scratch production copy, push, rebuild the Mac host, live check with the test user's key (NVDA → table data, QQQ → 404), deploy-web.
