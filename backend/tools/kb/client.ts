@@ -122,7 +122,10 @@ export class Client {
   async baseForCreate(symbol: string): Promise<{ baseVersion: number; deleted: boolean; current: Graph | null }> {
     const current = await this.getGraph(symbol);
     if (current) return { baseVersion: current.version, deleted: false, current };
-    const versions = await this.versions(symbol);
+    // /versions is 404 for a symbol that never had a graph.
+    const r = await this.request<VersionRow[]>('GET', this.path(symbol, '/versions'));
+    if (r.status !== 200 && r.status !== 404) this.fail(r.status, r.data, symbol);
+    const versions = r.status === 200 ? r.data : [];
     if (versions.length > 0) return { baseVersion: versions[0].version, deleted: true, current: null };
     return { baseVersion: 0, deleted: false, current: null };
   }

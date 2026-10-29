@@ -61,7 +61,8 @@ describe('start', () => {
   it('creates a new graph at base 0', async () => {
     const t = fake({
       'GET /TEST': [404, { message: 'none' }],
-      'GET /TEST/versions': versions(),
+      // The real server answers 404 here when the symbol never had a graph.
+      'GET /TEST/versions': [404, { message: 'No knowledge on TEST' }],
       'PUT /TEST': [200, graph(1)],
     });
     await t.run('start', 'test', '--title', 'T', '--text', 'hello');
