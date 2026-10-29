@@ -12,6 +12,7 @@ Read the following as part of this guide:
 
 @docs/product-brief.md
 @docs/working-agreement.md
+@docs/knowledge-guide.md
 
 Then read only the focused reference matched to the task in
 [Find the right document](#find-the-right-document). Do not treat historical
@@ -50,6 +51,8 @@ Trader is a chat, a holdings list and a watchlist. It grows one case at a time.
   pre-market or after-hours prices rather than presenting them as a close.
 - `backend/src/market-data/yahoo.client.ts` is the only Yahoo Finance import
   boundary; it offers ticker lookup and next earnings date only.
+- Knowledge graphs are private to the owner: edit them only through `kb`, and
+  never commit their content to the repo.
 - Schema changes require a TypeORM migration registered in
   `backend/src/database/data-source.ts`. Do not rely on synchronizing a real
   database schema. The old journal, transaction and stop tables remain in the
