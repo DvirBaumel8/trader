@@ -34,6 +34,12 @@ plus Login:
   `~` when the date is an estimate. A Both/Holdings/Watchlist filter, and a
   "Next earnings" list with days until each report (Soonest or A-Z). Filter
   and sort are remembered on the device.
+- **Know** (`/knowledge`). Lists every ticker with a knowledge graph (node
+  count, last update, a dot when there are new nodes) with a ticker search.
+  `/knowledge/:symbol` shows the graph top-down (React Flow + dagre): pan,
+  pinch-zoom, a `Fit` button, new nodes outlined with a `new` tag (relative to
+  the previous visit). Tapping a node opens a bottom sheet (question, text,
+  sources, update date, connected nodes). Read-only.
 
 Chat routing: a free Gemini model (`gemini-3.5-flash-lite`) reads each message and
 picks one of buy, sell, watch, unwatch or none; the backend validates and

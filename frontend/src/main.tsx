@@ -9,6 +9,8 @@ import { Chat } from './routes/Chat';
 import { Holdings } from './routes/Holdings';
 import { Watchlist } from './routes/Watchlist';
 import { Earnings } from './routes/Earnings';
+import { Knowledge } from './routes/Knowledge';
+import { KnowledgeGraph } from './routes/KnowledgeGraph';
 import { Login } from './routes/Login';
 import './index.css';
 
@@ -27,6 +29,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="holdings" element={<Holdings />} />
             <Route path="watchlist" element={<Watchlist />} />
             <Route path="earnings" element={<Earnings />} />
+            <Route path="knowledge" element={<Knowledge />} />
+            <Route path="knowledge/:symbol" element={<KnowledgeGraph />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

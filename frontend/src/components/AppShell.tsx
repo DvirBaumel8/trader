@@ -58,6 +58,9 @@ export function AppShell() {
         <NavLink to="/earnings" className={linkClass}>
           Earnings
         </NavLink>
+        <NavLink to="/knowledge" className={linkClass}>
+          Know
+        </NavLink>
       </nav>
 
       <main className="flex-1 px-4 py-5">

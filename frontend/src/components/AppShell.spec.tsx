@@ -12,7 +12,7 @@ vi.mock('../api/client', () => ({
 
 afterEach(cleanup);
 
-it('offers exactly Chat, Holdings, Watch and Earnings', () => {
+it('offers exactly Chat, Holdings, Watch, Earnings and Know', () => {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={['/']}>
@@ -26,5 +26,5 @@ it('offers exactly Chat, Holdings, Watch and Earnings', () => {
   );
   expect(screen.getByText('chat content')).toBeInTheDocument();
   const links = screen.getAllByRole('link').map((a) => a.textContent);
-  expect(links).toEqual(['Chat', 'Holdings', 'Watch', 'Earnings']);
+  expect(links).toEqual(['Chat', 'Holdings', 'Watch', 'Earnings', 'Know']);
 });
