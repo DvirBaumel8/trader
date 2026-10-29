@@ -63,6 +63,7 @@ async function bootstrap() {
   STUB_FUNDAMENTALS.NVDA = {
     quoteType: 'EQUITY',
     currency: 'USD',
+    financialCurrency: 'USD',
     epsQuarters: [
       { periodEnd: '2025-10-31', fiscalQuarter: '3Q2026', actual: 1.3, reportedAt: '2025-11-19T21:20:00.000Z' },
       { periodEnd: '2026-01-31', fiscalQuarter: '4Q2026', actual: 1.5, reportedAt: '2026-02-25T21:20:00.000Z' },

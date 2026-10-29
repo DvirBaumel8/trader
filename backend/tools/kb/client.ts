@@ -36,7 +36,25 @@ interface ErrorBody {
   message?: string | string[];
 }
 
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Strips server-owned fields; a clear KbError for a hand-edited file whose shape would otherwise crash. */
 export function plain(g: GraphInput): GraphInput {
+  if (!isObject(g) || !Array.isArray(g.nodes) || !Array.isArray(g.edges)) {
+    throw new KbError('The file must be {"nodes": […], "edges": […]}.');
+  }
+  g.nodes.forEach((n, i) => {
+    if (!isObject(n)) throw new KbError(`node #${i + 1}: must be an object`);
+    const where = `node ${typeof n.id === 'string' ? n.id : `#${i + 1}`}`;
+    const s = (n as { sources?: unknown }).sources;
+    if (s !== undefined) {
+      const ok = Array.isArray(s) && s.every((x) => isObject(x) && typeof x.label === 'string' && typeof x.url === 'string');
+      if (!ok) throw new KbError(`${where}: sources must be a list of {label, url}`);
+    }
+  });
+  g.edges.forEach((e, i) => {
+    if (!isObject(e)) throw new KbError(`edge #${i + 1}: must be an object {from, to, label}`);
+  });
   const nodes = g.nodes.map((n) => {
     const out: NodeInput = { id: n.id, title: n.title, text: n.text };
     if (n.type !== undefined) out.type = n.type;
@@ -106,6 +124,15 @@ export class Client {
     const g = await this.getGraph(symbol);
     if (!g) throw new KbError(`No knowledge on ${symbol} yet.`);
     return g;
+  }
+
+  /** Whether the ticker is a company (the fundamentals endpoint answers 404 "not a company" otherwise). */
+  async isCompany(symbol: string): Promise<boolean> {
+    const r = await this.request<unknown>('GET', this.path(symbol, '/fundamentals'));
+    if (r.status === 200) return true;
+    const m = (r.data as ErrorBody | null)?.message;
+    if (r.status === 404 && typeof m === 'string' && m.includes('not a company')) return false;
+    return this.fail(r.status, r.data, symbol);
   }
 
   async versions(symbol: string): Promise<VersionRow[]> {

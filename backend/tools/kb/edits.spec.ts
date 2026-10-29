@@ -93,11 +93,14 @@ describe('link / unlink', () => {
 });
 
 describe('moveNode', () => {
-  it('replaces incoming edges and keeps the old label by default', () => {
+  it('replaces only the tree-parent edge, keeps its label by default, and keeps cross-links', () => {
     const g = ok(link(base(), 'b', 'a1', 'extra'));
-    const moved = ok(moveNode(g, 'a1', { under: 'b' }));
+    const moved = ok(moveNode(g, 'a1', { under: 'summary' }));
     const incoming = moved.edges.filter((e) => e.to === 'a1');
-    expect(incoming).toEqual([{ from: 'b', to: 'a1', label: 'part' }]);
+    expect(incoming).toEqual([
+      { from: 'b', to: 'a1', label: 'extra' },
+      { from: 'summary', to: 'a1', label: 'part' },
+    ]);
     expect(ids(moved)).toEqual(ids(g));
   });
   it('uses a new label when given', () => {

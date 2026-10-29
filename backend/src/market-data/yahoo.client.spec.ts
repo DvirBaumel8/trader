@@ -161,6 +161,7 @@ describe('YahooClient.fundamentals', () => {
     expect(raw).toEqual({
       quoteType: 'EQUITY',
       currency: 'USD',
+      financialCurrency: 'USD',
       epsQuarters: [{ periodEnd: '2026-07-31', fiscalQuarter: '2Q2027', actual: 2.22, reportedAt: '2026-08-26T20:20:00.000Z' }],
       cash: 62_500_000_000,
       debt: 38_900_000_000,
@@ -170,6 +171,13 @@ describe('YahooClient.fundamentals', () => {
       ],
     });
     expect(args).toMatchObject({ type: 'quarterly', module: 'all' });
+  });
+
+  it('reads the financials currency from financialData, then earnings, then the price currency', async () => {
+    const run = async (s: object) => (await clientWith({ quoteSummary: async () => s, fundamentalsTimeSeries: async () => [] }).fundamentals('TSM')).financialCurrency;
+    expect(await run({ ...summary, financialData: { financialCurrency: 'TWD' } })).toBe('TWD');
+    expect(await run({ ...summary, earnings: { ...summary.earnings, financialCurrency: 'EUR' } })).toBe('EUR');
+    expect(await run(summary)).toBe('USD');
   });
 
   it('accepts a string reportedDate', async () => {

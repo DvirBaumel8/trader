@@ -63,6 +63,12 @@ it('links a row to its graph', async () => {
   expect(await screen.findByTestId('know-row-NVDA')).toHaveAttribute('href', '/knowledge/NVDA');
 });
 
+it('URL-encodes symbols such as ^GSPC and CL=F in row links', async () => {
+  vi.mocked(api).mockResolvedValue([{ symbol: '^GSPC', nodeCount: 2, updatedAt: '2026-10-29T15:00:00.000Z', hasNew: false }]);
+  renderIt();
+  expect(await screen.findByTestId('know-row-^GSPC')).toHaveAttribute('href', `/knowledge/${encodeURIComponent('^GSPC')}`);
+});
+
 it('shows an error', async () => {
   vi.mocked(api).mockRejectedValue(new Error('boom'));
   renderIt();

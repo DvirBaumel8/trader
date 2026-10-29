@@ -31,7 +31,10 @@ export interface RegularQuote {
 /** Quarterly fundamentals as Yahoo reports them; shaped for display by knowledge/fundamentals.ts. */
 export interface RawFundamentals {
   quoteType: string | null;
+  /** Trading currency of the listing. */
   currency: string | null;
+  /** Currency the financial statements (revenue, cash, debt, FCF) are reported in; differs from `currency` for ADRs. */
+  financialCurrency: string | null;
   /** earnings.earningsChart.quarterly; dates are YYYY-MM-DD / ISO strings. */
   epsQuarters: { periodEnd: string; fiscalQuarter: string | null; actual: number | null; reportedAt: string | null }[];
   cash: number | null;
@@ -42,8 +45,9 @@ export interface RawFundamentals {
 
 interface FundamentalsSummaryLike {
   price?: { quoteType?: unknown; currency?: unknown };
-  financialData?: { totalCash?: unknown; totalDebt?: unknown };
+  financialData?: { totalCash?: unknown; totalDebt?: unknown; financialCurrency?: unknown };
   earnings?: {
+    financialCurrency?: unknown;
     earningsChart?: {
       quarterly?: {
         date?: unknown;
@@ -178,7 +182,7 @@ export class YahooClient {
    * EQUITY comes back with only `quoteType` set. Throws on provider failure.
    */
   async fundamentals(symbol: string): Promise<RawFundamentals> {
-    const empty: RawFundamentals = { quoteType: null, currency: null, epsQuarters: [], cash: null, debt: null, series: [] };
+    const empty: RawFundamentals = { quoteType: null, currency: null, financialCurrency: null, epsQuarters: [], cash: null, debt: null, series: [] };
     let summary: FundamentalsSummaryLike | undefined;
     try {
       summary = (await this.yf.quoteSummary(symbol, {
@@ -191,7 +195,10 @@ export class YahooClient {
     }
     const quoteType = typeof summary?.price?.quoteType === 'string' ? summary.price.quoteType : null;
     const currency = typeof summary?.price?.currency === 'string' ? summary.price.currency : null;
-    if (quoteType !== 'EQUITY') return { ...empty, quoteType, currency };
+    const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+    const financialCurrency =
+      str(summary?.financialData?.financialCurrency) ?? str(summary?.earnings?.financialCurrency) ?? currency;
+    if (quoteType !== 'EQUITY') return { ...empty, quoteType, currency, financialCurrency };
 
     const finite = (n: unknown): number | null => (typeof n === 'number' && Number.isFinite(n) ? n : null);
     const day = (d: unknown): string | null => {
@@ -230,6 +237,7 @@ export class YahooClient {
     return {
       quoteType,
       currency,
+      financialCurrency,
       epsQuarters,
       cash: finite(summary?.financialData?.totalCash),
       debt: finite(summary?.financialData?.totalDebt),

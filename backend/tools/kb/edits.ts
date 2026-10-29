@@ -104,9 +104,11 @@ export function moveNode(g: GraphInput, id: string, to: { under: string; label?:
   if (to.under === id) throw new Error('a node cannot be moved under itself');
   if (descendants(g, id).has(to.under)) throw new Error(`cannot move "${id}" under its own descendant "${to.under}"`);
   const next = copy(g);
-  const label = to.label ?? next.edges.find((e) => e.to === id)?.label;
+  // Only the tree-parent edge (the first incoming one) is replaced; extra cross-links into the node stay.
+  const treeEdge = next.edges.find((e) => e.to === id);
+  const label = to.label ?? treeEdge?.label;
   if (label === undefined) throw new Error(`"${id}" has no incoming edge; pass --label`);
-  next.edges = next.edges.filter((e) => e.to !== id);
+  if (treeEdge) next.edges = next.edges.filter((e) => e !== treeEdge);
   next.edges.push({ from: to.under, to: id, label });
   return checked(next);
 }

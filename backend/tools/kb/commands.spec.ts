@@ -106,6 +106,39 @@ describe('push / pull', () => {
   });
 });
 
+describe('push validation', () => {
+  it('rejects malformed sources with a clear message before any request', async () => {
+    const t = fake({});
+    t.files.set('g.json', JSON.stringify({ nodes: [{ id: 'summary', title: 'T', text: 'x', sources: 'x' }], edges: [] }));
+    await expect(t.run('push', 'TEST', 'g.json', '-m', 'm')).rejects.toThrow('node summary: sources must be a list of {label, url}');
+    t.files.set('g.json', JSON.stringify({ nodes: [{ id: 'a', title: 'T', text: 'x', sources: [{ label: 'a' }] }], edges: [] }));
+    await expect(t.run('push', 'TEST', 'g.json', '-m', 'm')).rejects.toThrow('node a: sources must be a list');
+    expect(t.calls).toEqual([]);
+  });
+  it('rejects a file that is not a graph', async () => {
+    const t = fake({});
+    t.files.set('g.json', '{"nodes": 1}');
+    await expect(t.run('push', 'TEST', 'g.json', '-m', 'm')).rejects.toThrow('The file must be');
+  });
+});
+
+describe('kind', () => {
+  it('says company for a 200', async () => {
+    const t = fake({ 'GET /NVDA/fundamentals': [200, {}] });
+    await t.run('kind', 'nvda');
+    expect(t.lines).toEqual(['NVDA: company']);
+  });
+  it('says not a company for the 404 answer', async () => {
+    const t = fake({ 'GET /SPY/fundamentals': [404, { message: 'SPY is not a company' }] });
+    await t.run('kind', 'SPY');
+    expect(t.lines).toEqual(['SPY: not a company']);
+  });
+  it('reports other failures as errors', async () => {
+    const t = fake({ 'GET /NVDA/fundamentals': [503, { message: "Couldn't load the numbers right now." }] });
+    await expect(t.run('kind', 'NVDA')).rejects.toThrow("Couldn't load the numbers");
+  });
+});
+
 describe('errors', () => {
   it('409 gives the run-again message', async () => {
     const t = fake({ 'GET /TEST': [200, graph(2)], 'PUT /TEST': [409, { message: 'stale' }] });

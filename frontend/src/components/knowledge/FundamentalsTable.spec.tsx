@@ -62,6 +62,25 @@ it('formats money', () => {
   expect(formatMoney(-1.5e9)).toBe('−$1.5B');
   expect(formatMoney(999.96e9)).toBe('$1.0T');
   expect(formatMoney(null)).toBe('—');
+  expect(formatMoney(1.5e12, 'TWD')).toBe('TWD 1.5T');
+  expect(formatMoney(-2e9, 'EUR')).toBe('−EUR 2.0B');
+  expect(formatMoney(96.2e9, 'USD')).toBe('$96.2B');
+});
+
+it('shows the currency code instead of $ and says so in the footer for a non-USD filer', async () => {
+  vi.mocked(api).mockResolvedValue({
+    ...data,
+    currency: 'TWD',
+    cash: 4.0e12,
+    next: { ...data.next!, revenueEstimate: null },
+    quarters: [q({ revenue: 1.5e12, revenueEstimate: null, revenueSurprisePct: null, fcf: 5e11 })],
+  });
+  renderIt();
+  const row = await screen.findByTestId('fundamentals-q-2026-07-31');
+  expect(row).toHaveTextContent('TWD 1.5T');
+  expect(row).not.toHaveTextContent('$');
+  expect(screen.getByTestId('fundamentals-balance')).toHaveTextContent('Cash TWD 4.0T');
+  expect(screen.getByText(/Figures in TWD/)).toBeInTheDocument();
 });
 
 it('shows the next report with expectations only, then past quarters newest first', async () => {

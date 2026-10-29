@@ -54,3 +54,6 @@ services:
         generateValue: true
       - key: GEMINI_API_KEY
         sync: false
+      # Optional: without it the Fundamentals table shows `—` for expectations.
+      - key: ALPHAVANTAGE_API_KEY
+        sync: false

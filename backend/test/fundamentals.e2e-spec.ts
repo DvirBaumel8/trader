@@ -44,6 +44,7 @@ describe('Fundamentals (e2e)', () => {
     STUB_FUNDAMENTALS.NVDA = {
       quoteType: 'EQUITY',
       currency: 'USD',
+      financialCurrency: 'USD',
       epsQuarters: [
         { periodEnd: '2026-04-30', fiscalQuarter: '1Q2027', actual: 1.9, reportedAt: '2026-05-27T20:20:00.000Z' },
         { periodEnd: '2026-07-31', fiscalQuarter: '2Q2027', actual: 2.22, reportedAt: '2026-08-26T20:20:00.000Z' },

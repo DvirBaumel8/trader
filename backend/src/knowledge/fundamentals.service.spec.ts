@@ -9,6 +9,7 @@ const B = 1_000_000_000;
 const raw: RawFundamentals = {
   quoteType: 'EQUITY',
   currency: 'USD',
+  financialCurrency: 'USD',
   epsQuarters: [{ periodEnd: '2026-07-31', fiscalQuarter: '2Q2027', actual: 2.22, reportedAt: '2026-08-26T20:20:00.000Z' }],
   cash: 62 * B,
   debt: 38 * B,
@@ -28,7 +29,7 @@ const D2 = new Date('2026-10-30T14:00:00Z');
 function setup(opts: { nextEarningsAt?: Date | null } = {}) {
   const rows = new Map<string, FundamentalsCache>();
   const calls = { yahoo: 0, av: 0 };
-  const behaviour = { yahoo: 'ok' as 'ok' | 'fail' | 'etf', av: 'ok' as 'ok' | 'fail', raw };
+  const behaviour = { yahoo: 'ok' as 'ok' | 'fail' | 'etf', av: 'ok' as 'ok' | 'fail' | 'empty', raw };
   const cache = {
     findOneBy: async ({ symbol }: { symbol: string }) => rows.get(symbol) ?? null,
     create: (d: Partial<FundamentalsCache>) => d as FundamentalsCache,
@@ -50,7 +51,7 @@ function setup(opts: { nextEarningsAt?: Date | null } = {}) {
     quarterEstimates: async () => {
       calls.av++;
       if (behaviour.av === 'fail') throw new Error('quota');
-      return estimates;
+      return behaviour.av === 'empty' ? [] : estimates;
     },
   };
   const service = new FundamentalsService(cache as never, instruments as never, yahoo as never, av as never);
@@ -126,6 +127,16 @@ describe('FundamentalsService', () => {
     expect(out.next?.epsEstimate).toBe(2.47);
     expect(out.fetchedAt).toBe(D2.toISOString());
     expect(rows.get('NVDA')?.data.estimatesMissing).toBe(true);
+  });
+
+  it('treats an empty Alpha Vantage answer as no coverage: no estimatesMissing, no hourly retry', async () => {
+    const { service, rows, calls, behaviour } = setup();
+    behaviour.av = 'empty';
+    const out = await service.get('NVDA', D1);
+    expect(out.quarters[0].epsEstimate).toBeNull();
+    expect(rows.get('NVDA')?.data.estimatesMissing).toBeUndefined();
+    await service.get('NVDA', new Date(D1.getTime() + 3 * 3_600_000));
+    expect(calls).toEqual({ yahoo: 1, av: 1 });
   });
 
   it('503s when Yahoo fails with nothing cached', async () => {

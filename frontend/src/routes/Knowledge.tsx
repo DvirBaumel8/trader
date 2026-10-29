@@ -41,7 +41,7 @@ export function Knowledge() {
         {rows.map((r) => (
           <li key={r.symbol}>
             <Link
-              to={`/knowledge/${r.symbol}`}
+              to={`/knowledge/${encodeURIComponent(r.symbol)}`}
               data-testid={`know-row-${r.symbol}`}
               className="flex items-center gap-3 py-3"
             >

@@ -104,6 +104,9 @@ export function shapeFundamentals(
   today: string,
 ): Fundamentals {
   const allEstimates = estimates ?? [];
+  const financialCurrency = raw.financialCurrency ?? raw.currency;
+  // Alpha Vantage revenue estimates may be quoted in another currency than the filings: never compare across them.
+  const sameCurrency = financialCurrency === 'USD';
 
   const reported = raw.epsQuarters
     .filter((q) => q.actual !== null && q.periodEnd <= today)
@@ -114,7 +117,7 @@ export function shapeFundamentals(
     const s = nearest(raw.series, q.periodEnd);
     const e = nearest(allEstimates, q.periodEnd);
     const revenue = s?.revenue ?? null;
-    const revenueEstimate = e?.revenueEstimate ?? null;
+    const revenueEstimate = sameCurrency ? (e?.revenueEstimate ?? null) : null;
     const epsEstimate = e?.epsEstimate ?? null;
     return {
       label: fiscal ? fiscalLabel(fiscal) : monthLabel(q.periodEnd),
@@ -146,14 +149,14 @@ export function shapeFundamentals(
         periodEnd: after.periodEnd,
         reportAt: null,
         epsEstimate: after.epsEstimate,
-        revenueEstimate: after.revenueEstimate,
+        revenueEstimate: sameCurrency ? after.revenueEstimate : null,
       };
     }
   }
 
   return {
     fetchedAt,
-    currency: raw.currency,
+    currency: financialCurrency,
     quarters,
     next,
     cash: raw.cash,

@@ -4,11 +4,14 @@
  * Trader API with a `kb_` key from the file named by KB_ENV
  * (default ~/.config/trader-host/kb.env).
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Client, KbError } from './client.js';
 import type { Config } from './client.js';
 import { USAGE, parseCli, runCommand } from './commands.js';
+import { resolveGraphFile, writableGraphPath } from './paths.js';
 
 function loadConfig(): Config {
   const file = process.env.KB_ENV || `${homedir()}/.config/trader-host/kb.env`;
@@ -37,10 +40,13 @@ async function main(argv: string[]): Promise<void> {
   }
   const parsed = parseCli(argv);
   const client = new Client(loadConfig());
+  const where = { initCwd: process.env.INIT_CWD, cwd: process.cwd(), home: homedir() };
+  const toolDir = dirname(fileURLToPath(import.meta.url));
   await runCommand(client, parsed, {
     log: (line) => console.log(line),
-    readFile: (path) => readFileSync(path, 'utf8'),
-    writeFile: (path, content) => writeFileSync(path, content),
+    // npm runs this from backend/, so relative files mean the caller's directory (INIT_CWD).
+    readFile: (path) => readFileSync(resolveGraphFile(path, where), 'utf8'),
+    writeFile: (path, content) => writeFileSync(writableGraphPath(path, { ...where, toolDir, hasGit: existsSync }), content),
   });
 }
 

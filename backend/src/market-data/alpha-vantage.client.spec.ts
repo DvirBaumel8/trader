@@ -44,6 +44,18 @@ describe('AlphaVantageClient.quarterEstimates', () => {
     await expect(new AlphaVantageClient().quarterEstimates('NVDA')).rejects.toThrow('Alpha Vantage');
   });
 
+  it('returns an empty list when Alpha Vantage has no coverage of the ticker', async () => {
+    vi.stubGlobal('fetch', async () => reply({}));
+    await expect(new AlphaVantageClient().quarterEstimates('XYZ')).resolves.toEqual([]);
+    vi.stubGlobal('fetch', async () => reply({ estimates: [] }));
+    await expect(new AlphaVantageClient().quarterEstimates('XYZ')).resolves.toEqual([]);
+  });
+
+  it('throws on a malformed estimates field', async () => {
+    vi.stubGlobal('fetch', async () => reply({ estimates: 'x' }));
+    await expect(new AlphaVantageClient().quarterEstimates('XYZ')).rejects.toThrow('unexpected reply');
+  });
+
   it('throws on an HTTP failure', async () => {
     vi.stubGlobal('fetch', async () => reply({}, false, 500));
     await expect(new AlphaVantageClient().quarterEstimates('NVDA')).rejects.toThrow('500');

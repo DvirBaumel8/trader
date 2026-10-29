@@ -7,6 +7,7 @@ const B = 1_000_000_000;
 const raw: RawFundamentals = {
   quoteType: 'EQUITY',
   currency: 'USD',
+  financialCurrency: 'USD',
   epsQuarters: [
     { periodEnd: '2025-10-31', fiscalQuarter: '3Q2026', actual: 1.3, reportedAt: '2025-11-19T21:20:00.000Z' },
     { periodEnd: '2026-01-31', fiscalQuarter: '4Q2026', actual: 1.5, reportedAt: '2026-02-25T21:20:00.000Z' },
@@ -51,6 +52,19 @@ describe('shapeFundamentals', () => {
     expect(q.revenueSurprisePct).toBe(4.4);
     expect(q.revenueYoY).toBe(106);
     expect(q.fcf).toBe(45 * B);
+  });
+
+  it('drops revenue estimates and surprise when the financials are not in USD, keeping EPS', () => {
+    const out = shape(estimates, { ...raw, currency: 'USD', financialCurrency: 'TWD' });
+    expect(out.currency).toBe('TWD');
+    const q = out.quarters[0];
+    expect(q.revenue).toBe(96.2 * B);
+    expect(q.revenueEstimate).toBeNull();
+    expect(q.revenueSurprisePct).toBeNull();
+    expect(q.epsEstimate).toBe(2.0916);
+    expect(q.epsSurprisePct).toBe(6.1);
+    expect(out.next?.revenueEstimate).toBeNull();
+    expect(out.next?.epsEstimate).toBe(2.47);
   });
 
   it('matches an estimate whose period end falls on another day of the month', () => {

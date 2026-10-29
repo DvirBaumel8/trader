@@ -36,10 +36,15 @@ plus Login:
   and sort are remembered on the device.
 - **Know** (`/knowledge`). Lists every ticker with a knowledge graph (node
   count, last update, a dot when there are new nodes) with a ticker search.
-  `/knowledge/:symbol` shows the graph top-down (React Flow + dagre): pan,
+  `/knowledge/:symbol` shows the graph left-to-right (React Flow + dagre): pan,
   pinch-zoom, a `Fit` button, new nodes outlined with a `new` tag (relative to
   the previous visit). Tapping a node opens a bottom sheet (question, text,
-  sources, update date, connected nodes). Read-only.
+  sources, update date, connected nodes). A `Fundamentals` node also shows a
+  live table: the last four quarters (EPS and revenue against expectations,
+  revenue growth, free cash flow), the next report, and cash, debt and net
+  cash; figures show the reporting currency code when it is not USD. Read-only.
+  In Holdings, Watchlist and Earnings a ticker is a link to its graph, with a
+  small dot when one exists.
 
 Chat routing: a free Gemini model (`gemini-3.5-flash-lite`) reads each message and
 picks one of buy, sell, watch, unwatch or none; the backend validates and

@@ -3,8 +3,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface UserContext {
   /** The authenticated user's id, or null for an unauthenticated request. */
   userId: string | null;
-  /** True when the request authenticated with a `kb_` API key rather than a login. */
-  viaApiKey: boolean;
 }
 
 /**

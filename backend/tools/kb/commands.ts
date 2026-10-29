@@ -15,11 +15,12 @@ export const USAGE = `Usage: kb <command> …
   link SYM FROM TO --label … [-m …]      unlink SYM FROM TO [-m …]
   move SYM ID --under ID [--label …] [-m …]
   remove SYM ID [--with-children] [-m …]
+  kind SYM         (company or not a company)
   history SYM      revert SYM VERSION [-m …]      delete SYM [-m …]
   pull SYM FILE    push SYM FILE -m …
 A value that starts with "-" must be written as --text="-3% yoy".`;
 
-const COMMANDS = ['list', 'show', 'start', 'add', 'edit', 'link', 'unlink', 'move', 'remove', 'history', 'revert', 'delete', 'pull', 'push'];
+const COMMANDS = ['list', 'show', 'start', 'add', 'edit', 'link', 'unlink', 'move', 'remove', 'history', 'revert', 'delete', 'pull', 'push', 'kind'];
 
 export interface Options {
   under?: string;
@@ -209,6 +210,10 @@ export async function runCommand(client: Client, parsed: Parsed, io: Io): Promis
       await edit(msg(`remove ${id}`), (cur) => removeNode(cur, id, o['with-children'] === true));
       return;
     }
+    case 'kind': {
+      io.log(`${symbol}: ${(await client.isCompany(symbol)) ? 'company' : 'not a company'}`);
+      return;
+    }
     case 'history': {
       for (const v of await client.versions(symbol)) {
         io.log(`v${String(v.version).padEnd(4)} ${v.createdAt.slice(0, 16).replace('T', ' ')}  ${v.message}`);
@@ -244,7 +249,7 @@ export async function runCommand(client: Client, parsed: Parsed, io: Io): Promis
       } catch (err) {
         throw new KbError(`Cannot read ${file} as JSON: ${err instanceof Error ? err.message : String(err)}`);
       }
-      if (!Array.isArray(g?.nodes) || !Array.isArray(g?.edges)) throw new KbError('The file must be {"nodes": […], "edges": […]}.');
+      plain(g); // validate the shape before any request
       const base = await client.baseForCreate(symbol);
       const saved = await client.save(symbol, base.baseVersion, o.message, g);
       report(io, saved, o.message);

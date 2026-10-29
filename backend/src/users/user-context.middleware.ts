@@ -35,12 +35,10 @@ export class UserContextMiddleware implements NestMiddleware {
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
     let userId: string | null = null;
-    let viaApiKey = false;
 
     if (token?.startsWith(API_KEY_PREFIX)) {
       // An unknown key leaves userId null; the guard turns that into a 401
       // rather than falling back to the default owner.
-      viaApiKey = true;
       userId = await this.apiKeys.resolve(token);
     } else if (token) {
       try {
@@ -55,6 +53,6 @@ export class UserContextMiddleware implements NestMiddleware {
       }
     }
 
-    userContext.run({ userId, viaApiKey }, () => next());
+    userContext.run({ userId }, () => next());
   }
 }

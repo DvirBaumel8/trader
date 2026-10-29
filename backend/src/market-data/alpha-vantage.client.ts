@@ -39,9 +39,10 @@ export class AlphaVantageClient {
     };
     const problem = body.Information ?? body.Note ?? body['Error Message'];
     if (problem !== undefined) throw new Error(`Alpha Vantage: ${String(problem).slice(0, 200)}`);
-    if (!Array.isArray(body.estimates)) throw new Error('Alpha Vantage: unexpected reply');
+    // No `estimates` key and no error message: Alpha Vantage simply has no coverage of this ticker.
+    if (body.estimates !== undefined && !Array.isArray(body.estimates)) throw new Error('Alpha Vantage: unexpected reply');
     const out: QuarterEstimate[] = [];
-    for (const e of body.estimates) {
+    for (const e of body.estimates ?? []) {
       if (e.horizon !== 'fiscal quarter' || typeof e.date !== 'string') continue;
       out.push({
         periodEnd: e.date,

@@ -34,6 +34,7 @@ function Line({ name, children, className = '' }: { name: string; children: Reac
 
 function Table({ data }: { data: Fundamentals }) {
   const { next, quarters } = data;
+  const money = (n: number | null) => formatMoney(n, data.currency);
   return (
     <div data-testid="fundamentals" className="space-y-3 text-sm">
       <table className="w-full table-fixed border-collapse tabular-nums">
@@ -58,7 +59,7 @@ function Table({ data }: { data: Fundamentals }) {
               </td>
               <td className="py-1.5 pr-1">
                 <Line name="EPS">{formatEps(next.epsEstimate)}</Line>
-                <Line name="Rev">{formatMoney(next.revenueEstimate)}</Line>
+                <Line name="Rev">{money(next.revenueEstimate)}</Line>
               </td>
               <td className="py-1.5" />
             </tr>
@@ -71,14 +72,14 @@ function Table({ data }: { data: Fundamentals }) {
               </td>
               <td className="py-1.5 pr-1">
                 <Line name="EPS">{formatEps(q.epsEstimate)}</Line>
-                <Line name="Rev">{formatMoney(q.revenueEstimate)}</Line>
+                <Line name="Rev">{money(q.revenueEstimate)}</Line>
               </td>
               <td className="py-1.5">
                 <Line name="EPS" className={tone(q.epsSurprisePct)}>
                   {formatEps(q.eps)}
                 </Line>
                 <Line name="Rev" className={tone(q.revenueSurprisePct)}>
-                  {formatMoney(q.revenue)}
+                  {money(q.revenue)}
                 </Line>
                 {q.revenueYoY !== null && <div className="text-[11px] text-muted">{formatYoY(q.revenueYoY)}</div>}
               </td>
@@ -94,7 +95,7 @@ function Table({ data }: { data: Fundamentals }) {
             {quarters.map((q) => (
               <li key={q.periodEnd}>
                 <div className="text-[11px] text-muted">{q.label}</div>
-                <div>{formatMoney(q.fcf)}</div>
+                <div>{money(q.fcf)}</div>
               </li>
             ))}
           </ul>
@@ -102,9 +103,11 @@ function Table({ data }: { data: Fundamentals }) {
       )}
 
       <p data-testid="fundamentals-balance">
-        Cash {formatMoney(data.cash)} · Debt {formatMoney(data.debt)} · Net cash {formatMoney(data.netCash)}
+        Cash {money(data.cash)} · Debt {money(data.debt)} · Net cash {money(data.netCash)}
       </p>
-      <p className="text-xs text-muted">Updated {etDate(data.fetchedAt)} · expectations: Alpha Vantage</p>
+      <p className="text-xs text-muted">
+        {data.currency && data.currency !== 'USD' && `Figures in ${data.currency} · `}Updated {etDate(data.fetchedAt)} · expectations: Alpha Vantage
+      </p>
     </div>
   );
 }
