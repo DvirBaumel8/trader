@@ -8,6 +8,7 @@ import { JSON_BODY_LIMIT } from '../src/body-limit.js';
 import { YahooClient } from '../src/market-data/yahoo.client.js';
 import { AlphaVantageClient } from '../src/market-data/alpha-vantage.client.js';
 import { yahooStub, STUB_FUNDAMENTALS, STUB_FUNDAMENTALS_CALLS } from './yahoo-stub.js';
+import { FundamentalsService } from '../src/knowledge/fundamentals.service.js';
 import { alphaVantageStub, STUB_ESTIMATES } from './alpha-vantage-stub.js';
 
 const B = 1_000_000_000;
@@ -35,6 +36,8 @@ describe('Fundamentals (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query('TRUNCATE fundamentals_cache');
+    // The service remembers Yahoo failures for an hour; start each test clean.
+    (app.get(FundamentalsService) as unknown as { yahooFailedAt: Map<string, number> }).yahooFailedAt.clear();
     for (const k of Object.keys(STUB_FUNDAMENTALS)) delete STUB_FUNDAMENTALS[k];
     for (const k of Object.keys(STUB_FUNDAMENTALS_CALLS)) delete STUB_FUNDAMENTALS_CALLS[k];
     for (const k of Object.keys(STUB_ESTIMATES)) delete STUB_ESTIMATES[k];

@@ -203,7 +203,7 @@ export class YahooClient {
     for (const q of summary?.earnings?.earningsChart?.quarterly ?? []) {
       const periodEnd = day(q.periodEndDate);
       if (!periodEnd) continue;
-      const reported = q.reportedDate instanceof Date ? q.reportedDate : null;
+      const reported = q.reportedDate instanceof Date ? q.reportedDate : typeof q.reportedDate === 'string' ? new Date(q.reportedDate) : null;
       epsQuarters.push({
         periodEnd,
         fiscalQuarter: typeof q.fiscalQuarter === 'string' ? q.fiscalQuarter : null,

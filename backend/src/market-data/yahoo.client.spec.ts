@@ -172,6 +172,17 @@ describe('YahooClient.fundamentals', () => {
     expect(args).toMatchObject({ type: 'quarterly', module: 'all' });
   });
 
+  it('accepts a string reportedDate', async () => {
+    const client = clientWith({
+      quoteSummary: async () => ({
+        ...summary,
+        earnings: { earningsChart: { quarterly: [{ actual: 2, periodEndDate: '2026-07-31', reportedDate: '2026-08-26T20:20:00Z' }] } },
+      }),
+      fundamentalsTimeSeries: async () => [],
+    });
+    expect((await client.fundamentals('NVDA')).epsQuarters[0]).toMatchObject({ periodEnd: '2026-07-31', reportedAt: '2026-08-26T20:20:00.000Z' });
+  });
+
   it('skips the time series for a non-company', async () => {
     const client = clientWith({
       quoteSummary: async () => ({ price: { quoteType: 'ETF', currency: 'USD' } }),

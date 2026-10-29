@@ -17,10 +17,10 @@ function formatYoY(n: number): string {
   return `${r < 0 ? MINUS : '+'}${Math.abs(r)}% YoY`;
 }
 
-/** Green on a beat, red on a miss, plain when equal or when there is no estimate. */
-function tone(actual: number | null, estimate: number | null): string {
-  if (actual === null || estimate === null || actual === estimate) return '';
-  return actual > estimate ? 'text-up' : 'text-down';
+/** Green on a beat, red on a miss; the backend's surprise % carries the direction (null or 0: plain). */
+function tone(surprisePct: number | null): string {
+  if (surprisePct === null || surprisePct === 0) return '';
+  return surprisePct > 0 ? 'text-up' : 'text-down';
 }
 
 function Line({ name, children, className = '' }: { name: string; children: React.ReactNode; className?: string }) {
@@ -74,10 +74,10 @@ function Table({ data }: { data: Fundamentals }) {
                 <Line name="Rev">{formatMoney(q.revenueEstimate)}</Line>
               </td>
               <td className="py-1.5">
-                <Line name="EPS" className={tone(q.eps, q.epsEstimate)}>
+                <Line name="EPS" className={tone(q.epsSurprisePct)}>
                   {formatEps(q.eps)}
                 </Line>
-                <Line name="Rev" className={tone(q.revenue, q.revenueEstimate)}>
+                <Line name="Rev" className={tone(q.revenueSurprisePct)}>
                   {formatMoney(q.revenue)}
                 </Line>
                 {q.revenueYoY !== null && <div className="text-[11px] text-muted">{formatYoY(q.revenueYoY)}</div>}

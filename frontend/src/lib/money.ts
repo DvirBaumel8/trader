@@ -6,9 +6,10 @@ export function formatMoney(n: number | null): string {
   if (n === null) return DASH;
   const sign = n < 0 ? MINUS : '';
   const abs = Math.abs(n);
+  const tenths = (n: number) => n.toFixed(1);
   let body: string;
-  if (abs >= 1e12) body = `${(abs / 1e12).toFixed(1)}T`;
-  else if (abs >= 1e9 || Math.round(abs / 1e6) >= 1000) body = `${(abs / 1e9).toFixed(1)}B`;
+  if (abs >= 1e12 || (abs >= 1e9 && tenths(abs / 1e9) === '1000.0')) body = `${tenths(abs / 1e12)}T`;
+  else if (abs >= 1e9 || Math.round(abs / 1e6) >= 1000) body = `${tenths(abs / 1e9)}B`;
   else if (abs >= 1e6) body = `${Math.round(abs / 1e6)}M`;
   else body = Math.round(abs).toLocaleString('en-US');
   return `${sign}$${body}`;

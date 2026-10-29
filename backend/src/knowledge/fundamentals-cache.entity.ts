@@ -1,11 +1,14 @@
 import { Column, Entity, PrimaryColumn } from 'typeorm';
+import type { QuarterEstimate } from '../market-data/alpha-vantage.client.js';
 import type { Fundamentals } from './fundamentals.js';
 
 export interface FundamentalsCacheData {
   /** Yahoo says this ticker is not a company; remembered for the day so it is not asked again. */
   notCompany?: true;
   fundamentals?: Fundamentals;
-  /** The actuals were cached but the expectations call failed; retried on a later open. */
+  /** The raw expectations behind `fundamentals`, kept so a failed refresh can carry them forward. */
+  estimates?: QuarterEstimate[];
+  /** The expectations are missing or carried over from an earlier day; retried on a later open. */
   estimatesMissing?: true;
 }
 

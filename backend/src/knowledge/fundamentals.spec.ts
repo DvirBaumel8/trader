@@ -58,6 +58,33 @@ describe('shapeFundamentals', () => {
     expect(q.epsEstimate).toBe(2);
   });
 
+  it('matches across a month boundary within 10 days (Dec 30 vs Jan 1)', () => {
+    const r = {
+      ...raw,
+      epsQuarters: [{ periodEnd: '2025-12-30', fiscalQuarter: '2Q2026', actual: 2, reportedAt: null }],
+      series: [
+        { periodEnd: '2024-12-31', revenue: 50 * B, fcf: null },
+        { periodEnd: '2026-01-01', revenue: 75 * B, fcf: 5 * B },
+      ],
+    };
+    const q = shape([{ periodEnd: '2026-01-01', epsEstimate: 1.9, revenueEstimate: 70 * B }], r).quarters[0];
+    expect(q).toMatchObject({ revenue: 75 * B, epsEstimate: 1.9, fcf: 5 * B, revenueYoY: 50 });
+  });
+
+  it('does not match periods more than 10 days apart', () => {
+    const q = shape([{ periodEnd: '2026-08-15', epsEstimate: 2, revenueEstimate: 90 * B }]).quarters[0];
+    expect(q.epsEstimate).toBeNull();
+  });
+
+  it('does not treat a same-quarter 52/53-week estimate as the next quarter', () => {
+    const r = { ...raw, epsQuarters: [{ periodEnd: '2026-07-31', fiscalQuarter: '2Q2027', actual: 2, reportedAt: null }] };
+    expect(shape([{ periodEnd: '2026-08-02', epsEstimate: 1, revenueEstimate: 1 }], r).next).toBeNull();
+  });
+
+  it('steps the fiscal label by the quarters between the periods', () => {
+    expect(shape([{ periodEnd: '2027-01-31', epsEstimate: 1, revenueEstimate: 1 }]).next?.label).toBe('Q4 FY27');
+  });
+
   it('leaves YoY null when the year-earlier quarter is missing', () => {
     expect(shape().quarters[3].revenueYoY).toBeNull();
   });

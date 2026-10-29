@@ -38,8 +38,8 @@ const data: Fundamentals = {
   currency: 'USD',
   quarters: [
     q({}),
-    q({ label: 'Q1 FY27', periodEnd: '2026-04-30', reportedAt: '2026-05-27T20:20:00.000Z', eps: 1.8, epsEstimate: 1.95, revenue: 80 * B, revenueEstimate: 80 * B, revenueYoY: -12.4, fcf: -1.5 * B }),
-    q({ label: 'Q4 FY26', periodEnd: '2026-01-31', eps: 1.5, epsEstimate: null, revenue: null, revenueEstimate: 66 * B, revenueYoY: null, fcf: null }),
+    q({ label: 'Q1 FY27', periodEnd: '2026-04-30', reportedAt: '2026-05-27T20:20:00.000Z', eps: 1.8, epsEstimate: 1.95, epsSurprisePct: -7.7, revenue: 80 * B, revenueEstimate: 80 * B, revenueSurprisePct: 0, revenueYoY: -12.4, fcf: -1.5 * B }),
+    q({ label: 'Q4 FY26', periodEnd: '2026-01-31', eps: 1.5, epsEstimate: null, epsSurprisePct: null, revenue: null, revenueEstimate: 66 * B, revenueSurprisePct: null, revenueYoY: null, fcf: null }),
   ],
   next: { label: 'Q3 FY27', periodEnd: '2026-10-31', reportAt: '2026-11-17T21:20:00.000Z', epsEstimate: 2.47, revenueEstimate: 109 * B },
   cash: 62.5 * B,
@@ -60,6 +60,7 @@ it('formats money', () => {
   expect(formatMoney(850e6)).toBe('$850M');
   expect(formatMoney(999.7e6)).toBe('$1.0B');
   expect(formatMoney(-1.5e9)).toBe('−$1.5B');
+  expect(formatMoney(999.96e9)).toBe('$1.0T');
   expect(formatMoney(null)).toBe('—');
 });
 

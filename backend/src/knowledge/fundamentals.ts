@@ -1,4 +1,5 @@
 import type { QuarterEstimate } from '../market-data/alpha-vantage.client.js';
+import { daysBetween } from '../earnings/week.js';
 import type { RawFundamentals } from '../market-data/yahoo.client.js';
 
 export interface FundamentalsQuarter {
@@ -37,11 +38,31 @@ export interface Fundamentals {
 const MAX_QUARTERS = 4;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** Fiscal and calendar period ends differ by days, so quarters match on year and month. */
-const monthKey = (ymd: string) => ymd.slice(0, 7);
+/** Fiscal and calendar period ends can differ by days (52/53-week years), so periods match within this. */
+const TOLERANCE_DAYS = 10;
 
-function yearAgoKey(ymd: string): string {
-  return `${Number(ymd.slice(0, 4)) - 1}${ymd.slice(4, 7)}`;
+/** The item whose period end is nearest `ymd`, within the tolerance. */
+function nearest<T extends { periodEnd: string }>(items: T[], ymd: string): T | undefined {
+  let best: T | undefined;
+  let bestGap = TOLERANCE_DAYS + 1;
+  for (const it of items) {
+    const gap = Math.abs(daysBetween(it.periodEnd, ymd));
+    if (gap < bestGap) {
+      best = it;
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+/** The same date a year earlier (Feb 29 falls to Mar 1, well inside the tolerance). */
+function yearAgo(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y - 1, m - 1, d)).toISOString().slice(0, 10);
+}
+
+function monthsBetween(fromYmd: string, toYmd: string): number {
+  return (Number(toYmd.slice(0, 4)) - Number(fromYmd.slice(0, 4))) * 12 + Number(toYmd.slice(5, 7)) - Number(fromYmd.slice(5, 7));
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -66,8 +87,9 @@ function fiscalLabel(f: { q: number; year: number }): string {
   return `Q${f.q} FY${String(f.year).slice(2)}`;
 }
 
-function stepFiscal(f: { q: number; year: number }): { q: number; year: number } {
-  return f.q === 4 ? { q: 1, year: f.year + 1 } : { q: f.q + 1, year: f.year };
+function stepFiscal(f: { q: number; year: number }, steps: number): { q: number; year: number } {
+  const index = f.year * 4 + (f.q - 1) + steps;
+  return { q: (index % 4) + 1, year: Math.floor(index / 4) };
 }
 
 /**
@@ -81,8 +103,7 @@ export function shapeFundamentals(
   fetchedAt: string,
   today: string,
 ): Fundamentals {
-  const seriesByMonth = new Map(raw.series.map((s) => [monthKey(s.periodEnd), s]));
-  const estByMonth = new Map((estimates ?? []).map((e) => [monthKey(e.periodEnd), e]));
+  const allEstimates = estimates ?? [];
 
   const reported = raw.epsQuarters
     .filter((q) => q.actual !== null && q.periodEnd <= today)
@@ -90,8 +111,8 @@ export function shapeFundamentals(
 
   const quarters: FundamentalsQuarter[] = reported.slice(0, MAX_QUARTERS).map((q) => {
     const fiscal = parseFiscal(q.fiscalQuarter);
-    const s = seriesByMonth.get(monthKey(q.periodEnd));
-    const e = estByMonth.get(monthKey(q.periodEnd));
+    const s = nearest(raw.series, q.periodEnd);
+    const e = nearest(allEstimates, q.periodEnd);
     const revenue = s?.revenue ?? null;
     const revenueEstimate = e?.revenueEstimate ?? null;
     const epsEstimate = e?.epsEstimate ?? null;
@@ -102,7 +123,7 @@ export function shapeFundamentals(
       revenue,
       revenueEstimate,
       revenueSurprisePct: pctChange(revenue, revenueEstimate),
-      revenueYoY: pctChange(revenue, seriesByMonth.get(yearAgoKey(q.periodEnd))?.revenue ?? null),
+      revenueYoY: pctChange(revenue, nearest(raw.series, yearAgo(q.periodEnd))?.revenue ?? null),
       eps: q.actual,
       epsEstimate,
       epsSurprisePct: pctChange(q.actual, epsEstimate),
@@ -115,11 +136,13 @@ export function shapeFundamentals(
     const newest = reported[0];
     const after = [...estimates]
       .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd))
-      .find((e) => (newest ? monthKey(e.periodEnd) > monthKey(newest.periodEnd) : e.periodEnd > today));
+      .find((e) => (newest ? daysBetween(newest.periodEnd, e.periodEnd) > TOLERANCE_DAYS : e.periodEnd > today));
     if (after) {
       const fiscal = parseFiscal(newest?.fiscalQuarter ?? null);
       next = {
-        label: fiscal ? fiscalLabel(stepFiscal(fiscal)) : monthLabel(after.periodEnd),
+        label: fiscal && newest
+            ? fiscalLabel(stepFiscal(fiscal, Math.max(1, Math.round(monthsBetween(newest.periodEnd, after.periodEnd) / 3))))
+            : monthLabel(after.periodEnd),
         periodEnd: after.periodEnd,
         reportAt: null,
         epsEstimate: after.epsEstimate,

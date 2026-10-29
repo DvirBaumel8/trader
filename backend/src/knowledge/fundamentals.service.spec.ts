@@ -96,6 +96,38 @@ describe('FundamentalsService', () => {
     expect(out.fetchedAt).toBe(first.fetchedAt);
   });
 
+  it('does not spend an Alpha Vantage call when Yahoo fails, and retries Yahoo at most hourly', async () => {
+    const { service, calls, behaviour } = setup();
+    await service.get('NVDA', D1);
+    behaviour.yahoo = 'fail';
+    await service.get('NVDA', D2);
+    expect(calls).toEqual({ yahoo: 2, av: 1 });
+    await service.get('NVDA', new Date(D2.getTime() + 10 * 60_000));
+    expect(calls).toEqual({ yahoo: 2, av: 1 });
+    behaviour.yahoo = 'ok';
+    await service.get('NVDA', new Date(D2.getTime() + 2 * 3_600_000));
+    expect(calls).toEqual({ yahoo: 3, av: 2 });
+  });
+
+  it('does not hammer Yahoo during an outage with nothing cached', async () => {
+    const { service, calls, behaviour } = setup();
+    behaviour.yahoo = 'fail';
+    await expect(service.get('NVDA', D1)).rejects.toThrow(ServiceUnavailableException);
+    await expect(service.get('NVDA', new Date(D1.getTime() + 60_000))).rejects.toThrow(ServiceUnavailableException);
+    expect(calls.yahoo).toBe(1);
+  });
+
+  it('carries the earlier expectations forward when Alpha Vantage fails on a refresh', async () => {
+    const { service, rows, behaviour } = setup();
+    await service.get('NVDA', D1);
+    behaviour.av = 'fail';
+    const out = await service.get('NVDA', D2);
+    expect(out.quarters[0].epsEstimate).toBe(2.09);
+    expect(out.next?.epsEstimate).toBe(2.47);
+    expect(out.fetchedAt).toBe(D2.toISOString());
+    expect(rows.get('NVDA')?.data.estimatesMissing).toBe(true);
+  });
+
   it('503s when Yahoo fails with nothing cached', async () => {
     const { service, behaviour } = setup();
     behaviour.yahoo = 'fail';
@@ -128,6 +160,7 @@ describe('FundamentalsService', () => {
     await expect(service.get('QQQ', D1)).rejects.toThrow(NotFoundException);
     await expect(service.get('QQQ', D1)).rejects.toThrow('QQQ is not a company');
     expect(calls.yahoo).toBe(1);
+    expect(calls.av).toBe(0);
     await expect(service.get('QQQ', D2)).rejects.toThrow(NotFoundException);
     expect(calls.yahoo).toBe(2);
   });

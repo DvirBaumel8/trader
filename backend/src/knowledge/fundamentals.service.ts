@@ -3,18 +3,20 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { etDate } from '../earnings/week.js';
 import { Instrument } from '../instruments/instrument.entity.js';
-import { AlphaVantageClient } from '../market-data/alpha-vantage.client.js';
-import { YahooClient } from '../market-data/yahoo.client.js';
+import { AlphaVantageClient, QuarterEstimate } from '../market-data/alpha-vantage.client.js';
+import { RawFundamentals, YahooClient } from '../market-data/yahoo.client.js';
 import { FundamentalsCache, FundamentalsCacheData } from './fundamentals-cache.entity.js';
 import { Fundamentals, shapeFundamentals } from './fundamentals.js';
 
-const ESTIMATES_RETRY_MS = 60 * 60 * 1000;
+const RETRY_MS = 60 * 60 * 1000;
 const TICKER = /^[A-Z0-9][A-Z0-9.\-^=]{0,14}$/;
 
 @Injectable()
 export class FundamentalsService {
   private readonly logger = new Logger(FundamentalsService.name);
   /** Concurrent opens of one ticker share a single provider call (Alpha Vantage allows 25 a day). */
+  /** When Yahoo last failed per symbol, so an outage is retried at most hourly. */
+  private readonly yahooFailedAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<FundamentalsCache>>();
 
   constructor(
@@ -49,37 +51,58 @@ export class FundamentalsService {
 
   private fresh(row: FundamentalsCache, now: Date): boolean {
     if (etDate(row.fetchedAt) !== etDate(now)) return false;
-    if (row.data.estimatesMissing && now.getTime() - row.fetchedAt.getTime() >= ESTIMATES_RETRY_MS) return false;
+    if (row.data.estimatesMissing && now.getTime() - row.fetchedAt.getTime() >= RETRY_MS) return false;
     return true;
   }
 
-  /** Fetches and stores; on a Yahoo failure serves what was cached, or 503. */
+  /**
+   * Yahoo first; Alpha Vantage (25 calls a day) only once Yahoo says this is a
+   * company. On a Yahoo failure serves what was cached, or 503, and does not
+   * ask Yahoo again for an hour.
+   */
   private async refresh(symbol: string, previous: FundamentalsCache | null, now: Date): Promise<FundamentalsCache> {
-    const [yahoo, estimates] = await Promise.allSettled([
-      this.yahoo.fundamentals(symbol),
-      this.alphaVantage.quarterEstimates(symbol),
-    ]);
-
-    if (yahoo.status === 'rejected') {
-      this.logger.warn(`Yahoo fundamentals for ${symbol} failed: ${String(yahoo.reason)}`);
-      if (previous) return previous;
-      throw new ServiceUnavailableException("Couldn't load the numbers right now.");
+    const failedAt = this.yahooFailedAt.get(symbol);
+    if (failedAt === undefined || now.getTime() - failedAt >= RETRY_MS) {
+      let raw: RawFundamentals | null = null;
+      try {
+        raw = await this.yahoo.fundamentals(symbol);
+        this.yahooFailedAt.delete(symbol);
+      } catch (err) {
+        this.yahooFailedAt.set(symbol, now.getTime());
+        this.logger.warn(`Yahoo fundamentals for ${symbol} failed: ${String(err)}`);
+      }
+      if (raw) return this.store(symbol, raw, previous, now);
     }
+    if (previous) return previous;
+    throw new ServiceUnavailableException("Couldn't load the numbers right now.");
+  }
 
+  private async store(
+    symbol: string,
+    raw: RawFundamentals,
+    previous: FundamentalsCache | null,
+    now: Date,
+  ): Promise<FundamentalsCache> {
     let data: FundamentalsCacheData;
-    if (yahoo.value.quoteType !== 'EQUITY') {
+    if (raw.quoteType !== 'EQUITY') {
       data = { notCompany: true };
     } else {
-      if (estimates.status === 'rejected') {
-        this.logger.warn(`Alpha Vantage estimates for ${symbol} failed: ${String(estimates.reason)}`);
+      let estimates: QuarterEstimate[] | null = null;
+      let missing = false;
+      try {
+        estimates = await this.alphaVantage.quarterEstimates(symbol);
+      } catch (err) {
+        this.logger.warn(`Alpha Vantage estimates for ${symbol} failed: ${String(err)}`);
+        // Yesterday's expectations beat none; the hourly retry still runs.
+        estimates = previous?.data.estimates ?? null;
+        missing = true;
       }
-      const shaped = shapeFundamentals(
-        yahoo.value,
-        estimates.status === 'fulfilled' ? estimates.value : null,
-        now.toISOString(),
-        etDate(now),
-      );
-      data = { fundamentals: shaped, ...(estimates.status === 'rejected' ? { estimatesMissing: true as const } : {}) };
+      const fundamentals = shapeFundamentals(raw, estimates, now.toISOString(), etDate(now));
+      data = {
+        fundamentals,
+        ...(estimates ? { estimates } : {}),
+        ...(missing ? { estimatesMissing: true as const } : {}),
+      };
     }
     return this.cache.save(this.cache.create({ symbol, data, fetchedAt: now }));
   }
