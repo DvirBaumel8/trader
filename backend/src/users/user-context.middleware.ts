@@ -2,6 +2,7 @@ import { Injectable, NestMiddleware } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { NextFunction, Request, Response } from 'express';
 import { userContext } from './user-context.js';
+import { API_KEY_PREFIX, ApiKeysService } from './api-keys.service.js';
 
 /**
  * Puts the authenticated user's id where the services can find it.
@@ -16,19 +17,31 @@ import { userContext } from './user-context.js';
  * safe in practice — but "safe because something else happens to reject it
  * first" is the kind of reasoning that stops being true after a refactor.
  *
+ * A `kb_` bearer is an API key, looked up instead of verified as a JWT.
+ * The guard decides whether the route accepts one.
+ *
  * A missing or bad token is not an error here. Public routes legitimately
  * have none, and rejecting is the guard's job, not this one's.
  */
 @Injectable()
 export class UserContextMiddleware implements NestMiddleware {
-  constructor(private readonly jwt: JwtService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly apiKeys: ApiKeysService,
+  ) {}
 
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
     let userId: string | null = null;
+    let viaApiKey = false;
 
-    if (token) {
+    if (token?.startsWith(API_KEY_PREFIX)) {
+      // An unknown key leaves userId null; the guard turns that into a 401
+      // rather than falling back to the default owner.
+      viaApiKey = true;
+      userId = await this.apiKeys.resolve(token);
+    } else if (token) {
       try {
         const payload = await this.jwt.verifyAsync<{ sub?: string }>(token);
         // Tokens minted before multi-user carry sub: 'owner'. That is not a
@@ -41,6 +54,6 @@ export class UserContextMiddleware implements NestMiddleware {
       }
     }
 
-    userContext.run({ userId }, () => next());
+    userContext.run({ userId, viaApiKey }, () => next());
   }
 }

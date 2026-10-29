@@ -26,6 +26,7 @@ import { NetCashExcludesFee1789948800000 } from './migrations/1789948800000-NetC
 import { AddHoldings1790035200000 } from './migrations/1790035200000-AddHoldings.js';
 import { AddNextEarnings1790121600000 } from './migrations/1790121600000-AddNextEarnings.js';
 import { AddListPositions1790208000000 } from './migrations/1790208000000-AddListPositions.js';
+import { AddKnowledge1790294400000 } from './migrations/1790294400000-AddKnowledge.js';
 
 // Migrations are imported explicitly rather than via a glob string. A glob
 // silently matched zero files under some execution contexts in a sibling
@@ -59,6 +60,7 @@ const dataSource = new DataSource({
     AddHoldings1790035200000,
     AddNextEarnings1790121600000,
     AddListPositions1790208000000,
+    AddKnowledge1790294400000,
   ],
   synchronize: false,
 });

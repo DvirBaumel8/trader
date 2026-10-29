@@ -62,6 +62,22 @@ on the signed-in user.
 | `PUT /holdings/order` | `{ symbols: string[] }` (1 to 500) -> the new list. The listed symbols take the first positions in the order given; the user's other symbols follow in their old order. 400 `Unknown symbol in order: X` for a symbol not held. New holdings are appended last. |
 | `DELETE /holdings/:symbol` | `{ ok: true }`; 404 when not held. |
 
+### Knowledge — `knowledge/`
+
+Per-ticker knowledge graphs, private to the user. Accepts a login or an API key (`Authorization: Bearer kb_...`, made with `npm run kb:key -- <email> <name>` in `backend`). A key is accepted on these routes only; on any other route it is a 401 `API key not allowed here`. Every write carries `baseVersion` (the version it was based on, `0` to create) and a `message` (1 to 120 characters); a stale `baseVersion` is a 409 and nothing is saved. Limits: 300 nodes, 600 edges.
+
+| Route | Notes |
+|---|---|
+| `GET /knowledge` | `[{ symbol, nodeCount, updatedAt, hasNew }]`, most recently updated first; deleted graphs are left out. |
+| `GET /knowledge/:symbol` | `{ symbol, version, updatedAt, lastViewedAt, nodes, edges }`; 404 when there is none or it was deleted. |
+| `POST /knowledge/:symbol/viewed` | Sets `lastViewedAt` to now -> `{ ok: true }`; 404 when none. |
+| `PUT /knowledge/:symbol` | `{ baseVersion, message, nodes, edges }` -> the graph as above. Creates it at `baseVersion: 0` (the ticker must pass the market-data lookup, else 404; it need not be on any list). Server-owned `createdAt`/`updatedAt` per node. 400 with `message` naming each problem, e.g. `edge revenue→gaming: unknown node "gaming"`. A `PUT` at the current version also un-deletes. |
+| `GET /knowledge/:symbol/versions` | `[{ version, message, createdAt }]`, newest first; also works for a deleted graph. |
+| `POST /knowledge/:symbol/revert` | `{ baseVersion, version, message }` -> the graph; saves the old version's content as a new version and un-deletes. 404 for an unknown version. |
+| `DELETE /knowledge/:symbol` | Body `{ baseVersion, message }` -> `{ ok: true }`. Hides the graph, saved as a version. |
+
+A node is `{ id, title, text, type?, asOf?, question?, sources? }`; an edge is `{ from, to, label }`. Every node must be reachable from the `summary` node.
+
 ### Watchlist — `watchlist/`
 
 | Route | Notes |

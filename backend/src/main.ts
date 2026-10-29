@@ -1,17 +1,20 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import express from 'express';
 import { AppModule } from './app.module.js';
 import { ensureDatabaseReady } from './database/startup.js';
 import { legacyApiPrefix } from './legacy-api-prefix.js';
+import { JSON_BODY_LIMIT } from './body-limit.js';
 
 async function bootstrap() {
   await ensureDatabaseReady();
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
   const expressApp = app.getHttpAdapter().getInstance();
