@@ -10,6 +10,7 @@ import { parseTickers, summarize } from '../lib/tickers';
 import { usePersistentState } from '../lib/persistentState';
 import { nextSort, sortRows, type SortState } from '../lib/sortRows';
 import { useMoves } from '../api/moves';
+import { TickerLink, useKnowledgeSymbols } from '../components/TickerLink';
 import { AtrToggle, MoveCells, MovesHeader, moveTone, toneClass } from '../components/MoveColumns';
 
 export function Watchlist() {
@@ -21,6 +22,7 @@ export function Watchlist() {
   const moves = useMoves((data ?? []).map((r) => r.symbol), showAtr);
   const [sort, setSort] = usePersistentState<SortState | null>('trader.watchlist.sort.v1', null, Infinity);
   const moveOf = (sym: string) => moves.data?.find((m) => m.symbol === sym);
+  const knowledge = useKnowledgeSymbols();
   const [confirming, setConfirming] = useState<string | null>(null);
   // A saved ATR/Today sort waits for the numbers: until they arrive (or if they fail) the list stays in My order.
   const activeSort = showAtr && !editing && sort && (sort.key === 'ticker' || moves.data) ? sort : null;
@@ -101,7 +103,15 @@ export function Watchlist() {
         onReorder={order.reorder}
         renderRow={(w) => (
           <>
-            <span className={`font-medium ${toneClass(showAtr && !editing ? moveTone(moveOf(w.symbol)) : null)}`.trim()}>{w.symbol}</span>
+            {editing ? (
+              <span className="font-medium">{w.symbol}</span>
+            ) : (
+              <TickerLink
+                symbol={w.symbol}
+                hasGraph={knowledge.has(w.symbol)}
+                className={`font-medium ${toneClass(showAtr ? moveTone(moveOf(w.symbol)) : null)}`.trim()}
+              />
+            )}
             <span className="min-w-0 flex-1 truncate text-sm text-muted">{w.name}</span>
             {showAtr && !editing && <MoveCells symbol={w.symbol} move={moveOf(w.symbol)} />}
             {editing && confirming !== w.symbol && <Button className="shrink-0 whitespace-nowrap" onClick={() => setConfirming(w.symbol)}>Remove</Button>}

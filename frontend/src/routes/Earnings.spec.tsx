@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Earnings } from './Earnings';
 
@@ -48,7 +49,9 @@ const week = (over: Record<string, unknown> = {}) => ({
 const renderIt = () =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <Earnings />
+      <MemoryRouter>
+        <Earnings />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 
@@ -179,4 +182,17 @@ it('restores a filter and sort saved more than two hours ago', async () => {
   expect(screen.getByRole('button', { name: 'Holdings' })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('button', { name: 'A–Z' })).toHaveAttribute('aria-pressed', 'true');
   expect(order()).toEqual(['ABC', 'AMD', 'NODATE']);
+});
+
+it('links calendar cells and next-earnings rows to the graph, with a dot where one exists', async () => {
+  vi.mocked(api).mockImplementation((p: string) =>
+    Promise.resolve(p === '/knowledge' ? [{ symbol: 'AMD', nodeCount: 2, updatedAt: '2026-10-01T00:00:00Z', hasNew: false }] : week()),
+  );
+  renderIt();
+  const cell = await screen.findByTestId('earn-AMD');
+  expect(within(cell).getByRole('link', { name: 'AMD' })).toHaveAttribute('href', '/knowledge/AMD');
+  expect(within(screen.getByTestId('next-AMD')).getByRole('link', { name: 'AMD' })).toHaveAttribute('href', '/knowledge/AMD');
+  expect(within(screen.getByTestId('earn-SMCI')).getByRole('link', { name: '~SMCI' })).toHaveAttribute('href', '/knowledge/SMCI');
+  await waitFor(() => expect(within(cell).getByRole('img', { name: 'has knowledge' })).toBeInTheDocument());
+  expect(within(screen.getByTestId('earn-UBER')).queryByRole('img', { name: 'has knowledge' })).toBeNull();
 });

@@ -1,5 +1,6 @@
 import { useEarningsWeek } from '../api/earnings';
 import type { EarningsEntry, EarningsSource, EarningsTiming } from '../api/earnings';
+import { TickerLink, useKnowledgeSymbols } from '../components/TickerLink';
 import { usePersistentState } from '../lib/persistentState';
 
 type Filter = 'both' | 'holdings' | 'watchlist';
@@ -68,15 +69,14 @@ function Segmented<T extends string>({
   );
 }
 
-function Cell({ entry }: { entry: EarningsEntry }) {
+function Cell({ entry, hasGraph }: { entry: EarningsEntry; hasGraph: boolean }) {
   return (
     <div
       data-testid={`earn-${entry.symbol}`}
       className="min-w-0 rounded border border-border bg-surface-1 px-1 py-1 text-center"
     >
-      <div className="truncate text-xs font-medium">
-        {entry.estimated ? '~' : ''}
-        {entry.symbol}
+      <div className="flex justify-center text-xs font-medium">
+        <TickerLink symbol={entry.symbol} hasGraph={hasGraph} prefix={entry.estimated ? '~' : ''} />
       </div>
       <div className="truncate text-[11px] text-muted">
         {TIMING_ICON[entry.timing]}
@@ -94,6 +94,7 @@ const EMPTY: Record<Filter, string> = {
 
 export function Earnings() {
   const { data, isLoading, isError } = useEarningsWeek();
+  const knowledge = useKnowledgeSymbols();
   const [filter, setFilter] = usePersistentState<Filter>('trader.earnings.filter.v1', 'both', Infinity);
   const [sort, setSort] = usePersistentState<Sort>('trader.earnings.sort.v1', 'soonest', Infinity);
 
@@ -141,7 +142,7 @@ export function Earnings() {
                 {day.entries
                   .filter((e) => matches(filter, e.source))
                   .map((e, i) => (
-                    <Cell key={`${e.symbol}-${i}`} entry={e} />
+                    <Cell key={`${e.symbol}-${i}`} entry={e} hasGraph={knowledge.has(e.symbol)} />
                   ))}
               </div>
             ))}
@@ -171,7 +172,9 @@ export function Earnings() {
                   data-testid={`next-${u.symbol}`}
                   className="flex items-center gap-3 px-3 py-2.5 text-sm"
                 >
-                  <span className="w-20 shrink-0 truncate font-medium">{u.symbol}</span>
+                  <span className="w-20 shrink-0 font-medium">
+                    <TickerLink symbol={u.symbol} hasGraph={knowledge.has(u.symbol)} />
+                  </span>
                   <span className="shrink-0 text-muted">{sourceMark(u.source)}</span>
                   <span className="min-w-0 flex-1 truncate text-muted">
                     {u.date ? `${u.estimated ? '~' : ''}${monthDay(u.date)}` : '—'}

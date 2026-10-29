@@ -166,3 +166,41 @@ test.describe('the Know tab', () => {
     await expect(page.getByText('No knowledge on AMD yet — ask Claude to start it.')).toBeVisible();
   });
 });
+
+test.describe('ticker shortcuts', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/login');
+    await signUpAndSignIn(page, 'know-links');
+    await page.evaluate(async () => {
+      const token = window.localStorage.getItem('trader.authToken.v1')!;
+      const headers = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+      const r = await fetch('/api/holdings', { method: 'POST', headers, body: JSON.stringify({ symbols: ['NVDA', 'AMD'] }) });
+      if (!r.ok) throw new Error(`seed failed: ${r.status}`);
+    });
+    await seed(page, 'NVDA', buildStarter());
+  });
+
+  test('tapping a holding opens its graph; only graphs get a dot', async ({ page }) => {
+    await page.goto('/holdings');
+    await expect(page.getByTestId('holding-NVDA').getByLabel('has knowledge')).toBeVisible();
+    await expect(page.getByTestId('holding-AMD').getByLabel('has knowledge')).toHaveCount(0);
+    const link = page.getByTestId('holding-NVDA').getByRole('link', { name: 'NVDA' });
+    expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(32);
+    await link.click();
+    await expect(page).toHaveURL(/\/knowledge\/NVDA$/);
+    await expect(page.getByTestId('kg-node-summary')).toBeVisible();
+  });
+
+  test('edit mode turns the ticker back into plain text', async ({ page }) => {
+    await page.goto('/holdings');
+    await page.getByRole('button', { name: 'Edit holdings' }).click();
+    await expect(page.getByTestId('holding-NVDA').getByRole('link')).toHaveCount(0);
+  });
+
+  test('tapping an Earnings cell opens its graph', async ({ page }) => {
+    await page.goto('/earnings');
+    await page.getByTestId('earn-AMD').getByRole('link', { name: 'AMD' }).click();
+    await expect(page).toHaveURL(/\/knowledge\/AMD$/);
+    await expect(page.getByText('No knowledge on AMD yet — ask Claude to start it.')).toBeVisible();
+  });
+});

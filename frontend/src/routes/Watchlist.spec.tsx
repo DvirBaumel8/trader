@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Watchlist } from './Watchlist';
 
@@ -18,7 +19,9 @@ afterEach(cleanup);
 const renderIt = () =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <Watchlist />
+      <MemoryRouter>
+        <Watchlist />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 
@@ -276,4 +279,32 @@ it('keeps My order and shows no arrow while a saved Today sort waits for its num
     { symbol: 'CCC', atrPercent: 2, movePercent: 2, live: true, asOf: null },
   ]);
   await waitFor(() => expect(order()).toEqual(['BBB', 'CCC', 'AAA']));
+});
+
+it('links each ticker to its graph, with a dot only where one exists; plain text in edit mode', async () => {
+  vi.mocked(api).mockImplementation((p: string) =>
+    Promise.resolve(
+      p === '/knowledge'
+        ? [{ symbol: 'NVDA', nodeCount: 3, updatedAt: '2026-10-01T00:00:00Z', hasNew: false }]
+        : [{ symbol: 'NVDA', name: 'One' }, { symbol: 'AMD', name: 'Two' }],
+    ),
+  );
+  renderIt();
+  const link = await screen.findByRole('link', { name: 'NVDA' });
+  expect(link).toHaveAttribute('href', '/knowledge/NVDA');
+  expect(screen.getByRole('link', { name: 'AMD' })).toHaveAttribute('href', '/knowledge/AMD');
+  await waitFor(() => expect(screen.getAllByRole('img', { name: 'has knowledge' })).toHaveLength(1));
+  expect(within(screen.getByTestId('watch-NVDA')).getByRole('img', { name: 'has knowledge' })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Edit watchlist' }));
+  expect(screen.queryByRole('link', { name: 'NVDA' })).toBeNull();
+  expect(screen.getByText('NVDA')).toBeInTheDocument();
+});
+
+it('still lists tickers, without dots, when the knowledge list fails', async () => {
+  vi.mocked(api).mockImplementation((p: string) =>
+    p === '/knowledge' ? Promise.reject(new Error('boom')) : Promise.resolve([{ symbol: 'NVDA', name: 'One' }]),
+  );
+  renderIt();
+  expect(await screen.findByRole('link', { name: 'NVDA' })).toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: 'has knowledge' })).toBeNull();
 });

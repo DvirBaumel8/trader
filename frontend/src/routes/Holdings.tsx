@@ -10,6 +10,7 @@ import { parseTickers, summarize } from '../lib/tickers';
 import { usePersistentState } from '../lib/persistentState';
 import { nextSort, sortRows, type SortState } from '../lib/sortRows';
 import { useMoves } from '../api/moves';
+import { TickerLink, useKnowledgeSymbols } from '../components/TickerLink';
 import { AtrToggle, MoveCells, MovesHeader, moveTone, toneClass } from '../components/MoveColumns';
 
 export function Holdings() {
@@ -21,6 +22,7 @@ export function Holdings() {
   const moves = useMoves((data ?? []).map((r) => r.symbol), showAtr);
   const [sort, setSort] = usePersistentState<SortState | null>('trader.holdings.sort.v1', null, Infinity);
   const moveOf = (sym: string) => moves.data?.find((m) => m.symbol === sym);
+  const knowledge = useKnowledgeSymbols();
   const [confirming, setConfirming] = useState<string | null>(null);
   // A saved ATR/Today sort waits for the numbers: until they arrive (or if they fail) the list stays in My order.
   const activeSort = showAtr && !editing && sort && (sort.key === 'ticker' || moves.data) ? sort : null;
@@ -96,7 +98,15 @@ export function Holdings() {
         onReorder={order.reorder}
         renderRow={(h) => (
           <>
-            <span className={`font-medium ${toneClass(showAtr && !editing ? moveTone(moveOf(h.symbol)) : null)}`.trim()}>{h.symbol}</span>
+            {editing ? (
+              <span className="font-medium">{h.symbol}</span>
+            ) : (
+              <TickerLink
+                symbol={h.symbol}
+                hasGraph={knowledge.has(h.symbol)}
+                className={`font-medium ${toneClass(showAtr ? moveTone(moveOf(h.symbol)) : null)}`.trim()}
+              />
+            )}
             <span className="min-w-0 flex-1 truncate text-sm text-muted">{h.name}</span>
             {showAtr && !editing && <MoveCells symbol={h.symbol} move={moveOf(h.symbol)} />}
             {editing && confirming !== h.symbol && (
