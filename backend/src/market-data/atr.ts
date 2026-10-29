@@ -28,3 +28,13 @@ export function wilderAtr(bars: AtrBar[], period = 14): number | null {
   }
   return atr;
 }
+
+/**
+ * The longest trailing run of bars that all have a high and a low, so a stray
+ * incomplete bar further back does not discard the whole history.
+ */
+export function trailingCompleteRun<T extends AtrBar>(bars: T[]): T[] {
+  let start = bars.length;
+  while (start > 0 && bars[start - 1].high !== null && bars[start - 1].low !== null) start--;
+  return bars.slice(start);
+}

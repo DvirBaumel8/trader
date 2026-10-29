@@ -96,9 +96,7 @@ function fullClosureDates(year: number): string[] {
 /**
  * Full-closure NYSE holidays. Does not cover a market disruption (weather,
  * a national day of mourning) — those are unscheduled and no calendar rule
- * predicts them; treat a live provider's own `marketState` as authoritative
- * over this whenever one is available, and only fall back to this when it
- * is not (see `select-price.ts`).
+ * predicts them, so on such a day this calendar is wrong.
  */
 export function isUsMarketHoliday(date: string): boolean {
   const year = Number(date.slice(0, 4));
@@ -124,7 +122,7 @@ export function isEarlyCloseDay(date: string): boolean {
 
 const TZ = 'America/New_York';
 
-function etMinutes(now: Date): number {
+export function etMinutes(now: Date): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: TZ,
     hour: 'numeric',
@@ -149,7 +147,8 @@ export function previousTradingDay(ymd: string): string {
 
 const OPEN_MINUTES = 9 * 60 + 30;
 
-function closeMinutes(ymd: string): number {
+/** Regular-session close in minutes after ET midnight (13:00 on an early-close day). */
+export function closeMinutes(ymd: string): number {
   return isEarlyCloseDay(ymd) ? 13 * 60 : 16 * 60;
 }
 

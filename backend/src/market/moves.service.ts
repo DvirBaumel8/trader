@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { etDate } from '../earnings/week.js';
-import { wilderAtr } from '../market-data/atr.js';
-import { currentSession } from '../market-data/session.js';
+import { trailingCompleteRun, wilderAtr } from '../market-data/atr.js';
+import { closeMinutes, currentSession, etMinutes, previousTradingDay } from '../market-data/session.js';
 import { DailyBar, RegularQuote, YahooClient } from '../market-data/yahoo.client.js';
 
 export interface Move {
@@ -16,11 +16,26 @@ export interface Move {
 }
 
 const PERIOD = 14;
-const LOOKBACK_DAYS = 45;
+// Long enough for Wilder's smoothing to converge like charting platforms do.
+const LOOKBACK_DAYS = 150;
+const SETTLE_MINUTES = 30;
+const PROVISIONAL_TTL_MS = 10 * 60_000;
 const QUOTE_TTL_MS = 60_000;
 const CONCURRENCY = 5;
 
-const round1 = (n: number) => Math.round(n * 10) / 10;
+/** One decimal, half away from zero, never -0. */
+export function round1(n: number): number {
+  const r = Math.round(Math.abs(n) * 10) / 10;
+  return r === 0 ? 0 : n < 0 ? -r : r;
+}
+
+/** ATR over the longest trailing run of complete bars; null if it is shorter than period + 1. */
+const atrOf = (bars: DailyBar[]) => wilderAtr(trailingCompleteRun(bars), PERIOD);
+
+const isWeekend = (ymd: string) => {
+  const d = new Date(`${ymd}T00:00:00Z`).getUTCDay();
+  return d === 0 || d === 6;
+};
 
 /**
  * Daily ATR% and regular-session move% for a list of symbols. All numbers and
@@ -36,7 +51,7 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 @Injectable()
 export class MovesService {
   /** Bars per symbol, valid for one (asOf, live) session state. */
-  private readonly barCache = new Map<string, { key: string; bars: DailyBar[] }>();
+  private readonly barCache = new Map<string, { key: string; bars: DailyBar[]; expiresAt: number }>();
   private readonly quoteCache = new Map<string, { at: number; quote: RegularQuote | null }>();
 
   constructor(private readonly yahoo: YahooClient) {}
@@ -60,50 +75,74 @@ export class MovesService {
     const empty: Move = { symbol, atrPercent: null, movePercent: null, live, asOf };
     try {
       const all = await this.bars(symbol, now, live, asOf);
+      // Weekend bars mean a 24/7 symbol (crypto): "regular session" does not apply.
+      if (all.some((b) => isWeekend(b.date))) return empty;
       // Completed regular sessions only: a bar still forming today is dropped.
       const completed = live ? all.filter((b) => b.date < asOf) : all.filter((b) => b.date <= asOf);
+      const last = completed[completed.length - 1];
+      const prevSession = previousTradingDay(asOf);
 
       if (live) {
-        const last = completed[completed.length - 1];
-        const atr = wilderAtr(completed, PERIOD);
+        // ATR only if the session just before today is present (no silent older data).
+        const atr = last?.date === prevSession ? atrOf(completed) : null;
         const quote = await this.quote(symbol, now).catch(() => null);
         return {
           ...empty,
-          atrPercent: atr !== null && last ? round1((atr / last.close) * 100) : null,
-          movePercent:
-            quote && quote.previousClose > 0
-              ? round1(((quote.price - quote.previousClose) / quote.previousClose) * 100)
-              : null,
+          atrPercent: atr !== null ? round1((atr / last.close) * 100) : null,
+          movePercent: quoteMove(quote),
         };
       }
 
-      // Not live: the move belongs to the last completed session, which must be asOf.
-      const last = completed[completed.length - 1];
-      if (!last || last.date !== asOf) return empty;
-      const before = completed.slice(0, -1);
-      const ref = before[before.length - 1];
-      if (!ref) return empty;
-      const atr = wilderAtr(before, PERIOD);
-      return {
-        ...empty,
-        atrPercent: atr !== null ? round1((atr / ref.close) * 100) : null,
-        movePercent: ref.close > 0 ? round1(((last.close - ref.close) / ref.close) * 100) : null,
-      };
+      if (last?.date === asOf) {
+        // The move belongs to `last`; ATR and move share the close before it.
+        const before = completed.slice(0, -1);
+        const ref = before[before.length - 1];
+        if (!ref) return empty;
+        const atr = atrOf(before);
+        return {
+          ...empty,
+          atrPercent: atr !== null ? round1((atr / ref.close) * 100) : null,
+          movePercent: ref.close > 0 ? round1(((last.close - ref.close) / ref.close) * 100) : null,
+        };
+      }
+
+      if (last?.date === prevSession) {
+        // Closed, but the provider has not published today's bar yet: the
+        // regular-market quote carries the close. (bars() leaves this uncached.)
+        const atr = atrOf(completed);
+        const quote = await this.quote(symbol, now).catch(() => null);
+        return {
+          ...empty,
+          atrPercent: atr !== null ? round1((atr / last.close) * 100) : null,
+          movePercent: quoteMove(quote),
+        };
+      }
+      return empty;
     } catch {
       return empty;
     }
   }
 
   private async bars(symbol: string, now: Date, live: boolean, asOf: string): Promise<DailyBar[]> {
-    const key = `${etDate(now)}|${asOf}|${live}`;
+    const today = etDate(now);
+    const key = `${today}|${asOf}|${live}`;
     const hit = this.barCache.get(symbol);
-    if (hit && hit.key === key) return hit.bars;
+    if (hit && hit.key === key && now.getTime() < hit.expiresAt) return hit.bars;
     const from = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
     const bars = await this.yahoo.dailyBars(symbol, from);
-    // After the close, bars that do not yet include the session are not cached:
-    // the provider may simply be late, and a stale answer would stick all day.
+    // After the close the provider may be late with the session's bar, so
+    // without it nothing is cached. Once it is there it can still be
+    // provisional until the official close lands, so for the first
+    // SETTLE_MINUTES after the close it is kept only briefly.
     const complete = live || bars.some((b) => b.date === asOf);
-    if (complete) this.barCache.set(symbol, { key, bars });
+    if (complete) {
+      const settling = !live && asOf === today && etMinutes(now) < closeMinutes(today) + SETTLE_MINUTES;
+      this.barCache.set(symbol, {
+        key,
+        bars,
+        expiresAt: settling ? now.getTime() + PROVISIONAL_TTL_MS : Infinity,
+      });
+    }
     return bars;
   }
 
@@ -114,4 +153,10 @@ export class MovesService {
     this.quoteCache.set(symbol, { at: now.getTime(), quote });
     return quote;
   }
+}
+
+function quoteMove(quote: RegularQuote | null): number | null {
+  return quote && quote.previousClose > 0
+    ? round1(((quote.price - quote.previousClose) / quote.previousClose) * 100)
+    : null;
 }

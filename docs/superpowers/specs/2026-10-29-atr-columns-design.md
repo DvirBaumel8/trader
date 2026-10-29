@@ -16,7 +16,7 @@ Decisions:
 ## Behaviour
 
 - **The toggle.** Holdings and Watchlist each get a `Show ATR` toggle button next to the edit pencil. When it is on, the list becomes a table with two extra columns:
-  - **ATR**: the 14-day Average True Range as a percent of the last close, e.g. `3.2%`.
+  - **ATR**: the 14-day Average True Range as a percent of the close before the session whose move is shown (so ATR and the move share one base), e.g. `3.2%`.
   - **Today**: today's regular-session move in percent, e.g. `+4.1%` or `−2.3%`.
 
   The toggle state is remembered on the device, separately per screen.
